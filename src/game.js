@@ -89,7 +89,7 @@ const Game = {
     const e = Math.max(0, idx - 11);
     World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np > 1 ? 1.15 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
-    for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y); if (en) en.asleep = true; }
+    for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
     World.players.forEach((p, i) => {
       if (p.out) { p.out = false; p.dead = false; }
       p.dead = false; p.x = 80 + i * 50; p.y = 600; p.vx = p.vy = p.kx = p.ky = 0; p.state = 'idle'; p.air = 0; p.move = null; p.intang = 60; p.phoenixUsed = false; p.hitstun = 0; p.hammerOut = null; p.jumps = p.maxJumps;
@@ -151,6 +151,7 @@ const Game = {
       const ai = st.arenas.findIndex(a => !a.done && alive.some(p => p.x > a.trig && p.x < a.r));
       if (ai >= 0) {
         const A = st.arenas[ai]; this.arenaI = ai; this.waveI = 0; this.waveDelay = 50; World.barriers = { l: A.l, r: A.r }; Audio2.play('lock');
+        for (const e of World.enemies) if (e.x > A.l - 60 && e.x < A.r + 60) e.asleep = false;
         for (const p of World.players) if (!p.dead && (p.x < A.l + 20 || p.x > A.r - 20)) { p.x = A.l + 80; p.y = A.floor - 40; p.vx = p.kx = 0; }
         // enemies outside the arena wake & are pulled in? leave them.
       }
@@ -161,7 +162,7 @@ const Game = {
         const left = World.enemies.filter(e => !e.dead && !e.dying && e.x > A.l - 50 && e.x < A.r + 50 && !e.minion).length;
         const minions = World.enemies.filter(e => !e.dead && e.minion).length;
         if (left === 0 && (minions === 0 || this.waveI + 1 >= A.waves.length)) {
-          this.waveI++;
+          this.waveI++; this.dropFood(A);
           if (this.waveI >= A.waves.length) {
             A.done = true; World.barriers = null; this.arenaI = -1; FX.text(World.cam.x, World.cam.y - 160, 'CLEAR!', '#ffde3c', 40); Audio2.play('boon');
             for (const e of World.enemies) if (e.minion && !e.dead) e.hurtRaw(999, true);
@@ -175,6 +176,11 @@ const Game = {
     // goal
     if (st.goal && st.arenas.every(a => a.done) && alive.some(p => Math.abs(p.x - st.goal.x) < 40 && p.y > st.goal.y - 140)) this.stageClear();
   },
+  dropFood(A) {
+    const n = 1 + World.players.length + (rnd() < 0.4 ? 1 : 0);
+    for (let i = 0; i < n; i++) { const x = rr(A.l + 80, A.r - 80); spawnItem('food', x, World.cam.y - 300 - i * 40, { kind: rollFood() }); }
+    FX.text(World.cam.x, World.cam.y - 120, 'FOOD!', '#7dff8a', 22);
+  },
   spawnWave(A, wi) {
     const w = A.waves[wi]; if (!w) return;
     for (const s of w) {
@@ -183,7 +189,7 @@ const Game = {
         e.maxHp *= World.players.length > 1 ? 1.6 : 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
       }
       const x = A.l + 80 + s.side * (A.r - A.l - 160); const y = A.floor - 140 - rr(0, 120);
-      const e = spawnEnemy(s.type, x, y, { elite: s.elite, spawn: 1 }); if (e) { FX.swarm(x, y, e.h); e.cd = 50 + ri(0, 50); }
+      const e = spawnEnemy(s.type, x, y, { elite: s.elite, spawn: 1, fid: s.fid }); if (e) { FX.swarm(x, y, e.h); if (!e.isRival) e.cd = 50 + ri(0, 50); }
     }
     Audio2.play('portal');
     FX.text(World.cam.x, World.cam.y - 200, A.waves.length > 1 ? `WAVE ${wi + 1}/${A.waves.length}` : '', '#ff4fd8', 28);
@@ -223,12 +229,15 @@ const Game = {
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9; for (const p of ps) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y - 40); maxY = Math.max(maxY, p.y); }
     if (this.bossRef && !this.bossRef.dead) { const b = this.bossRef; minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); minY = Math.min(minY, b.y - b.h); }
     let tz = clamp(Math.min(W / (maxX - minX + 600), H / (maxY - minY + 420)), 0.6, 1.0);
+    const B = World.barriers;
+    if (B) tz = clamp(Math.max(tz, W / (B.r - B.l)), 0.6, 1.3);
     let tx = (minX + maxX) / 2 + (ps.length === 1 ? ps[0].face * 60 : 0), ty = (minY + maxY) / 2 - 85;
-    const B = World.barriers; if (B) { const vw = W / tz; if (vw >= B.r - B.l + 120) { tz = Math.max(tz, W / (B.r - B.l + 160)); tx = (B.l + B.r) / 2; } else tx = clamp(tx, B.l - 60 + vw / 2, B.r + 60 - vw / 2); }
+    if (B) { const vw = W / tz; tx = clamp(tx, B.l + vw / 2, B.r - vw / 2); }
     const vw2 = W / (2 * tz); tx = clamp(tx, st.x0 + vw2, st.x1 - vw2);
     const maxCamY = 600 + 175 - H / (2 * tz); if (!ps.some(p => p.y > 680)) ty = Math.min(ty, maxCamY);
-    if (B) { const fl = st.arenas.find(a => a.l === B.l)?.floor ?? 600; let lb = fl - (H / 2 - 135) / tz; let pMin = 1e9; for (const p of ps) pMin = Math.min(pMin, p.y - 70); if (pMin < lb - H / (2 * tz) + 50) lb = pMin + H / (2 * tz) - 50; ty = Math.max(ty, lb); }
-    c.z = lerp(c.z, tz, 0.05); c.x = lerp(c.x, tx, 0.12); c.y = lerp(c.y, ty, 0.1);
+    if (B) { const fl = st.arenas.find(a => a.l === B.l)?.floor ?? 600; ty = fl - (H / 2 - 135) / tz; }
+    c.z = lerp(c.z, tz, B ? 0.12 : 0.05); c.x = lerp(c.x, tx, B ? 0.2 : 0.12); c.y = lerp(c.y, ty, 0.1);
+    if (B) { const vw = W / (2 * c.z); c.x = clamp(c.x, B.l + vw, B.r - vw); }
   },
 };
 
@@ -376,6 +385,7 @@ function drawWorld() {
   drawParticles(ctx);
   ctx.restore();
   if (World.mod.dark) drawDarkness();
+  drawBarrierOverlay();
   drawOffscreen();
 }
 let darkCv = null;
@@ -386,6 +396,19 @@ function drawDarkness() {
   for (const p of World.players) { if (p.dead || p.out) continue; const x = (p.x - c.x) * c.z + W / 2, y = (p.y - 30 - c.y) * c.z + H / 2; const gr = g.createRadialGradient(x, y, 30, x, y, 260 * c.z); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(x, y, 260 * c.z, 0, TAU); g.fill(); }
   for (const pr of World.projs) { const x = (pr.x - c.x) * c.z + W / 2, y = (pr.y - c.y) * c.z + H / 2; g.fillStyle = 'rgba(0,0,0,0.7)'; g.beginPath(); g.arc(x, y, 40, 0, TAU); g.fill(); }
   ctx.drawImage(darkCv, 0, 0);
+}
+function drawBarrierOverlay() {
+  const B = World.barriers; if (!B) return; const c = World.cam; const t = World.frame;
+  for (const side of [-1, 1]) {
+    const bx = (side < 0 ? B.l : B.r); let sx = (bx - c.x) * c.z + W / 2; sx = side < 0 ? Math.max(0, sx) : Math.min(W, sx);
+    const w = 90; const gr = ctx.createLinearGradient(sx, 0, sx - side * w, 0);
+    gr.addColorStop(0, 'rgba(150,70,255,0.42)'); gr.addColorStop(0.35, 'rgba(150,70,255,0.16)'); gr.addColorStop(1, 'rgba(150,70,255,0)');
+    ctx.fillStyle = gr; ctx.fillRect(side < 0 ? sx : sx - w, 34, w, H - 34);
+    // hex lattice shimmer
+    ctx.strokeStyle = 'rgba(220,180,255,0.22)'; ctx.lineWidth = 1.2;
+    for (let y = 40 + ((t * 0.6) % 34); y < H; y += 34) for (let k = 0; k < 2; k++) { const hx = sx - side * (12 + k * 26), hy = y + k * 17, r = 9; ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = i / 6 * TAU + Math.PI / 6; ctx.lineTo(hx + Math.cos(a) * r, hy + Math.sin(a) * r); } ctx.closePath(); ctx.stroke(); }
+    ctx.fillStyle = `rgba(230,200,255,${0.35 + Math.sin(t * 0.08) * 0.1})`; ctx.fillRect(side < 0 ? sx : sx - 3, 34, 3, H - 34);
+  }
 }
 function drawOffscreen() {
   const c = World.cam;

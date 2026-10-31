@@ -110,7 +110,7 @@ class Enemy {
   attack(name) { this.atk = this.def.atks[name]; this.atkName = name; this.af = 0; this.hitSet.clear(); this.mid++; }
   update() {
     if (this.dead) return;
-    this.t++; if (this.flash > 0) this.flash--; if (this.jumpCD > 0) this.jumpCD--; if (this.blinkCD > 0) this.blinkCD--;
+    this.t++; tickStatus(this); if (this.flash > 0) this.flash--; if (this.jumpCD > 0) this.jumpCD--; if (this.blinkCD > 0) this.blinkCD--;
     if (this.hitlag > 0) { this.hitlag--; return; }
     if (this.spawnT > 0) { this.spawnT--; if (!this.def.fly) this.physics(); return; }
     if (this.asleep) { const T0 = this.target(); if (!T0 || Math.abs(T0.dx) > 760) { this.physics(); return; } this.asleep = false; }
@@ -134,6 +134,7 @@ class Enemy {
     if (!fly) { this.vy += 0.55 * (World.mod.lowgrav ? 0.6 : 1); if (this.vy > 11) this.vy = 11; }
     else if (this.hitstun > 0) this.vy += 0.3;
     const km = Math.hypot(this.kx, this.ky); if (km > 0) { const nm = Math.max(0, km - KB_DECAY); this.kx *= nm / km; this.ky *= nm / km; }
+    if ((this.hitstun > 0 || this.dying) && km > 8 && World.frame % 2 === 0) FX.trail(this.x - this.kx, this.y - this.h / 2 - this.ky, 'rgba(90,90,100,0.45)', 5 + km * 0.3);
     const passB = (this.hitstun > 0 || this.dying) && km > 12;
     const r = moveBody(this, this.vx + this.kx, this.vy + this.ky, { passBarrier: passB, noWorldEdge: passB });
     if (r.wall) { if ((this.hitstun > 0 || this.dying) && Math.abs(this.kx) > 7) { const sp = Math.abs(this.kx); this.kx *= -0.4; if (!this.dying) { this.hurtRaw(Math.min(10, sp * 0.6), true); FX.text(this.x, this.y - this.h - 10, 'SPLAT', '#ffd27a', 14); } World.shake(4); if (this.type === 'bomber') this.explode(); } else this.kx = 0; this.vx = 0; }
@@ -201,7 +202,8 @@ class Enemy {
 
 function spawnEnemy(type, x, y, o = {}) {
   if (World.enemies.filter(e => !e.dead).length > 26) return null;
-  const e = new Enemy(type, x, y, o); World.enemies.push(e); return e;
+  const e = type.startsWith('rival') ? new Rival(type === 'rival' ? (o.fid ?? ri(0, 3)) : +type.slice(5), x, y, o) : new Enemy(type, x, y, o);
+  World.enemies.push(e); return e;
 }
 
 // ---------- BOSSES ----------
@@ -255,7 +257,12 @@ const BOSS = {
 PROJ.pillar = { r: 36, life: 80, dmg: 14, a: 90, bkb: 60, kbg: 55, pierce: 99, column: 1, delay: 50 };
 
 // --- Items ---
-function spawnItem(type, x, y) { World.items.push({ type, x, y, vy: -4, t: 0, id: World.uid++ }); }
+const FOODS = [
+  { n: 'apple', heal: 8, w: 5 }, { n: 'drumstick', heal: 12, w: 4 }, { n: 'riceball', heal: 10, w: 4 }, { n: 'cake', heal: 15, w: 3 },
+  { n: 'pizza', heal: 14, w: 3 }, { n: 'feast', heal: 30, w: 1 }, { n: 'heart', heal: 60, w: 0.35 },
+];
+function rollFood() { const tot = FOODS.reduce((a, f) => a + f.w, 0); let r = rnd() * tot; for (let i = 0; i < FOODS.length; i++) { r -= FOODS[i].w; if (r <= 0) return i; } return 0; }
+function spawnItem(type, x, y, o = {}) { World.items.push({ type, x, y, vy: -4, t: 0, id: World.uid++, kind: o.kind ?? (type === 'food' ? rollFood() : 0) }); }
 function updateItems() {
   for (const it of World.items) {
     it.t++; it.vy = Math.min(8, it.vy + 0.4); const g = groundBelow(it.x, it.y - 4, 20); if (g !== null && it.y + it.vy >= g) { it.y = g; it.vy = 0; } else it.y += it.vy;
@@ -263,12 +270,119 @@ function updateItems() {
       if (p.dead || p.out) continue;
       if (Math.abs(p.x - it.x) < 26 && Math.abs(p.y - 20 - it.y) < 40) {
         it.gone = 1;
-        if (it.type === 'food') { const h = ri(12, 25); p.pct = Math.max(0, p.pct - h); FX.text(p.x, p.y - 70, '-' + h + '%', '#7dff8a', 16); Audio2.play('heal'); }
+        if (it.type === 'food') { const F = FOODS[it.kind] || FOODS[0]; const h = Math.min(p.pct, F.heal); p.pct = Math.max(0, p.pct - F.heal); FX.text(p.x, p.y - 70, '-' + Math.round(h) + '%', '#7dff8a', F.heal >= 30 ? 22 : 16); FX.burst(it.x, it.y - 10, '#7dff8a', 8); Audio2.play('heal'); }
         if (it.type === 'chest') { Game.chestBoon(p); }
         break;
       }
     }
-    if (it.t > 1200 && it.type === 'food') it.gone = 1;
+    if (it.t > 1500 && it.type === 'food') it.gone = 1;
   }
   World.items = World.items.filter(i => !i.gone);
+}
+
+// ---------- RIVALS: player-sized shadow fighters that use the real movesets ----------
+const RIVAL_NAMES = ['Shadow Rook', 'Shadow Vela', 'Shadow Pip', 'Shadow Grom'];
+class Rival extends Fighter {
+  constructor(fid, x, y, o = {}) {
+    super(FIGHTERS[fid], -1, { cur: new InputSource('none').blank() });
+    this.team = 1; this.isRival = 1; this.fid = fid; this.type = 'rival' + fid; this.x = x; this.y = y; this.minion = o.minion; this.elite = null;
+    this.spawnT = o.spawn ? 40 : 0; this.dying = 0; this.boss = false; this.flash = 0; this.hitSet = new Set();
+    const idx = Game.run ? Game.run.idx : 0;
+    this.limit = Math.round((120 + idx * 9) * (World.diff.hp > 1.5 ? 1.15 : 1));
+    this.mods.dmg = 0.8 + idx * 0.035; this.mods.speed = 0.9 + Math.min(0.15, idx * 0.012);
+    this.ai = { cd: 40 + ri(0, 40), shieldT: 0, react: Math.max(6, 22 - idx * 1.2), jumpCD: 0, hold: 0, plan: null };
+    this.def = FIGHTERS[fid]; this.face = -1; this.state = 'air'; this.air = 1;
+  }
+  get hp() { return Math.max(0, this.limit - this.pct); }
+  set hp(v) { }
+  get maxHp() { return this.limit; }
+  set maxHp(v) { }
+  update() {
+    if (this.dead) return;
+    if (this.pct >= this.limit) { this.collapse(); return; }
+    if (this.spawnT > 0) { this.spawnT--; this.physics(); return; }
+    if (this.asleep) { const p = World.players.find(q => !q.dead && !q.out && Math.abs(q.x - this.x) < 760); if (!p) { this.physics(); return; } this.asleep = false; }
+    if (this.flash > 0) this.flash--;
+    this.think();
+    super.update();
+    if (this.pct >= this.limit && !this.dead) this.collapse();
+  }
+  think() {
+    const o = new InputSource('none').blank(); o.kb = 1; this.input.cur = o;
+    const A = this.ai; if (A.cd > 0) A.cd--; if (A.jumpCD > 0) A.jumpCD--;
+    if (this.hitlag > 0) return;
+    let T = null, bd = 1e9; for (const p of World.players) { if (p.dead || p.out) continue; const d = Math.abs(p.x - this.x) + Math.abs(p.y - this.y); if (d < bd) { bd = d; T = p; } }
+    if (!T) return;
+    const dx = T.x - this.x, dy = T.y - this.y, ad = Math.abs(dx), dir = sign(dx) || this.face;
+    const reach = 60 * this.def.mul.reach;
+    // recovery
+    if (this.air && this.state !== 'hitstun' && groundBelow(this.x, this.y, 700) === null) {
+      const B = World.barriers; const home = B ? (B.l + B.r) / 2 : T.x; o.mx = sign(home - this.x);
+      if (this.vy > 1 && this.jumps > 0 && this.sf > 6) o.jp = 1;
+      else if (this.jumps === 0 && this.vy > 1 && this.state === 'air') { o.my = -1; o.bp = 1; }
+      return;
+    }
+    if (this.state === 'hitstun') { o.mx = -dir * (rnd() < 0.7 ? 1 : 0); o.my = -0.6; return; }
+    if (this.state === 'ledge') { if (this.sf > 14) { if (rnd() < 0.5) o.jp = 1; else o.my = -1; } return; }
+    if (this.state === 'helpless') { o.mx = sign(((World.barriers ? (World.barriers.l + World.barriers.r) / 2 : T.x)) - this.x); return; }
+    // holding shield
+    if (A.shieldT > 0) { A.shieldT--; o.s = 1; if (A.shieldT === 0 && rnd() < 0.4 && ad < reach) { o.ap = 1; o.a = 1; } return; }
+    // react to a threat with shield / dodge
+    const threat = T.state === 'move' && T.hitboxes().length && ad < 110 && Math.abs(dy) < 70;
+    if (threat && !this.air && this.actionable() && rnd() < 0.08 + Game.run.idx * 0.008) { if (rnd() < 0.7) { A.shieldT = 14 + ri(0, 10); o.s = 1; } else { o.s = 1; o.sp = 1; o.mx = -dir; o.flick = -dir; } return; }
+    if (!this.actionable()) return;
+    // movement
+    const ranged = this.fid === 1 || this.fid === 2 || this.fid === 3;
+    if (ad > reach * 0.9) {
+      o.mx = dir;
+      if (!this.air) { const ahead = groundBelow(this.x + dir * 34, this.y - 4, 90); if (ahead === null && dy <= 20) o.mx = 0; }
+      if (!this.air && A.jumpCD <= 0 && ((dy < -70 && ad < 260) || (Math.abs(this.vx) < 0.5 && o.mx && solidAt(this.x + dir * 24, this.y - 20)))) { o.jp = 1; o.j = 1; A.jumpCD = 50; }
+    } else if (ad < reach * 0.4 && rnd() < 0.05) o.mx = -dir;
+    if (A.cd > 0) return;
+    // ranged poke
+    if (ranged && !this.air && ad > 170 && ad < 460 && Math.abs(dy) < 60 && rnd() < 0.03) { this.face = dir; o.mx = 0; o.bp = 1; A.cd = 70; return; }
+    if (this.air) {
+      if (ad < reach * 1.2 && Math.abs(dy) < 80) {
+        if (dy < -35) { o.my = -1; } else if (dy > 35) { o.my = 1; } else if (dir === this.face) { o.mx = dir; } else { o.mx = dir; }
+        o.ap = 1; o.a = 1; A.cd = 26 + ri(0, 18) - Math.min(10, Game.run.idx); return;
+      }
+      return;
+    }
+    if (dy < -60 && ad < 70) { o.my = -1; o.ap = 1; o.a = 1; if (rnd() < 0.3) o.m = 1; A.cd = 34; return; }
+    if (ad < reach && Math.abs(dy) < 45) {
+      const r = rnd(); this.face = dir;
+      if (r < 0.28) { o.ap = 1; o.a = 1; }
+      else if (r < 0.5) { o.mx = dir * 0.7; o.ap = 1; o.a = 1; }
+      else if (r < 0.62) { o.my = 1; o.ap = 1; o.a = 1; }
+      else if (r < 0.8) { o.mx = dir; o.ap = 1; o.a = 1; o.m = 1; }
+      else if (r < 0.88) { o.my = 1; o.ap = 1; o.a = 1; o.m = 1; }
+      else { o.mx = dir; o.bp = 1; }
+      A.cd = 30 + ri(0, 26) - Math.min(14, Game.run.idx * 1.2); return;
+    }
+    if (ad < 240 && rnd() < 0.03 && A.jumpCD <= 0) { o.jp = 1; o.j = 1; o.mx = dir; A.jumpCD = 40; }
+  }
+  hitboxes() {
+    if (this.dead || this.spawnT > 0) return [];
+    return super.hitboxes().filter(b => !b.h.orb).map(b => {
+      const h = b.h; let d = h.d * this.mods.dmg * (this.move && this.move.smash ? 1 + 0.45 * this.chg : 1); if (h.chg) d += h.chg * this.chg;
+      return { x: b.x, y: b.y, r: b.r, d, a: h.a, bkb: h.bkb + (h.chgKb || 0) * this.chg, kbg: h.kbg, key: b.key, fx: h.fx || h.el, el: h.el };
+    });
+  }
+  takeHit(info) {
+    if (this.dead || this.spawnT > 0) return null;
+    const r = super.takeHit(info);
+    if (r === 'hit' || r === 'armor') { this.flash = 4; FX.text(info.x, info.y - 10, Math.round(info.dmg), '#fff', 12 + Math.min(10, info.dmg / 2)); return 'hit'; }
+    return r;
+  }
+  hurtRaw(d) { if (this.dead) return; this.pct += d; FX.text(this.x, this.y - 70, Math.round(d), '#bfe3ff', 12); }
+  ko() {
+    if (this.dead) return;
+    FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); FX.text(this.x, this.y - 40, 'KO!', '#ffde3c', 22); World.shake(10);
+    this.finish();
+  }
+  collapse() { FX.text(this.x, this.y - 80, 'BROKEN!', '#ff4fd8', 20); Audio2.play('bighit'); this.finish(); }
+  finish() { this.dead = true; FX.dissolve(this.x, this.y, 56); Game.onEnemyKilled(this); if (rnd() < 0.3) spawnItem('food', this.x, this.y - 20); }
+  remove() { this.finish(); }
+  explode() { }
+  die() { this.finish(); }
 }

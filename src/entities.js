@@ -101,7 +101,7 @@ class Fighter {
     if (inp.flick) this.lastFlick = { x: inp.flick, y: 0, t: World.frame };
     if (inp.flickY) this.lastFlick = { x: 0, y: inp.flickY, t: World.frame };
     if (this.hitlag > 0) { this.hitlag--; return; }
-    this.sf++; if (this.intang > 0) this.intang--; if (this.ledgeCD > 0) this.ledgeCD--; if (this.drop > 0) this.drop--; if (this.jabT > 0) this.jabT--;
+    this.sf++; tickStatus(this); if (this.intang > 0) this.intang--; if (this.ledgeCD > 0) this.ledgeCD--; if (this.drop > 0) this.drop--; if (this.jabT > 0) this.jabT--;
     const st = this.st, spd = this.mods.speed;
     if (this.state !== 'shield') this.shieldHP = Math.min(50 * this.mods.shield, this.shieldHP + 0.12);
     // orbit orb boon
@@ -271,6 +271,7 @@ class Fighter {
     // knockback decay
     const km = Math.hypot(this.kx, this.ky);
     if (km > 0) { const nm = Math.max(0, km - KB_DECAY); this.kx *= nm / km; this.ky *= nm / km; }
+    if (this.state === 'hitstun' && km > 8 && World.frame % 2 === 0) FX.trail(this.x - this.kx, this.y - 30 - this.ky, km > 14 ? 'rgba(255,120,60,0.6)' : 'rgba(90,90,100,0.45)', 5 + km * 0.3);
     const passB = this.state === 'hitstun' && km > 13;
     const wasAir = this.air; const vyBefore = this.vy + this.ky;
     const r = moveBody(this, this.vx + this.kx, this.vy + this.ky, { passBarrier: passB, noWorldEdge: passB });
@@ -346,7 +347,7 @@ class Fighter {
     const dmg = info.dmg * this.mods.take * (World.mod.glass ? 1.4 : 1);
     this.pct = Math.min(999, this.pct + dmg);
     if (this.mods.thorns && info.att && info.att.takeHit && info.att.team !== 0) info.att.hurtRaw?.(info.dmg * this.mods.thorns);
-    let kb = calcKB(this.pct, dmg, this.weight, info.bkb, info.kbg);
+    let kb = calcKB(this.pct * (this.team === 0 ? 1.6 : 1.3), dmg, this.weight, info.bkb, info.kbg * (this.team === 0 && info.att && info.att.team !== 0 ? 1.15 : 1));
     if (this.state === 'move' && this.move.armor && this.mf >= this.move.armor[0] && this.mf <= this.move.armor[1] && kb < 130) { this.hitlag = 4; FX.burst(info.x, info.y, '#ffffff', 4); Audio2.play('hit', 0); return 'armor'; }
     this.launch(kb, info);
     return 'hit';
@@ -386,8 +387,8 @@ class Fighter {
 // --- Projectiles ---
 const PROJ = {
   wave: { r: 23, life: 40, dmg: 7, a: 40, bkb: 25, kbg: 55, pierce: 2, solid: 1 },
-  orb: { r: 11, life: 80, dmg: 5, a: 45, bkb: 30, kbg: 50, pierce: 1, solid: 1 },
-  bolt: { r: 12, life: 24, dmg: 6, a: 30, bkb: 20, kbg: 28, pierce: 3, stun: 25, solid: 1, fx: 'spark' },
+  orb: { el: 'arcane', r: 11, life: 80, dmg: 5, a: 45, bkb: 30, kbg: 50, pierce: 1, solid: 1 },
+  bolt: { r: 12, life: 24, dmg: 6, a: 30, bkb: 20, kbg: 28, pierce: 3, stun: 25, solid: 1, fx: 'spark', el: 'shock' },
   mine: { r: 10, life: 1200, dmg: 0, grav: 0.4, solid: 0, mine: 1 },
   blast: { r: 55, life: 4, dmg: 12, a: 85, bkb: 50, kbg: 70, pierce: 99, radial: 1, fx: 'fire' },
   hammer: { r: 21, life: 220, dmg: 10, a: 45, bkb: 30, kbg: 70, pierce: 99, solid: 0 },
@@ -456,6 +457,22 @@ function projHitAngle(p, tgt) {
   return dir >= 0 ? p.a : 180 - p.a;
 }
 
+// --- Elemental status effects ---
+function applyEl(t, el, att) {
+  if (!el || !t || t.dead) return;
+  if (el === 'fire') { t.burnT = 100; t.burnBy = att; }
+  else if (el === 'ice') { if (!t.boss) { t.frozenT = 30; t.hitstun = (t.hitstun || 0) + 26; } FX.burst(t.x, t.y - 30, '#bfefff', 8); }
+  else if (el === 'shock') { if (!t.boss) { t.shockT = 14; t.hitstun = (t.hitstun || 0) + 12; } }
+  else if (el === 'wind') { t.kx *= 1.35; t.ky *= 1.2; FX.ring(t.x, t.y - 30, 30, '#e8f7ff'); }
+  else if (el === 'pull' && att) { t.kx = (att.x - t.x) * 0.06; t.ky = (att.y + 10 - t.y) * 0.06; }
+}
+function tickStatus(t) {
+  if (t.frozenT > 0) t.frozenT--; if (t.shockT > 0) t.shockT--;
+  if (t.burnT > 0) {
+    t.burnT--; if (World.frame % 4 === 0) FX.add({ k: 'spark', x: t.x + rr(-8, 8), y: t.y - rr(10, 45), vx: rr(-0.4, 0.4), vy: rr(-2, -1), life: 18, max: 18, c: pick(['#ff9a3c', '#ffd23c', '#ff5a3c']), s: rr(2, 4) });
+    if (t.burnT % 20 === 0) { if (t.team === 0 || t.isRival) { t.pct += 1; } else if (t.hurtRaw) t.hurtRaw(1, true); }
+  }
+}
 // --- Combat resolution each frame ---
 function resolveCombat() {
   const players = World.players.filter(p => !p.dead && !p.out), enemies = World.enemies.filter(e => !e.dead);
@@ -470,8 +487,8 @@ function resolveCombat() {
         if (h.chg) dmg += h.chg * p.chg;
         if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5;
         let ang = p.face > 0 ? h.a : 180 - h.a; if (h.spike && p.mods.meteor) dmg *= 1.3;
-        const res = e.takeHit({ dmg, ang, bkb: h.bkb + (h.chgKb || 0) * p.chg, kbg: h.kbg * p.mods.kb, att: p, x: hb.x, y: hb.y, ax: p.x, fx: h.fx, stun: h.stun || 0, fromX: p.x, fromY: p.y - 30 });
-        if (res) onPlayerHit(p, e, dmg, res);
+        const res = e.takeHit({ dmg, ang, bkb: h.bkb + (h.chgKb || 0) * p.chg, kbg: h.kbg * p.mods.kb, att: p, x: hb.x, y: hb.y, ax: p.x, fx: h.fx || h.el, stun: h.stun || 0, fromX: p.x, fromY: p.y - 30 });
+        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); } }
       }
     }
   }
@@ -485,7 +502,7 @@ function resolveCombat() {
         e.hitSet.add(p.id + ':' + hb.key);
         const ang = hb.ang ?? (e.face > 0 ? hb.a : 180 - hb.a);
         const res = p.takeHit({ dmg: hb.d * (p.team === 0 ? World.diff.dmg : 1), ang, bkb: hb.bkb, kbg: hb.kbg, att: e, x: hb.x, y: hb.y, ax: e.x, fx: hb.fx, unblockable: hb.unblockable });
-        if (res && res !== 'shield' && res !== 'counter') e.hitlag = Math.max(e.hitlag || 0, Math.floor(hitlagFor(hb.d) * 0.6));
+        if (res && res !== 'shield' && res !== 'counter') { e.hitlag = Math.max(e.hitlag || 0, Math.floor(hitlagFor(hb.d) * 0.6)); if (res === 'hit') applyEl(p, hb.el, e); }
       }
     }
   }
@@ -507,6 +524,7 @@ function resolveCombat() {
       const res = t.takeHit({ dmg, ang: projHitAngle(pr, t), bkb: pr.bkb, kbg: pr.kbg, att: own, x: pr.x, y: pr.y, ax: pr.x - sign(pr.vx) * 10, fx: pr.fx, stun: pr.stun, proj: 1 });
       if (res === 'shield' || res === 'reflect') { pr.life = 0; continue; }
       if (res && own && own.team === 0 && t.team === 1) onPlayerHit(own, t, dmg, res);
+      if (res === 'hit' && D.el) applyEl(t, D.el, own);
       if (res) { pr.pierce--; if (pr.pierce <= 0) pr.life = 0; }
     }
   }
@@ -531,7 +549,7 @@ const FX = {
   dust(x, y) { for (let i = 0; i < 2; i++) this.add({ k: 'dust', x: x + rr(-6, 6), y: y - 2, vx: rr(-1, 1), vy: rr(-1, -0.2), life: 22, max: 22, c: 'rgba(255,255,255,0.5)', s: rr(3, 6) }); },
   ring(x, y, r, c = '#fff') { this.add({ k: 'ring', x, y, r0: 4, r, life: 16, max: 16, c }); },
   hit(x, y, kb, fx) {
-    const c = fx === 'fire' ? '#ffb347' : fx === 'spark' ? '#9dff8a' : fx === 'slash' ? '#9cc8ff' : '#fff7c2';
+    const c = { fire: '#ffb347', spark: '#9dff8a', slash: '#9cc8ff', ice: '#bfefff', shock: '#f4ff7a', wind: '#e8f7ff', arcane: '#d29bff' }[fx] || '#fff7c2';
     this.add({ k: 'star', x, y, r: 10 + Math.min(40, kb / 4), life: 8, max: 8, c });
     this.burst(x, y, c, Math.min(20, 4 + kb / 12));
     if (fx === 'slash') this.add({ k: 'slash', x, y, a: rr(0, TAU), r: 40, life: 10, max: 10, c });

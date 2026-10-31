@@ -133,10 +133,31 @@ for (const F of FIGHTERS) {
   }
   // Signature tweaks
   if (F.id === 1) { F.moves.dair.hb[0].a = -90; F.moves.utilt.hb[0].r *= 1.2; F.moves.fsmash.hb[0].d = 17; }
-  if (F.id === 2) { // magic sparks on normals
-    for (const k of ['fsmash', 'usmash', 'dsmash', 'fair', 'bair', 'uair']) F.moves[k].hb.forEach(h => h.fx = 'spark');
-    F.moves.nair.hb = [HB(4, 22, 0, -30, 26 * HB_SCALE, 2, 70, 30, 0, { multi: 4, fx: 'spark' }), HB(23, 25, 0, -30, 26 * HB_SCALE, 5, 45, 40, 80, { fx: 'spark' })];
-  }
+  if (F.id === 2) Object.assign(F.moves, pipMagic());
   if (F.id === 3) { F.moves.fsmash.hb[0].d = 24; F.moves.fsmash.hb[0].r *= 1.15; F.moves.dair.hb[0].d = 16; }
   for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = { ...mv, name: k, hb: (mv.hb || []).map(h => ({ ...h, r: h.r * HB_SCALE })), special: 1 };
+}
+
+// ---- Pip's elemental spellbook: every normal is a short-range spell with an effect ----
+// el: fire = burn over time, ice = freeze (extra stun), shock = stun, wind = big push, arcane = raw power
+function pipMagic() {
+  const S = STAND, k = HB_SCALE, M = {};
+  const mk = (name, d, kf, hb, extra = {}) => { M[name] = { name, d, kf, hb: hb.map(h => ({ ...h, r: h.r * k })), ...extra }; };
+  const cast = (hx, hy, w, lean = 0.2) => P(2, -25, lean, hx, hy, -8, 10, 9, 25, -9, 25, w);
+  mk('jab1', 12, [[0, S], [3, cast(24, -4, 0)], [7, cast(24, -4, 0)], [12, S]], [HB(3, 5, 30, -46, 11, 3, 30, 14, 20, { el: 'shock' })], { jab: 1, spell: 'Spark Jab' });
+  mk('jab2', 12, [[0, S], [3, cast(24, 2, 10)], [7, cast(24, 2, 10)], [12, S]], [HB(3, 5, 30, -42, 11, 3, 35, 16, 20, { el: 'shock' })], { jab: 2, spell: 'Spark Jab' });
+  mk('jab3', 26, [[0, S], [5, cast(28, -6, -10, 0.35)], [12, cast(28, -6, -10, 0.35)], [26, S]], [HB(5, 9, 40, -44, 20, 6, 40, 45, 80, { el: 'shock', stun: 10 })], { spell: 'Spark Burst' });
+  mk('ftilt', 30, [[0, S], [5, cast(26, 0, 0, 0.3)], [20, cast(26, 0, 0, 0.3)], [30, S]], [HB(5, 16, 36, -42, 18, 2, 30, 10, 0, { el: 'fire', multi: 4 }), HB(17, 19, 44, -42, 22, 4, 40, 45, 75, { el: 'fire' })], { spell: 'Flame Palm' });
+  mk('utilt', 26, [[0, S], [5, P(0, -26, -0.05, 4, -26, -6, 10, 6, 25, -6, 25, -90)], [14, P(0, -26, -0.05, 4, -26, -6, 10, 6, 25, -6, 25, -90)], [26, S]], [HB(6, 12, 4, -84, 18, 7, 88, 35, 95, { el: 'ice' })], { spell: 'Frost Spire' });
+  mk('dtilt', 20, [[0, POSE.crouch], [4, P(0, -14, 0.5, 24, 14, -6, 12, 14, 14, -12, 14, 20)], [10, P(0, -14, 0.5, 24, 14, -6, 12, 14, 14, -12, 14, 20)], [20, POSE.crouch]], [HB(4, 9, 38, -6, 15, 5, 80, 30, 60, { el: 'ice' })], { crouchEnd: 1, spell: 'Frost Sweep' });
+  mk('dash', 32, [[0, S], [4, POSE.dodge], [8, cast(20, 0, 0, 0.4)], [20, cast(20, 0, 0, 0.4)], [32, S]], [HB(8, 12, 0, -32, 28, 8, 50, 45, 70, { el: 'shock' })], { dash: 1, spell: 'Blink Strike', go: (f, t) => { if (t === 6) { FX.burst(f.x, f.y - 30, '#d8ffb0', 10); f.teleport(f.x + f.face * 70, f.y); FX.burst(f.x, f.y - 30, '#d8ffb0', 10); Audio2.play('portal'); } if (t < 6) f.intang = 2; } });
+  mk('fsmash', 46, [[0, S], [8, P(-4, -24, -0.25, -8, -18, 8, 6, 12, 25, -12, 25, -110)], [14, cast(30, -4, 0, 0.45)], [26, cast(30, -4, 0, 0.45)], [46, S]], [HB(14, 18, 44, -42, 30, 17, 40, 40, 100, { el: 'arcane' })], { charge: 8, smash: 1, spell: 'Arcane Nova', go: (f, t) => { if (t === 14) { FX.ring(f.x + f.face * 44, f.y - 42, 50, '#c77dff'); World.shake(5); } } });
+  mk('usmash', 44, [[0, S], [6, POSE.crouch], [10, P(0, -28, -0.05, 2, -28, -2, -26, 4, 27, -4, 27, -90)], [26, P(0, -28, -0.05, 2, -28, -2, -26, 4, 27, -4, 27, -90)], [44, S]], [HB(10, 20, 0, -76, 22, 2, 90, 25, 0, { el: 'shock', multi: 3 }), HB(21, 24, 0, -96, 26, 7, 88, 45, 100, { el: 'shock' })], { charge: 6, smash: 1, spell: 'Thunder Pillar' });
+  mk('dsmash', 42, [[0, S], [6, P(0, -18, 0.1, 10, 12, -10, 12, 6, 18, -6, 18, 80)], [11, P(0, -16, 0, 6, 20, -6, 20, 14, 16, -14, 16, 90)], [24, P(0, -16, 0, 6, 20, -6, 20, 14, 16, -14, 16, 90)], [42, S]], [HB(11, 14, 34, -8, 22, 13, 30, 35, 95, { el: 'arcane' }), HB(11, 14, -34, -8, 22, 13, 150, 35, 95, { el: 'arcane' })], { charge: 6, smash: 1, spell: 'Rune Circle', go: (f, t) => { if (t === 11) FX.ring(f.x, f.y - 4, 60, '#c77dff'); } });
+  mk('nair', 30, [[0, POSE.jump], [4, P(0, -26, 0, 18, -6, -18, -6, 14, 8, -14, 8, 0)], [24, P(0, -26, 0, 18, -6, -18, -6, 14, 8, -14, 8, 720)], [30, POSE.jump]], [HB(4, 22, 0, -30, 26, 2, 70, 30, 0, { multi: 4, el: 'arcane' }), HB(23, 25, 0, -30, 28, 5, 45, 40, 80, { el: 'arcane' })], { air: 1, lag: 8, spell: 'Rune Orbit' });
+  mk('fair', 32, [[0, POSE.jump], [6, P(0, -26, -0.2, -6, -16, -10, 8, 10, 18, -8, 20, -100)], [10, P(0, -26, 0.4, 26, 0, -10, 8, 10, 18, -8, 20, 0)], [20, P(0, -26, 0.4, 26, 0, -10, 8, 10, 18, -8, 20, 0)], [32, POSE.jump]], [HB(9, 13, 34, -36, 20, 10, 40, 30, 90, { el: 'fire' })], { air: 1, lag: 10, spell: 'Fireball Palm' });
+  mk('bair', 28, [[0, POSE.jump], [6, P(2, -26, 0.3, -24, -2, -20, 4, 8, 16, -6, 18, 180)], [14, P(2, -26, 0.3, -24, -2, -20, 4, 8, 16, -6, 18, 180)], [28, POSE.jump]], [HB(6, 11, -36, -32, 24, 6, 150, 70, 60, { el: 'wind' })], { air: 1, lag: 9, spell: 'Gust' });
+  mk('uair', 26, [[0, POSE.jump], [5, P(0, -26, -0.2, 4, -28, -4, -26, 6, 18, -6, 18, -90)], [12, P(0, -26, -0.2, 4, -28, -4, -26, 6, 18, -6, 18, -90)], [26, POSE.jump]], [HB(5, 10, 0, -76, 20, 8, 85, 30, 95, { el: 'arcane' })], { air: 1, lag: 8, spell: 'Starburst' });
+  mk('dair', 38, [[0, POSE.jump], [6, P(0, -30, 0, 10, -14, -10, -14, 6, 14, -6, 14, -90)], [12, P(0, -30, 0, 6, 26, -6, 26, 6, 14, -6, 14, 90)], [22, P(0, -30, 0, 6, 26, -6, 26, 6, 14, -6, 14, 90)], [38, POSE.jump]], [HB(6, 11, 0, 10, 26, 2, 90, 20, 0, { el: 'arcane', pull: 1 }), HB(12, 16, 0, 8, 20, 11, -80, 25, 85, { el: 'arcane', spike: 1 })], { air: 1, lag: 14, spell: 'Gravity Well' });
+  return M;
 }

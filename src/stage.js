@@ -16,13 +16,13 @@ const MODIFIERS = {
   elite: { name: 'Elite Surge', desc: 'Far more elite enemies appear.' },
   meteor: { name: 'Meteor Shower', desc: 'Rocks fall from the sky during fights.' },
 };
-const POOL_BY_STAGE = [
-  ['shade', 'spitter', 'flit', 'bomber'],
-  ['shade', 'spitter', 'flit', 'bomber', 'hopper', 'lancer'],
-  ['shade', 'spitter', 'flit', 'bomber', 'hopper', 'lancer', 'shieldbearer'],
-  ['shade', 'spitter', 'flit', 'bomber', 'hopper', 'lancer', 'shieldbearer', 'brute', 'sniper'],
-  ENEMY_TYPES,
-];
+// [type, weight, first stage index it appears]
+const ENEMY_WEIGHTS = [['shade', 5, 0], ['rival', 3.5, 1], ['lancer', 3, 0], ['shieldbearer', 3, 2], ['sniper', 2, 3], ['warlock', 1.8, 4], ['brute', 1.6, 3], ['spitter', 1.4, 0], ['bomber', 1.4, 0], ['hopper', 1.2, 1], ['flit', 0.5, 0]];
+function weightedPick(R, idx, opts = {}) {
+  const list = ENEMY_WEIGHTS.filter(([t, w, s]) => idx >= s && !(opts.exclude || []).includes(t));
+  const tot = list.reduce((a, b) => a + b[1], 0); let r = R.f() * tot;
+  for (const [t, w] of list) { r -= w; if (r <= 0) return t; } return list[0][0];
+}
 const ELITES = ['giant', 'swift', 'volatile', 'warded'];
 
 function genStage(seed, idx, kind, opts = {}) {
@@ -35,8 +35,7 @@ function genStage(seed, idx, kind, opts = {}) {
   const G = 600; let x = 0, gy = G;
   const solid = (x, y, w, h = 900) => { const s = { x, y, w, h, solid: true }; st.solids.push(s); return s; };
   const plat = (x, y, w) => st.plats.push({ x, y, w });
-  const pool = POOL_BY_STAGE[Math.min(POOL_BY_STAGE.length - 1, Math.floor(idx / 2))];
-  const roam = (x0, x1, y, n) => { for (let i = 0; i < n; i++) st.spawns.push({ type: R.pick(pool.filter(t => t !== 'warlock')), x: R.r(x0, x1), y: y - 5 }); };
+  const roam = (x0, x1, y, n) => { for (let i = 0; i < n; i++) { const t = weightedPick(R, idx, { exclude: ['warlock', 'flit'] }); st.spawns.push({ type: t, fid: R.i(0, 3), x: R.r(x0, x1), y: y - 5 }); } };
   // start
   solid(-200, G, 700); x = 500;
   const segs = {
@@ -63,9 +62,16 @@ function genStage(seed, idx, kind, opts = {}) {
     st.arenas.push(A); x += len + 80; return A;
   };
   const wave = (n) => { const w = []; const eliteP = 0.05 + idx * 0.03 + (st.mods.includes('elite') ? 0.3 : 0) + (opts.endless ? 0.15 : 0);
-    for (let i = 0; i < n; i++) w.push({ type: R.pick(pool), elite: R.chance(eliteP) ? R.pick(ELITES) : null, side: R.f() }); return w; };
+    let flits = 0, rivals = 0;
+    for (let i = 0; i < n; i++) {
+      let t = weightedPick(R, opts.endless ? 12 : idx);
+      if (t === 'flit' && flits >= 1) t = 'shade'; if (t === 'rival' && rivals >= 1 + Math.floor(idx / 4) + (nP > 1 ? 1 : 0)) t = 'lancer';
+      if (t === 'flit') flits++; if (t === 'rival') rivals++;
+      w.push({ type: t, fid: R.i(0, 3), elite: t !== 'rival' && R.chance(eliteP) ? R.pick(ELITES) : null, side: R.f() });
+    }
+    return w; };
   const nP = opts.players || 1;
-  const wsize = () => Math.round((3 + Math.floor(idx * 0.45) + R.i(0, 2)) * (nP > 1 ? 1.35 : 1) * (opts.endless ? 1.2 : 1));
+  const wsize = () => Math.round((3 + Math.floor(idx * 0.35) + R.i(0, 1)) * (nP > 1 ? 1.35 : 1) * (opts.endless ? 1.15 : 1));
   if (kind === 'normal') {
     travel(R.i(1, 2));
     // event room
