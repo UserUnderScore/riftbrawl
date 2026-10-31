@@ -82,7 +82,7 @@ const Net = {
   snapshot() {
     const G = Game; const s = { sc: G.scene === 'lobby' ? 'wait' : G.scene, pa: G.paused ? 1 : 0 };
     if (G.scene === 'charsel') s.cs = [G.csel[0] | 0, G.cready[0] ? 1 : 0];
-    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0]; }
+    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0, o.ps || []]; }
     if (G.scene === 'path' && G.pathOpts) s.po = [G.pathOpts.join('.'), G.pathIdx | 0, G.run ? G.run.idx : 0];
     if (G.run && World.stage && ['play', 'boon', 'victory'].includes(G.scene)) {
       const R = G.run, st = World.stage;
@@ -154,7 +154,7 @@ const Net = {
   },
   applySnap(s) {
     const G = Game;
-    if (s.os && (!G.overStats || G.overStats._k !== s.os.join())) { G.overStats = { win: s.os[0], stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4], cleared: s.os[5], bosses: s.os[6], bonus: s.os[7], _k: s.os.join() }; awardShards(G.overStats); }
+    if (s.os && (!G.overStats || G.overStats._k !== JSON.stringify(s.os))) { G.overStats = { win: s.os[0], stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4], cleared: s.os[5], bosses: s.os[6], bonus: s.os[7], ps: s.os[8] || [], _k: JSON.stringify(s.os) }; awardShards(G.overStats); }
     if (s.po) { G.pathOpts = s.po[0].split('.'); G.pathIdx = s.po[1]; }
     World.freezeT = s.bz ? s.bz[1] : 0; World.burster = s.bz ? World.players[s.bz[0]] : null;
     if (!s.sg) return;

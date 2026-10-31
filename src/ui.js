@@ -363,8 +363,8 @@ function sceneDraw() {
     case 'boon': drawBoon(); break;
     case 'path': drawPath(); break;
     case 'forge': drawForge(); break;
-    case 'over': { drawTitleBG(); const s = G.overStats || {}; drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (s._earned !== undefined) { glass(W / 2 - 220, 318, 440, 50, '#5ab4ff', 12, 0.9); T('+' + s._earned + ' RIFT SHARDS  ·  total ' + Meta.d.shards, W / 2, 352, 22, '#9fd8ff', { stroke: 5 }); }
-      if (G.t > 40 || Net.isGuest) T('ATTACK: new run    ·    SPECIAL: title    ·    spend shards in the RIFT FORGE', W / 2, 410, 20, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
+    case 'over': { drawTitleBG(); const s = G.overStats || {}; if (s.ps && s.ps.length) drawResultCards(s); else drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (s._earned !== undefined) { glass(W / 2 - 220, 318, 440, 50, '#5ab4ff', 12, 0.9); T('+' + s._earned + ' RIFT SHARDS  ·  total ' + Meta.d.shards, W / 2, 352, 22, '#9fd8ff', { stroke: 5 }); }
+      if (G.t > 40 || Net.isGuest) T('ATTACK: new run    ·    SPECIAL: title    ·    spend shards in the RIFT FORGE', W / 2, s.ps && s.ps.length ? 690 : 410, 20, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
     case 'victory': { drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.72)'; ctx.fillRect(0, 0, W, H); T('THE HOLLOW CROWN FALLS', W / 2, 170, 58, null, { stroke: 11, grad: ['#fff7c2', '#ffb02c'] }); T('RUN TIME ' + fmtTime(G.run ? G.run.time : 0), W / 2, 220, 22, '#fff', { stroke: 5 }); T('The rift is still open… how far can you go?', W / 2, 258, 20, '#ff9ae8', { stroke: 5 }); drawMenu('', ['ENTER ENDLESS MODE', 'END RUN (VICTORY)'], G.menuIdx, 360); break; }
     case 'wait': drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); glass(W / 2 - 360, 260, 720, 110, '#5ab4ff', 22); T(Net.status || 'Waiting for host…', W / 2, 326, 24, '#fff', { stroke: 6 }); break;
   }
@@ -372,4 +372,24 @@ function sceneDraw() {
   drawWipe();
   UI.toasts.forEach((t, i) => { t.life--; ctx.globalAlpha = clamp(t.life / 30, 0, 1); ctx.font = `italic 800 16px ${FONT}`; const w = ctx.measureText(t.t).width + 40; glass(W - w - 16, 100 + i * 44, w, 36, '#7dff8a', 10, 0.92); T(t.t, W - 16 - w / 2 - 4, 124 + i * 44, 16, '#fff', { stroke: 4 }); ctx.globalAlpha = 1; });
   UI.toasts = UI.toasts.filter(t => t.life > 0);
+}
+
+// Smash-style per-player results cards
+function drawResultCards(s) {
+  const ps = s.ps, n = ps.length, cw = n >= 4 ? 236 : 270, ch = 236, gap = 22, x0 = W / 2 - (n * cw + (n - 1) * gap) / 2, y0 = 392;
+  const mvp = ps.reduce((b, q, i) => (q[1] + q[2] * 40 > ps[b][1] + ps[b][2] * 40 ? i : b), 0);
+  ps.forEach((q, i) => {
+    const F = FIGHTERS[q[0]] || FIGHTERS[0], ein = easeBack(clamp((UIW.st - 10 - i * 7) / 20, 0, 1)); if (ein <= 0) return;
+    const x = x0 + i * (cw + gap), y = y0 + (1 - ein) * 260;
+    ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1);
+    // fighter standing on the floor beside the row, celebrating or slumped
+    if (n <= 2) { const pose = menuIdlePose(q[0], World.frame + i * 13); if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose); }
+    glass(x, y, cw, ch, F.color, 16, 0.92);
+    drawPortrait(ctx, q[0], x + 40, y + 40, 26);
+    T('P' + (i + 1), x + 76, y + 30, 14, F.color, { align: 'left', stroke: 4 }); T(F.name.toUpperCase(), x + 76, y + 56, 24, '#fff', { align: 'left', stroke: 5 });
+    if (i === mvp && n > 1) { T('★ MVP', x + cw - 16, y + 30, 15, '#ffd23c', { align: 'right', stroke: 4 }); }
+    const rows = [['DAMAGE DEALT', q[1]], ['KOs', q[2]], ['BEST COMBO', q[3] + ' hits'], ['TECHS', q[4]], ['PARRIES', q[5]], ['FALLS', q[6]]];
+    rows.forEach(([k, v], r) => { const yy = y + 96 + r * 22; T(k, x + 22, yy, 13, '#bfb4d8', { align: 'left', stroke: 0, shadow: false, weight: 800 }); T(String(v), x + cw - 22, yy, 15, '#fff', { align: 'right', stroke: 3, shadow: false }); ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(x + 22, yy + 6, cw - 44, 1); });
+    ctx.restore();
+  });
 }

@@ -113,7 +113,8 @@ const Game = {
     if (kind.startsWith('boss')) Audio2.play('lock');
   },
   applyStageState(mods) { World.mod = {}; for (const m of mods) World.mod[m] = 1; if (World.mod.wind) World.mod.wind = pick([-1.6, 1.6]); },
-  onEnemyKilled(e) { if (this.run) this.run.kills++; },
+  onEnemyKilled(e) { if (this.run) this.run.kills++; if (e._lastP) e._lastP.kos = (e._lastP.kos || 0) + 1; },
+  playerStats() { return World.players.map(p => [p.def.id, Math.round(p.dmgDealt || 0), p.kos | 0, p.bestCombo | 0, p.nTech | 0, p.nParry | 0, p.falls | 0]); },
   bossDefeated(e) {
     this.callout('BOSS DEFEATED!', '#ffd23c', 54); World.shake(20); World.slowmo(60); World.zp = 0.12; World.flashT = 10; Audio2.play('ko');
     for (const o of World.enemies) if (o !== e && !o.dead) { o.hurtRaw(9999, true); }
@@ -240,7 +241,7 @@ const Game = {
   },
   gameOver() {
     if (this.scene === 'over') return;
-    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0, cleared: R.cleared, bosses: R.bosses, bonus: R.bonus }; awardShards(this.overStats);
+    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0, cleared: R.cleared, bosses: R.bosses, bonus: R.bonus, ps: this.playerStats() }; awardShards(this.overStats);
     if (this.overStats.endless > this.best.endless) { this.best.endless = this.overStats.endless; store('sse_best', this.best); }
     this.setScene('over');
   },
@@ -341,7 +342,7 @@ function sceneUpdate() {
       if (G.t > 60 && (anyOK() || G.clickPick !== undefined)) {
         G.clickPick = undefined;
         if (G.menuIdx === 0) { G.run.endless = true; FX.text(0, 0, '', '#fff'); G.boonOpts = {}; G.boonPick = {}; World.players.forEach((p, i) => { G.boonOpts[i] = rollBoonsPlus(p, 2); G.boonPick[i] = null; G.boonIdx[i] = 0; }); G.setScene('boon'); }
-        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1, cleared: G.run.cleared, bosses: G.run.bosses, bonus: G.run.bonus }; awardShards(G.overStats); if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
+        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1, cleared: G.run.cleared, bosses: G.run.bosses, bonus: G.run.bonus, ps: G.playerStats() }; awardShards(G.overStats); if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
       }
       break;
     }

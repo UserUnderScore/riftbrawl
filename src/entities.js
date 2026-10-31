@@ -339,7 +339,7 @@ class Fighter {
   }
   doTech(kind, side) {
     this.techBuf = 0; this.techLock = 0; this.kx = this.ky = this.vx = this.vy = 0; this.hitstun = 0; this.tumble = 0; this.sf = 0; this.bounced = 0; this.eat('sp');
-    FX.tech(this.x, this.y - 30); Audio2.play('tech'); World.slowmo(4);
+    FX.tech(this.x, this.y - 30); Audio2.play('tech'); World.slowmo(4); this.nTech = (this.nTech || 0) + 1;
     if (kind === 'ground') { this.air = 0; this.jumps = this.maxJumps; this.adodged = 0; this.wallJumped = 0; if (Math.abs(this.inp.mx) > 0.5) { this.state = 'techroll'; this.rollDir = sign(this.inp.mx); } else this.state = 'tech'; this.intang = 20; }
     else if (kind === 'wall') { this.state = 'walltech'; this.wallSide = side; this.face = side; this.intang = 14; }
     else { this.state = 'ceiltech'; this.intang = 14; }
@@ -458,7 +458,7 @@ class Fighter {
   }
   parry(info) {
     const a = info.att; if (a && !info.proj) { a.hitlag = (a.hitlag || 0) + 16; if (!a.boss && a.team === 1 && !a.isRival) { a.hitstun = Math.max(a.hitstun || 0, 40); a.atk = null; } }
-    this.state = 'idle'; this.sf = 0; this.intang = 8; this.buf = {}; this.parryT = 20;
+    this.state = 'idle'; this.sf = 0; this.intang = 8; this.buf = {}; this.parryT = 20; this.nParry = (this.nParry || 0) + 1;
     FX.parry(this.x, this.y - 32); FX.text(this.x, this.y - 92, 'PARRY!', '#9ae7ff', 20); World.slowmo(10); World.flashT = Math.max(World.flashT || 0, 4); Audio2.play('parry');
     return 'parry';
   }
@@ -482,7 +482,7 @@ class Fighter {
     if (this.dead || this.out) return;
     if (this.mods.phoenix && !this.phoenixUsed) { this.phoenixUsed = true; FX.text(this.x, this.y - 60, 'PHOENIX!', '#ff9a3c', 20); FX.burst(this.x, this.y, '#ff9a3c', 30); this.respawn(true); return; }
     if (this.held) this.releaseHeld(); if (this.item) dropItem(this);
-    FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); World.shake(12);
+    FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); World.shake(12); if (this.team === 0) this.falls = (this.falls || 0) + 1;
     this.dead = true; this.respawnT = 100; this.kx = this.ky = this.vx = this.vy = 0;
     Game.teamStocks--; if (Game.teamStocks < 0) { this.out = true; Game.teamStocks = 0; }
   }
@@ -663,7 +663,7 @@ function resolveCombat() {
 }
 function onPlayerHit(p, e, dmg, res) {
   if (res === 'block') return;
-  p.dmgDealt += dmg; if (World.frame - (p.lastHitF ?? -999) <= 55) p.combo = (p.combo || 1) + 1; else p.combo = 1; p.lastHitF = World.frame; p.bestCombo = Math.max(p.bestCombo || 0, p.combo);
+  p.dmgDealt += dmg; if (e && p.team === 0) e._lastP = p; if (World.frame - (p.lastHitF ?? -999) <= 55) p.combo = (p.combo || 1) + 1; else p.combo = 1; p.lastHitF = World.frame; p.bestCombo = Math.max(p.bestCombo || 0, p.combo);
   if (p.move && p._staleMid !== p.mid) { p._staleMid = p.mid; p.staleQ.push(p.move.name); if (p.staleQ.length > 9) p.staleQ.shift(); }
   if (res !== 'shield') p.hitlag = Math.max(p.hitlag, Math.floor(hitlagFor(dmg) * (p.move && p.move.special ? 0.5 : 0.85)));
   if (p.mods.steal) p.pct = Math.max(0, p.pct - dmg * p.mods.steal);
