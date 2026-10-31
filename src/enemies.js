@@ -322,7 +322,13 @@ class Rival extends Fighter {
       else if (this.jumps === 0 && this.vy > 1 && this.state === 'air') { o.my = -1; o.bp = 1; }
       return;
     }
-    if (this.state === 'hitstun') { o.mx = -dir * (rnd() < 0.7 ? 1 : 0); o.my = -0.6; return; }
+    if (this.state === 'hitstun') {
+      o.mx = -dir * (rnd() < 0.7 ? 1 : 0); o.my = -0.6;
+      if (!A.techDecided && this.air && this.vy + this.ky > 1.5 && groundBelow(this.x, this.y, 45) !== null) { A.techDecided = 1; if (rnd() < 0.3 + Game.run.idx * 0.035) { o.sp = 1; if (rnd() < 0.6) o.mx = rnd() < 0.5 ? -1 : 1; } }
+      return;
+    }
+    A.techDecided = 0;
+    if (this.state === 'down') { if (this.sf > 22 + ri(0, 30)) { const r = rnd(); if (r < 0.3 && ad < 80) { o.ap = 1; o.a = 1; } else if (r < 0.65) o.mx = rnd() < 0.5 ? -1 : 1; else o.jp = 1; } return; }
     if (this.state === 'ledge') { if (this.sf > 14) { if (rnd() < 0.5) o.jp = 1; else o.my = -1; } return; }
     if (this.state === 'helpless') { o.mx = sign(((World.barriers ? (World.barriers.l + World.barriers.r) / 2 : T.x)) - this.x); return; }
     // holding shield

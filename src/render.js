@@ -73,11 +73,33 @@ function fighterPose(f) {
     case 'adodge': return P(0, -26, 0.5, 8, 8, -6, 10, 10, 10, -4, 14, 90);
     case 'ledge': { const w = Math.sin(t * 0.05) * 2; return P(-6, -26, 0.15, 14, -6, 10, -6, 2 + w, 24, -4 - w, 22, -80); }
     case 'shieldbreak': { const w = Math.sin(t * 0.1) * 0.15; return P(0, -24, 0.4 + w, 6, 22, -6, 22, 6, 24, -6, 24, 90); }
+    case 'shielddrop': return mix(POSE.shield, STAND, clamp(f.sf / 11, 0, 1));
+    case 'revive': { const b = Math.sin(t * 0.08) * 1; return P(0, -25 + b, 0.02, 10, 6 - b, -10, 6 - b, 5, 25 - b, -5, 25 - b, 40); }
+    case 'tech': return mix(P(0, -14, 0.5, 14, 12, -10, 14, 12, 14, -12, 14, 60), STAND, clamp(f.sf / 18, 0, 1));
+    case 'techroll': case 'getuproll': return P(0, -18, 0.9, 10, 10, 6, 12, 10, 8, -2, 12, 90);
+    case 'walltech': return P(-4, -26, -0.15, 15, -8, 15, 6, 10, 18, 2, 24, -40);
+    case 'ceiltech': return P(0, -26, 0, 6, -27, -6, -27, 6, 24, -6, 22, -90);
+    case 'down': return P(0, -25, 0.05, 10, 12, -8, 14, 6, 25, -6, 24, 80);
+    case 'getup': return mix(P(0, -25, 0.05, 10, 12, -8, 14, 6, 25, -6, 24, 80), STAND, clamp(f.sf / 26, 0, 1));
     default: return STAND;
   }
 }
+function fighterDy(f) {
+  if (f.state === 'down') { const b = f.sf < 14 ? Math.abs(Math.sin(f.sf / 14 * Math.PI)) * 10 : 0; return 21 - b; }
+  if (f.state === 'getup') return 21 * (1 - clamp(f.sf / 14, 0, 1));
+  if (f.state === 'getuproll' && f.sf < 6) return 21 * (1 - f.sf / 6) + 6;
+  if (f.state === 'techroll' || f.state === 'getuproll') return 8;
+  if (f.state === 'move' && f.move && f.move.name === 'getupatk') return 21 * (1 - clamp(f.mf / 8, 0, 1));
+  return 0;
+}
 function fighterRot(f) {
-  // whole-body rotation for flips, rolls, tumbles
+  // whole-body rotation for flips, rolls, tumbles, knockdowns and getups
+  const lie = -Math.PI / 2;
+  if (f.state === 'down') return lie;
+  if (f.state === 'getup') return lie * (1 - clamp(f.sf / 14, 0, 1));
+  if (f.state === 'move' && f.move && f.move.name === 'getupatk') return lie * (1 - clamp(f.mf / 8, 0, 1));
+  if (f.state === 'techroll' || f.state === 'getuproll') return clamp(f.sf / 30, 0, 1) * TAU * (f.rollDir || 1) * f.face;
+  if (f.state === 'tech') return (1 - clamp(f.sf / 8, 0, 1)) * 0.8;
   if (f.state === 'air' && f.vy < 0 && f.jumps < f.maxJumps && f.sf < 22) return (f.sf / 22) * TAU;
   if (f.state === 'roll') return clamp(f.sf / 22, 0, 1) * TAU * (f.rollDir || 1) * f.face;
   if (f.state === 'adodge') return clamp(f.sf / 24, 0, 1) * TAU;
@@ -114,8 +136,10 @@ function drawFighter(g, f) {
   let col = rival ? '#2b2140' : def.color, dark = rival ? '#160f22' : def.dark, acc = rival ? def.color : def.dark;
   if (f.flash > 0 || (f.hitlag > 0 && f.state === 'hitstun' && World.frame % 4 < 2)) col = '#ffffff';
   if (f.frozenT > 0) { col = '#9fdcff'; dark = '#6fb8e0'; }
-  const rot = fighterRot(f);
+  const rot = fighterRot(f), fdy = fighterDy(f) * s;
+  if (fdy) g.translate(0, fdy);
   if (rot) { const cy = f.y - 28 * s; g.translate(f.x, cy); g.rotate(rot * f.face); g.translate(-f.x, -cy); }
+  if (f.state === 'revive') { g.save(); g.globalCompositeOperation = 'lighter'; const hy = f.y + 4; const hg = g.createRadialGradient(f.x, hy, 4, f.x, hy, 46); hg.addColorStop(0, 'rgba(255,255,255,0.9)'); hg.addColorStop(1, rgba(def.color, 0)); g.fillStyle = hg; g.beginPath(); g.ellipse(f.x, hy, 46, 12, 0, 0, TAU); g.fill(); g.restore(); g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.ellipse(f.x, hy, 34, 7, 0, 0, TAU); g.stroke(); }
   const A = artFor(def.id, rival);
   const expr = f.state === 'hitstun' || f.state === 'shieldbreak' ? 'hurt' : f.state === 'move' ? 'fight' : 'normal';
   if (rival || (f.state === 'move' && f.chgT > 0)) { const c = rival ? def.color : '#ffe27a'; const k = rival ? 0.28 : 0.35 + 0.25 * Math.sin(World.frame * 0.5); g.save(); g.globalCompositeOperation = 'lighter'; const gg = g.createRadialGradient(f.x, f.y - 30 * s, 4, f.x, f.y - 30 * s, 46 * s); gg.addColorStop(0, rgba(c, k)); gg.addColorStop(1, rgba(c, 0)); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 30 * s, 46 * s, 0, TAU); g.fill(); g.restore(); }
@@ -126,7 +150,7 @@ function drawFighter(g, f) {
   if (f.frozenT > 0) { g.fillStyle = 'rgba(190,240,255,0.35)'; g.strokeStyle = 'rgba(230,250,255,0.8)'; g.lineWidth = 2; g.fillRect(f.x - 16, f.y - 62, 32, 62); g.strokeRect(f.x - 16, f.y - 62, 32, 62); }
   if (f.state === 'shield') { const r = 16 + 22 * (f.shieldHP / 50); g.fillStyle = rival ? 'rgba(200,120,255,0.3)' : 'rgba(120,220,255,0.35)'; g.strokeStyle = 'rgba(200,245,255,0.8)'; g.lineWidth = 2; g.beginPath(); g.arc(f.x, f.y - 30, r, 0, TAU); g.fill(); g.stroke(); }
   if (f.mods && f.mods.orb && !rival) { const ox = f.x + Math.cos(f.orbA) * 46, oy = f.y - 30 + Math.sin(f.orbA) * 46; g.fillStyle = '#ffe9a0'; g.beginPath(); g.arc(ox, oy, 7, 0, TAU); g.fill(); }
-  if (f.state === 'move') for (const hb of Fighter.prototype.hitboxes.call(f)) { if (hb.h.orb) continue; if (hb.h.el) drawElementHB(g, hb, hb.h.el); else { g.strokeStyle = rival ? 'rgba(220,160,255,0.55)' : 'rgba(255,255,255,0.55)'; g.lineWidth = 3; g.beginPath(); g.arc(hb.x, hb.y, hb.r * 0.9, 0, TAU); g.stroke(); } }
+  if (f.state === 'move') for (const hb of Fighter.prototype.hitboxes.call(f)) { if (hb.h.orb || !hb.main) continue; if (hb.h.el) drawElementHB(g, hb, hb.h.el); else if (false) { g.strokeStyle = rival ? 'rgba(220,160,255,0.55)' : 'rgba(255,255,255,0.55)'; g.lineWidth = 3; g.beginPath(); g.arc(hb.x, hb.y, hb.r * 0.9, 0, TAU); g.stroke(); } }
   if (rival) { const pc = Math.floor(f.pct) + '%'; g.font = '900 13px Rubik,system-ui,sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = '#000'; g.strokeText(pc, f.x, f.y - 90 * s); g.fillStyle = pctColor(f.pct * 160 / f.limit); g.fillText(pc, f.x, f.y - 90 * s); return; }
   g.fillStyle = def.color; g.font = 'bold 13px Rubik,system-ui,sans-serif'; g.textAlign = 'center';
   const ty = f.y - (def.id === 2 ? 108 : def.id === 3 ? 98 : 88) * s; g.lineWidth = 3; g.strokeStyle = OL; g.strokeText('P' + (f.slot + 1), f.x, ty); g.fillText('P' + (f.slot + 1), f.x, ty); g.beginPath(); g.moveTo(f.x - 6, ty + 5); g.lineTo(f.x + 6, ty + 5); g.lineTo(f.x, ty + 11); g.closePath(); g.stroke(); g.fill();
@@ -346,6 +370,7 @@ function drawParticles(g) {
         g.strokeStyle = rgba(p.c, a); g.lineWidth = 3; for (let i = 0; i < 6; i++) { const an = p.a * 9 + i / 6 * TAU; g.beginPath(); g.moveTo(p.x + Math.cos(an) * r * 1.1, p.y + Math.sin(an) * r * 1.1); g.lineTo(p.x + Math.cos(an) * r * (1.6 + k), p.y + Math.sin(an) * r * (1.6 + k)); g.stroke(); }
         g.restore(); break; }
       case 'kob': break;
+      case 'techf': { const k = 1 - a; g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = a; g.strokeStyle = p.c; g.lineWidth = 4 * a + 1; g.beginPath(); g.arc(p.x, p.y, 12 + k * 46, 0, TAU); g.stroke(); g.fillStyle = p.c; for (let i = 0; i < 8; i++) { const an = i / 8 * TAU + k; const r1 = 10 + k * 30, r2 = 22 + k * 60; g.beginPath(); g.moveTo(p.x + Math.cos(an - 0.08) * r1, p.y + Math.sin(an - 0.08) * r1); g.lineTo(p.x + Math.cos(an) * r2, p.y + Math.sin(an) * r2); g.lineTo(p.x + Math.cos(an + 0.08) * r1, p.y + Math.sin(an + 0.08) * r1); g.fill(); } g.restore(); break; }
       case 'star': { g.fillStyle = p.c; g.beginPath(); const r = p.r * (1.3 - a * 0.3); for (let i = 0; i < 10; i++) { const rr2 = i % 2 ? r * 0.35 : r; const an = i / 10 * TAU; g.lineTo(p.x + Math.cos(an) * rr2, p.y + Math.sin(an) * rr2); } g.fill(); break; }
       case 'slash': g.strokeStyle = p.c; g.lineWidth = 4 * a; g.beginPath(); g.moveTo(p.x - Math.cos(p.a) * p.r, p.y - Math.sin(p.a) * p.r); g.lineTo(p.x + Math.cos(p.a) * p.r, p.y + Math.sin(p.a) * p.r); g.stroke(); break;
       case 'text': g.font = `italic 900 ${p.s * 1.15}px ${FONT}`; g.textAlign = 'center'; g.lineWidth = 5; g.strokeStyle = 'rgba(0,0,0,0.6)'; g.strokeText(p.t, p.x, p.y); g.fillStyle = p.c; g.fillText(p.t, p.x, p.y); break;
