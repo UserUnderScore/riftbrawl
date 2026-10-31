@@ -1,7 +1,7 @@
 // ===== ONLINE CO-OP (host-authoritative, via the artifact `room` capability presence) =====
 const ALL_ETYPES = [...Object.keys(ENEMY), ...Object.keys(BOSS), 'rival0', 'rival1', 'rival2', 'rival3'];
 const PTYPES = Object.keys(PROJ);
-const STATES = ['idle', 'run', 'crouch', 'squat', 'land0', 'land', 'air', 'helpless', 'move', 'shield', 'roll', 'spot', 'adodge', 'shieldbreak', 'hitstun', 'ledge', 'shielddrop', 'revive', 'tech', 'techroll', 'walltech', 'ceiltech', 'down', 'getup', 'getuproll', 'climb'];
+const STATES = ['idle', 'run', 'crouch', 'squat', 'land0', 'land', 'air', 'helpless', 'move', 'shield', 'roll', 'spot', 'adodge', 'shieldbreak', 'hitstun', 'ledge', 'shielddrop', 'revive', 'tech', 'techroll', 'walltech', 'ceiltech', 'down', 'getup', 'getuproll', 'climb', 'burst'];
 const R2 = v => Math.round(v);
 const Net = {
   isHost: false, isGuest: false, room: null, r: null, code: '', status: '', ok: false, guestPeer: null, guestState: null, remote: null,
@@ -75,21 +75,23 @@ const Net = {
       if (this.tc % 2 === 0) {
         const inp = Game.localPause ? [0, 0, 0, 0, 0, this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, 0, 0, 0] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, this.pf, this.pfy, 0];
         this.pf = 0; this.pfy = 0;
-        this.r.presence({ role: 'guest', in: inp, ch: Game.gch | 0, rdy: Game.grdy ? 1 : 0, bp: Game.gbp || 0 }).catch(() => { });
+        this.r.presence({ role: 'guest', in: inp, ch: Game.gch | 0, rdy: Game.grdy ? 1 : 0, bp: Game.gbp || 0, mu: Meta.levels(), rr: Game.grr | 0 }).catch(() => { });
       }
     }
   },
   snapshot() {
     const G = Game; const s = { sc: G.scene === 'lobby' ? 'wait' : G.scene, pa: G.paused ? 1 : 0 };
     if (G.scene === 'charsel') s.cs = [G.csel[0] | 0, G.cready[0] ? 1 : 0];
-    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless]; }
+    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0]; }
+    if (G.scene === 'path' && G.pathOpts) s.po = [G.pathOpts.join('.'), G.pathIdx | 0, G.run ? G.run.idx : 0];
     if (G.run && World.stage && ['play', 'boon', 'victory'].includes(G.scene)) {
       const R = G.run, st = World.stage;
-      s.sg = [R.stageSeed, R.idx, World.players.length, (st.mods || []).join('.'), R.idx >= 12 ? 1 : 0, R.endless ? 1 : 0];
+      s.sg = [R.stageSeed, R.idx, World.players.length, (st.mods || []).join('.'), R.idx >= 12 ? 1 : 0, R.endless ? 1 : 0, R.path || 'road'];
+      s.bz = World.freezeT > 0 && World.burster ? [World.burster.slot, World.freezeT] : 0;
       const b = G.bossRef;
       s.hud = [G.teamStocks, R.time, R.kills, G.arenaI, G.waveI, World.barriers ? R2(World.barriers.l) : 0, World.barriers ? R2(World.barriers.r) : 0, st.arenas.reduce((m, a, i) => m | (a.done ? 1 << i : 0), 0), st.events.reduce((m, e, i) => m | (e.used ? 1 << i : 0), 0), G.stageT, b && !b.dead ? b.id : 0, G.bossIntro ? G.bossIntro.t : -1];
       if (G.co) s.co = [G.co.seq, G.co.text, G.co.col, G.co.size];
-      s.pl = World.players.map(p => [p.def.id, R2(p.x), R2(p.y), p.face, STATES.indexOf(p.state), p.move ? p.move.name : '', p.mf, Math.floor(p.pct), (p.dead ? 1 : 0) | (p.out ? 2 : 0) | (p.air ? 4 : 0) | (p.tumble ? 8 : 0) | (p.hammerOut ? 16 : 0) | (p.mods.orb ? 32 : 0) | (p.frozenT > 0 ? 64 : 0) | (p.burnT > 0 ? 128 : 0) | (p.ff ? 256 : 0), R2(p.shieldHP), R2(p.chgT), p.sf % 1000, R2(p.mods.size * 100), Math.min(99, p.intang), R2(p.vy), p.jumps, p.boons.join('.'), p.rollDir | 0, p.wallSide | 0]);
+      s.pl = World.players.map(p => [p.def.id, R2(p.x), R2(p.y), p.face, STATES.indexOf(p.state), p.move ? p.move.name : '', p.mf, Math.floor(p.pct), (p.dead ? 1 : 0) | (p.out ? 2 : 0) | (p.air ? 4 : 0) | (p.tumble ? 8 : 0) | (p.hammerOut ? 16 : 0) | (p.mods.orb ? 32 : 0) | (p.frozenT > 0 ? 64 : 0) | (p.burnT > 0 ? 128 : 0) | (p.ff ? 256 : 0), R2(p.shieldHP), R2(p.chgT), p.sf % 1000, R2(p.mods.size * 100), Math.min(99, p.intang), R2(p.vy), p.jumps, p.boons.join('.'), p.rollDir | 0, p.wallSide | 0, Math.floor(p.meter || 0)]);
       s.en = World.enemies.slice(0, 24).map(e => [e.id, ALL_ETYPES.indexOf(e.type), R2(e.x), R2(e.y), e.face, e.atk ? e.atkName : '', Math.floor(e.af), R2(e.hp / e.maxHp * 100), (e.dying ? 1 : 0) | (e.flash > 0 ? 2 : 0) | (e.hitstun > 0 ? 4 : 0) | (e.air ? 8 : 0) | (e.stunGuard ? 16 : 0) | (e.minion ? 32 : 0) | (Math.abs(e.vx) > 0.3 ? 64 : 0) | (e.frozenT > 0 ? 128 : 0) | (e.burnT > 0 ? 256 : 0) | (e.shockT > 0 ? 512 : 0), e.elite ? ELITES.indexOf(e.elite) + 1 : 0, e.aim != null ? R2(e.aim * 100) : -999, e.ward | 0, e.dying | 0, e.spawnT | 0, ...(e.isRival ? [STATES.indexOf(e.state), e.move ? e.move.name : '', e.mf, Math.floor(e.pct), e.sf % 1000, e.jumps, R2(e.chgT), R2(e.vy), e.limit, e.hammerOut ? 1 : 0, e.ff ? 1 : 0, e.rollDir | 0] : [])]);
       s.pr = World.projs.slice(0, 28).map(p => [PTYPES.indexOf(p.type), R2(p.x), R2(p.y), R2(p.vx * 10), R2(p.vy * 10), R2(p.r), p.t]);
       s.it = World.items.map(i => [i.type === 'food' ? 0 : 1, R2(i.x), R2(i.y), i.kind | 0, i.t > 1300 ? 1 : 0]);
@@ -128,6 +130,7 @@ const Net = {
     if (s.sc === 'boon' && s.bo) {
       const opts = s.bo[0] ? s.bo[0].split('.') : []; G.boonOpts = { 0: s.bo[3] ? s.bo[3].split('.') : [], 1: opts }; G.slots = [{ dev: 'net' }, { dev: src.dev }];
       G.boonPick[0] = s.bo[2] ? 'x' : null; if (G.boonIdx[1] === undefined) G.boonIdx[1] = 0;
+      if (src.cur.sp && !G.boonPick[1]) { G.grr = (G.grr | 0) + 1; Audio2.play('confirm'); }
       const key = (s.sg ? s.sg[1] : 0) + (s.sg && s.sg[5] ? 1000 : 0);
       if (s.bo[1]) G.boonPick[1] = G.boonPick[1] || opts[G.boonIdx[1]]; else if (G.gbpKey !== key) { G.boonPick[1] = null; G.gbp = 0; G.gbpKey = key; }
       if (!G.boonPick[1] && opts.length) {
@@ -151,13 +154,15 @@ const Net = {
   },
   applySnap(s) {
     const G = Game;
-    if (s.os) G.overStats = { win: s.os[0], stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4] };
+    if (s.os && (!G.overStats || G.overStats._k !== s.os.join())) { G.overStats = { win: s.os[0], stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4], cleared: s.os[5], bosses: s.os[6], bonus: s.os[7], _k: s.os.join() }; awardShards(G.overStats); }
+    if (s.po) { G.pathOpts = s.po[0].split('.'); G.pathIdx = s.po[1]; }
+    World.freezeT = s.bz ? s.bz[1] : 0; World.burster = s.bz ? World.players[s.bz[0]] : null;
     if (!s.sg) return;
     const sig = s.sg.join('|');
     if (sig !== this.sig) {
       this.sig = sig; const [seed, idx, np, modsStr, endless] = s.sg; const mods = modsStr ? modsStr.split('.') : [];
       const kind = stageKind(idx);
-      World.stage = genStage(seed, idx, kind, { mods, endless: !!endless, players: np }); G.applyStageState(mods);
+      World.stage = genStage(seed, idx, kind, { mods, endless: !!endless, players: np, path: s.sg[6] || 'road' }); G.applyStageState(mods);
       World.enemies = []; World.projs = []; Particles.length = 0;
       G.banner = { t: 0, title: stageLabel(idx), sub: kind.startsWith('boss') ? BOSS[kind.split(':')[1]].name : World.stage.B.name, mods };
       G.run = { idx, time: 0, kills: 0, endless: !!s.sg[5] };
@@ -177,7 +182,7 @@ const Net = {
         if (!p || p.def.id !== a[0]) { p = World.players[i] = new Fighter(FIGHTERS[a[0]], i, { cur: new InputSource('none').blank() }); p.x = a[1]; p.y = a[2]; }
         p.tx = a[1]; p.ty = a[2]; p.face = a[3]; p.state = STATES[a[4]] || 'idle'; p.move = a[5] ? p.def.moves[a[5]] : null; if (p.state === 'move' && !p.move) p.state = 'idle';
         p.mf = a[6]; p.pct = a[7]; const fl = a[8]; p.dead = !!(fl & 1); p.out = !!(fl & 2); p.air = fl & 4 ? 1 : 0; p.tumble = fl & 8 ? 1 : 0; p.hammerOut = fl & 16 ? 1 : null; p.mods.orb = fl & 32 ? 1 : 0; p.frozenT = fl & 64 ? 1 : 0; p.burnT = fl & 128 ? 2 : 0; p.ff = fl & 256 ? 1 : 0;
-        p.shieldHP = a[9]; p.chgT = a[10]; p.sf = a[11]; p.mods.size = a[12] / 100; p.intang = a[13]; p.vy = a[14]; p.jumps = a[15]; p.boons = a[16] ? a[16].split('.') : []; p.rollDir = a[17] || 1; p.wallSide = a[18] || 0;
+        p.shieldHP = a[9]; p.chgT = a[10]; p.sf = a[11]; p.mods.size = a[12] / 100; p.intang = a[13]; p.vy = a[14]; p.jumps = a[15]; p.boons = a[16] ? a[16].split('.') : []; p.rollDir = a[17] || 1; p.wallSide = a[18] || 0; p.meter = a[19] || 0;
         if (p.dead) { p.x = p.tx; p.y = p.ty; }
       });
       World.players.length = s.pl.length;

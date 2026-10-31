@@ -469,7 +469,7 @@ class Fighter {
     this.boons = []; this.mods = { dmg: 1, kb: 1, take: 1, weight: 0, speed: 1, jumps: 0, shield: 1, spec: 1, smash: 1, smashChg: 1, steal: 0, thorns: 0, atk: 1, exec: 0, meteor: 0, phoenix: 0, chain: 0, orb: 0, landShock: 0, size: 1, aerial: 1, lagMul: 1 };
     this.phoenixUsed = false; this.jabNext = null; this.jabT = 0; this.kos = 0; this.dmgDealt = 0; this.tumble = 0; this.hammerOut = null; this.orbA = 0;
     this.inp = new InputSource('none').blank(); this.lastHitBy = null; this.counterD = 0; this.fallStart = 0;
-    this.buf = {}; this.coyote = 0; this.techBuf = 0; this.techLock = 0; this.wallT = 0; this.wallSide = 0; this.wallJumped = 0; this.staleQ = []; this.stale = 1; this.bounced = 0; this.rollDir = 1;
+    this.meter = 0; this.buf = {}; this.coyote = 0; this.techBuf = 0; this.techLock = 0; this.wallT = 0; this.wallSide = 0; this.wallJumped = 0; this.staleQ = []; this.stale = 1; this.bounced = 0; this.rollDir = 1;
   }
   get st() { return this.def.stats; }
   get maxJumps() { return this.st.jumps + this.mods.jumps; }
@@ -522,6 +522,7 @@ class Fighter {
     if (this.state !== 'shield') this.shieldHP = Math.min(50 * this.mods.shield, this.shieldHP + 0.12);
     // orbit orb boon
     if (this.mods.orb) this.orbA += 0.08;
+    if (this.team === 0 && raw.s && raw.bp && this.meter >= 100 && (this.actionable() || this.state === 'shield')) { startBurst(this); return; }
     const smashDir = this.smashInput(raw) || inp._sd;
 
     switch (this.state) {
@@ -603,6 +604,7 @@ class Fighter {
         break;
       }
       case 'ledge': this.updateLedge(inp); break;
+      case 'burst': this.vx = this.vy = 0; break;
       case 'climb': { const C = this.climb, k = clamp(this.sf / 13, 0, 1), e = 1 - Math.pow(1 - k, 3); this.x = lerp(C.x0, C.x1, clamp((e - 0.3) / 0.7, 0, 1)); this.y = lerp(C.y0, C.y1, clamp(e / 0.6, 0, 1)) - Math.sin(k * Math.PI) * 10; this.vx = this.vy = 0; if (this.sf >= 14) { this.x = C.x1; this.y = C.y1; this.state = 'land0'; this.sf = 0; FX.dust(this.x, this.y); } break; }
     }
     this.prevMx = inp.mx; this.prevMy = inp.my;
@@ -677,6 +679,7 @@ class Fighter {
     const sp = mv.special ? 1 : this.mods.atk;
     this.mft += sp; const prev = this.mf; this.mf = Math.floor(this.mft);
     for (let t = prev + 1; t <= this.mf; t++) if (mv.go) { mv.go(this, t); if (this.move !== mv) return; }
+    if (mv.smash && this.mods.overcharge && this.chg > 0.8 && this._oc !== this.mid && mv.hb.length && this.mf >= mv.hb[0].s) { this._oc = this.mid; spawnProj('blast', this, this.x + this.face * 50, this.y - 30, 0, 0, { r: 85, dmg: 10 }); FX.explode(this.x + this.face * 50, this.y - 30, 80); World.shake(8); Audio2.play('boom'); }
     if (!mv.go && this.mf > prev) { }
     if (mv.dash) { if (this.mf < 18) this.vx = this.face * Math.max(Math.abs(this.vx) * 0.97, 3); }
     if (mv.jab && this.mf >= 4) { this.jabNext = mv.jab === 1 ? 'jab2' : 'jab3'; this.jabT = 18; }
@@ -720,7 +723,7 @@ class Fighter {
     if (km > 0) { const nm = Math.max(0, km - KB_DECAY); this.kx *= nm / km; this.ky *= nm / km; }
     if (this.state === 'hitstun' && km > 8 && World.frame % 2 === 0) FX.trail(this.x - this.kx, this.y - 30 - this.ky, km > 14 ? 'rgba(255,120,60,0.6)' : 'rgba(90,90,100,0.45)', 5 + km * 0.3);
     const passB = this.state === 'hitstun' && km > 13;
-    if (this.state === 'walltech' || this.state === 'revive' || this.state === 'climb') return;
+    if (this.state === 'walltech' || this.state === 'revive' || this.state === 'climb' || this.state === 'burst') return;
     const wasAir = this.air; const vyBefore = this.vy + this.ky; const vxBefore = this.vx + this.kx;
     const r = moveBody(this, this.vx + this.kx, this.vy + this.ky, { passBarrier: passB, noWorldEdge: passB });
     if (r.wall) {
@@ -810,7 +813,8 @@ class Fighter {
     this.pct = Math.min(999, this.pct + dmg);
     if (this.mods.thorns && info.att && info.att.takeHit && info.att.team !== 0) info.att.hurtRaw?.(info.dmg * this.mods.thorns);
     let kb = calcKB(this.pct * (this.team === 0 ? 1.6 : 1.3), dmg, this.weight, info.bkb, info.kbg * (this.team === 0 && info.att && info.att.team !== 0 ? 1.15 : 1));
-    if (this.state === 'move' && this.move.armor && this.mf >= this.move.armor[0] && this.mf <= this.move.armor[1] && kb < 130) { this.hitlag = 4; FX.burst(info.x, info.y, '#ffffff', 4); Audio2.play('hit', 0); return 'armor'; }
+    if (this.team === 0 && this.pct > 0) this.meter = Math.min(100, this.meter + dmg * 0.5);
+    if (this.state === 'move' && ((this.move.armor && this.mf >= this.move.armor[0] && this.mf <= this.move.armor[1] && kb < 130) || (this.mods.armorAll && (this.move.smash || this.move.special) && kb < 100))) { this.hitlag = 4; FX.burst(info.x, info.y, '#ffffff', 4); Audio2.play('hit', 0); return 'armor'; }
     this.launch(kb, info);
     return 'hit';
   }
@@ -1021,7 +1025,8 @@ function onPlayerHit(p, e, dmg, res) {
   if (p.move && p._staleMid !== p.mid) { p._staleMid = p.mid; p.staleQ.push(p.move.name); if (p.staleQ.length > 9) p.staleQ.shift(); }
   if (res !== 'shield') p.hitlag = Math.max(p.hitlag, Math.floor(hitlagFor(dmg) * (p.move && p.move.special ? 0.5 : 0.85)));
   if (p.mods.steal) p.pct = Math.max(0, p.pct - dmg * p.mods.steal);
-  if (p.mods.chain && Math.random() < 0.5) {
+  if (p.team === 0) { const was = p.meter; p.meter = Math.min(100, p.meter + dmg * 0.9 * (p.mods.meterMul || 1)); if (was < 100 && p.meter >= 100) { FX.text(p.x, p.y - 100, 'BURST READY!', '#ffd23c', 18); Audio2.play('ready'); } }
+  if (p.mods.chain && Math.random() < Math.min(0.9, 0.3 + 0.2 * p.mods.chain)) {
     const o = World.enemies.filter(x => !x.dead && x !== e).sort((a, b) => dist(a.x, a.y, e.x, e.y) - dist(b.x, b.y, e.x, e.y))[0];
     if (o && dist(o.x, o.y, e.x, e.y) < 260) { FX.zap(e.x, e.y - 30, o.x, o.y - 30); o.hurtRaw(5 * p.mods.chain); }
   }
@@ -1521,7 +1526,7 @@ function genStage(seed, idx, kind, opts = {}) {
     const A = { l, r: l + len, trig: l + 120, waves, floor: gy, done: false };
     st.arenas.push(A); x += len + 80; return A;
   };
-  const wave = (n) => { const w = []; const eliteP = 0.05 + idx * 0.03 + (st.mods.includes('elite') ? 0.3 : 0) + (opts.endless ? 0.15 : 0);
+  const wave = (n) => { const w = []; const eliteP = 0.05 + idx * 0.03 + (st.mods.includes('elite') ? 0.3 : 0) + (opts.endless ? 0.15 : 0) + (opts.path === 'elite' ? 0.35 : 0);
     let flits = 0, rivals = 0;
     for (let i = 0; i < n; i++) {
       let t = weightedPick(R, opts.endless ? 12 : idx);
@@ -1535,12 +1540,13 @@ function genStage(seed, idx, kind, opts = {}) {
   if (kind === 'normal') {
     travel(R.i(1, 2));
     // event room
-    const evx = x + 60; solid(x, gy, 380); st.events.push({ type: R.pick(['chest', 'spring', 'chest', 'elite']), x: x + 190, y: gy }); x += 380;
-    const nw = idx >= 5 || opts.endless ? 3 : 2;
+    const evx = x + 60; solid(x, gy, 380); const evT = R.pick(['chest', 'spring', 'chest', 'elite']); st.events.push({ type: opts.path === 'grove' ? 'spring' : opts.path === 'vault' ? 'chest' : evT, x: x + 190, y: gy }); x += 380;
+    if (opts.path === 'vault') { solid(x, gy, 300); st.events.push({ type: 'chest', x: x + 150, y: gy }); x += 300; }
+    const nw = Math.max(1, (idx >= 5 || opts.endless ? 3 : 2) - (opts.path === 'grove' ? 1 : 0));
     arena(R.r(1000, 1200), Array.from({ length: nw }, () => wave(wsize())));
     travel(R.i(1, 2));
     arena(R.r(1000, 1200), Array.from({ length: nw }, () => wave(wsize())));
-    if (idx >= 8 || opts.endless) { travel(1); arena(R.r(1000, 1200), Array.from({ length: 2 }, () => wave(wsize()))); }
+    if (idx >= 8 || opts.endless || opts.path === 'gauntlet') { travel(1); arena(R.r(1000, 1200), Array.from({ length: opts.path === 'gauntlet' ? 3 : 2 }, () => wave(wsize() + (opts.path === 'gauntlet' ? 1 : 0)))); }
     solid(x, G, 600); st.goal = { x: x + 300, y: G }; x += 600;
   } else {
     const boss = kind.split(':')[1];
@@ -2639,7 +2645,7 @@ const PeerRoom = {
 // ===== ONLINE CO-OP (host-authoritative, via the artifact `room` capability presence) =====
 const ALL_ETYPES = [...Object.keys(ENEMY), ...Object.keys(BOSS), 'rival0', 'rival1', 'rival2', 'rival3'];
 const PTYPES = Object.keys(PROJ);
-const STATES = ['idle', 'run', 'crouch', 'squat', 'land0', 'land', 'air', 'helpless', 'move', 'shield', 'roll', 'spot', 'adodge', 'shieldbreak', 'hitstun', 'ledge', 'shielddrop', 'revive', 'tech', 'techroll', 'walltech', 'ceiltech', 'down', 'getup', 'getuproll', 'climb'];
+const STATES = ['idle', 'run', 'crouch', 'squat', 'land0', 'land', 'air', 'helpless', 'move', 'shield', 'roll', 'spot', 'adodge', 'shieldbreak', 'hitstun', 'ledge', 'shielddrop', 'revive', 'tech', 'techroll', 'walltech', 'ceiltech', 'down', 'getup', 'getuproll', 'climb', 'burst'];
 const R2 = v => Math.round(v);
 const Net = {
   isHost: false, isGuest: false, room: null, r: null, code: '', status: '', ok: false, guestPeer: null, guestState: null, remote: null,
@@ -2713,21 +2719,23 @@ const Net = {
       if (this.tc % 2 === 0) {
         const inp = Game.localPause ? [0, 0, 0, 0, 0, this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, 0, 0, 0] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, this.pf, this.pfy, 0];
         this.pf = 0; this.pfy = 0;
-        this.r.presence({ role: 'guest', in: inp, ch: Game.gch | 0, rdy: Game.grdy ? 1 : 0, bp: Game.gbp || 0 }).catch(() => { });
+        this.r.presence({ role: 'guest', in: inp, ch: Game.gch | 0, rdy: Game.grdy ? 1 : 0, bp: Game.gbp || 0, mu: Meta.levels(), rr: Game.grr | 0 }).catch(() => { });
       }
     }
   },
   snapshot() {
     const G = Game; const s = { sc: G.scene === 'lobby' ? 'wait' : G.scene, pa: G.paused ? 1 : 0 };
     if (G.scene === 'charsel') s.cs = [G.csel[0] | 0, G.cready[0] ? 1 : 0];
-    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless]; }
+    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0]; }
+    if (G.scene === 'path' && G.pathOpts) s.po = [G.pathOpts.join('.'), G.pathIdx | 0, G.run ? G.run.idx : 0];
     if (G.run && World.stage && ['play', 'boon', 'victory'].includes(G.scene)) {
       const R = G.run, st = World.stage;
-      s.sg = [R.stageSeed, R.idx, World.players.length, (st.mods || []).join('.'), R.idx >= 12 ? 1 : 0, R.endless ? 1 : 0];
+      s.sg = [R.stageSeed, R.idx, World.players.length, (st.mods || []).join('.'), R.idx >= 12 ? 1 : 0, R.endless ? 1 : 0, R.path || 'road'];
+      s.bz = World.freezeT > 0 && World.burster ? [World.burster.slot, World.freezeT] : 0;
       const b = G.bossRef;
       s.hud = [G.teamStocks, R.time, R.kills, G.arenaI, G.waveI, World.barriers ? R2(World.barriers.l) : 0, World.barriers ? R2(World.barriers.r) : 0, st.arenas.reduce((m, a, i) => m | (a.done ? 1 << i : 0), 0), st.events.reduce((m, e, i) => m | (e.used ? 1 << i : 0), 0), G.stageT, b && !b.dead ? b.id : 0, G.bossIntro ? G.bossIntro.t : -1];
       if (G.co) s.co = [G.co.seq, G.co.text, G.co.col, G.co.size];
-      s.pl = World.players.map(p => [p.def.id, R2(p.x), R2(p.y), p.face, STATES.indexOf(p.state), p.move ? p.move.name : '', p.mf, Math.floor(p.pct), (p.dead ? 1 : 0) | (p.out ? 2 : 0) | (p.air ? 4 : 0) | (p.tumble ? 8 : 0) | (p.hammerOut ? 16 : 0) | (p.mods.orb ? 32 : 0) | (p.frozenT > 0 ? 64 : 0) | (p.burnT > 0 ? 128 : 0) | (p.ff ? 256 : 0), R2(p.shieldHP), R2(p.chgT), p.sf % 1000, R2(p.mods.size * 100), Math.min(99, p.intang), R2(p.vy), p.jumps, p.boons.join('.'), p.rollDir | 0, p.wallSide | 0]);
+      s.pl = World.players.map(p => [p.def.id, R2(p.x), R2(p.y), p.face, STATES.indexOf(p.state), p.move ? p.move.name : '', p.mf, Math.floor(p.pct), (p.dead ? 1 : 0) | (p.out ? 2 : 0) | (p.air ? 4 : 0) | (p.tumble ? 8 : 0) | (p.hammerOut ? 16 : 0) | (p.mods.orb ? 32 : 0) | (p.frozenT > 0 ? 64 : 0) | (p.burnT > 0 ? 128 : 0) | (p.ff ? 256 : 0), R2(p.shieldHP), R2(p.chgT), p.sf % 1000, R2(p.mods.size * 100), Math.min(99, p.intang), R2(p.vy), p.jumps, p.boons.join('.'), p.rollDir | 0, p.wallSide | 0, Math.floor(p.meter || 0)]);
       s.en = World.enemies.slice(0, 24).map(e => [e.id, ALL_ETYPES.indexOf(e.type), R2(e.x), R2(e.y), e.face, e.atk ? e.atkName : '', Math.floor(e.af), R2(e.hp / e.maxHp * 100), (e.dying ? 1 : 0) | (e.flash > 0 ? 2 : 0) | (e.hitstun > 0 ? 4 : 0) | (e.air ? 8 : 0) | (e.stunGuard ? 16 : 0) | (e.minion ? 32 : 0) | (Math.abs(e.vx) > 0.3 ? 64 : 0) | (e.frozenT > 0 ? 128 : 0) | (e.burnT > 0 ? 256 : 0) | (e.shockT > 0 ? 512 : 0), e.elite ? ELITES.indexOf(e.elite) + 1 : 0, e.aim != null ? R2(e.aim * 100) : -999, e.ward | 0, e.dying | 0, e.spawnT | 0, ...(e.isRival ? [STATES.indexOf(e.state), e.move ? e.move.name : '', e.mf, Math.floor(e.pct), e.sf % 1000, e.jumps, R2(e.chgT), R2(e.vy), e.limit, e.hammerOut ? 1 : 0, e.ff ? 1 : 0, e.rollDir | 0] : [])]);
       s.pr = World.projs.slice(0, 28).map(p => [PTYPES.indexOf(p.type), R2(p.x), R2(p.y), R2(p.vx * 10), R2(p.vy * 10), R2(p.r), p.t]);
       s.it = World.items.map(i => [i.type === 'food' ? 0 : 1, R2(i.x), R2(i.y), i.kind | 0, i.t > 1300 ? 1 : 0]);
@@ -2766,6 +2774,7 @@ const Net = {
     if (s.sc === 'boon' && s.bo) {
       const opts = s.bo[0] ? s.bo[0].split('.') : []; G.boonOpts = { 0: s.bo[3] ? s.bo[3].split('.') : [], 1: opts }; G.slots = [{ dev: 'net' }, { dev: src.dev }];
       G.boonPick[0] = s.bo[2] ? 'x' : null; if (G.boonIdx[1] === undefined) G.boonIdx[1] = 0;
+      if (src.cur.sp && !G.boonPick[1]) { G.grr = (G.grr | 0) + 1; Audio2.play('confirm'); }
       const key = (s.sg ? s.sg[1] : 0) + (s.sg && s.sg[5] ? 1000 : 0);
       if (s.bo[1]) G.boonPick[1] = G.boonPick[1] || opts[G.boonIdx[1]]; else if (G.gbpKey !== key) { G.boonPick[1] = null; G.gbp = 0; G.gbpKey = key; }
       if (!G.boonPick[1] && opts.length) {
@@ -2789,13 +2798,15 @@ const Net = {
   },
   applySnap(s) {
     const G = Game;
-    if (s.os) G.overStats = { win: s.os[0], stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4] };
+    if (s.os && (!G.overStats || G.overStats._k !== s.os.join())) { G.overStats = { win: s.os[0], stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4], cleared: s.os[5], bosses: s.os[6], bonus: s.os[7], _k: s.os.join() }; awardShards(G.overStats); }
+    if (s.po) { G.pathOpts = s.po[0].split('.'); G.pathIdx = s.po[1]; }
+    World.freezeT = s.bz ? s.bz[1] : 0; World.burster = s.bz ? World.players[s.bz[0]] : null;
     if (!s.sg) return;
     const sig = s.sg.join('|');
     if (sig !== this.sig) {
       this.sig = sig; const [seed, idx, np, modsStr, endless] = s.sg; const mods = modsStr ? modsStr.split('.') : [];
       const kind = stageKind(idx);
-      World.stage = genStage(seed, idx, kind, { mods, endless: !!endless, players: np }); G.applyStageState(mods);
+      World.stage = genStage(seed, idx, kind, { mods, endless: !!endless, players: np, path: s.sg[6] || 'road' }); G.applyStageState(mods);
       World.enemies = []; World.projs = []; Particles.length = 0;
       G.banner = { t: 0, title: stageLabel(idx), sub: kind.startsWith('boss') ? BOSS[kind.split(':')[1]].name : World.stage.B.name, mods };
       G.run = { idx, time: 0, kills: 0, endless: !!s.sg[5] };
@@ -2815,7 +2826,7 @@ const Net = {
         if (!p || p.def.id !== a[0]) { p = World.players[i] = new Fighter(FIGHTERS[a[0]], i, { cur: new InputSource('none').blank() }); p.x = a[1]; p.y = a[2]; }
         p.tx = a[1]; p.ty = a[2]; p.face = a[3]; p.state = STATES[a[4]] || 'idle'; p.move = a[5] ? p.def.moves[a[5]] : null; if (p.state === 'move' && !p.move) p.state = 'idle';
         p.mf = a[6]; p.pct = a[7]; const fl = a[8]; p.dead = !!(fl & 1); p.out = !!(fl & 2); p.air = fl & 4 ? 1 : 0; p.tumble = fl & 8 ? 1 : 0; p.hammerOut = fl & 16 ? 1 : null; p.mods.orb = fl & 32 ? 1 : 0; p.frozenT = fl & 64 ? 1 : 0; p.burnT = fl & 128 ? 2 : 0; p.ff = fl & 256 ? 1 : 0;
-        p.shieldHP = a[9]; p.chgT = a[10]; p.sf = a[11]; p.mods.size = a[12] / 100; p.intang = a[13]; p.vy = a[14]; p.jumps = a[15]; p.boons = a[16] ? a[16].split('.') : []; p.rollDir = a[17] || 1; p.wallSide = a[18] || 0;
+        p.shieldHP = a[9]; p.chgT = a[10]; p.sf = a[11]; p.mods.size = a[12] / 100; p.intang = a[13]; p.vy = a[14]; p.jumps = a[15]; p.boons = a[16] ? a[16].split('.') : []; p.rollDir = a[17] || 1; p.wallSide = a[18] || 0; p.meter = a[19] || 0;
         if (p.dead) { p.x = p.tx; p.y = p.ty; }
       });
       World.players.length = s.pl.length;
@@ -2876,7 +2887,7 @@ const RARITY = [{ n: 'COMMON', c: '#d9d9d9' }, { n: 'RARE', c: '#5ab4ff' }, { n:
 const BOON_BY_ID = Object.fromEntries(BOONS.map(b => [b.id, b]));
 function rollBoons(p, bossReward) {
   const have = id => p.boons.filter(x => x === id).length;
-  const avail = BOONS.filter(b => have(b.id) < b.max);
+  const avail = BOONS.filter(b => b.r < 3 && have(b.id) < b.max);
   const out = [];
   for (let i = 0; i < 3; i++) {
     let r = rnd(); let tier = bossReward ? (i === 0 ? 2 : r < 0.5 ? 1 : 2) : (r < 0.08 ? 2 : r < 0.35 ? 1 : 0);
@@ -2919,22 +2930,24 @@ const Game = {
   setScene(s) { this.scene = s; this.menuIdx = 0; this.t = 0; },
   // --- run lifecycle ---
   startRun() {
-    this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0 };
-    World.reset(); Particles.length = 0;
+    this.meta = Meta.levels(); const gmu = (Net.guestState && Net.guestState.mu) || null;
+    this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0, cleared: 0, bosses: 0, bonus: 0, path: 'road', rerolls: { 0: this.meta.reroll || 0, 1: this.slots[1] && this.slots[1].dev === 'net' ? ((gmu && gmu.reroll) || 0) : (this.meta.reroll || 0) } };
+    World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null;
     World.players = this.slots.map((s, i) => new Fighter(FIGHTERS[this.csel[i]], i, s.input));
-    this.teamStocks = World.players.length > 1 ? 4 : 3;
-    this.loadStage(0);
+    World.players.forEach((p, i) => applyMeta(p, this.slots[i] && this.slots[i].dev === 'net' ? gmu : this.meta));
+    this.teamStocks = (World.players.length > 1 ? 4 : 3) + (this.meta.vigor || 0);
+    this.loadStage(0, 'road');
   },
-  loadStage(idx) {
-    const R = this.run; R.idx = idx; R.stageSeed = (R.seed + idx * 7919) >>> 0;
+  loadStage(idx, path = 'road') {
+    const R = this.run; R.idx = idx; R.stageSeed = (R.seed + idx * 7919) >>> 0; R.path = path;
     const kind = stageKind(idx), rr0 = SRng(R.stageSeed ^ 0xabc);
     const mods = [];
     if (kind === 'normal' && (idx >= 2 || R.endless)) { const n = idx >= 12 ? (rr0.chance(0.5) ? 2 : 1) : (rr0.chance(0.35) ? 1 : 0); const ks = shuffle(Object.keys(MODIFIERS), rr0.f); for (let i = 0; i < n; i++) mods.push(ks[i]); }
     const np = World.players.length;
-    World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np });
+    World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np, path });
     this.applyStageState(mods);
     const e = Math.max(0, idx - 11);
-    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np > 1 ? 1.15 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
+    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
     for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
     World.players.forEach((p, i) => {
@@ -2952,7 +2965,7 @@ const Game = {
   bossDefeated(e) {
     this.callout('BOSS DEFEATED!', '#ffd23c', 54); World.shake(20); World.slowmo(60); World.zp = 0.12; World.flashT = 10; Audio2.play('ko');
     for (const o of World.enemies) if (o !== e && !o.dead) { o.hurtRaw(9999, true); }
-    this.teamStocks++;
+    this.teamStocks++; if (this.run) this.run.bosses++;
     FX.text(e.x, e.y - 120, '+1 STOCK', '#7dff8a', 20);
     if (e.type === 'crown' && this.run && !this.run.endless && this.run.idx === 11) this.crownDown = 120;
   },
@@ -2962,6 +2975,7 @@ const Game = {
   },
   // --- per-frame simulation (host / local) ---
   simStep() {
+    if (World.freezeT > 0) { burstFreezeStep(); return; }
     const R = this.run; R.time++; this.stageT++;
     World.frame++;
     for (const p of World.players) p.update();
@@ -3055,18 +3069,24 @@ const Game = {
   stageClear() {
     if (this.scene !== 'play') return;
     if (this.run.idx === 11 && !this.run.endless) { if (!this.crownDown) { this.setScene('victory'); this.victoryIdx = 0; } return; }
-    Audio2.play('boon'); const R = this.run; const wasBoss = stageKind(R.idx).startsWith('boss');
+    Audio2.play('boon'); const R = this.run; const wasBoss = stageKind(R.idx).startsWith('boss'); R.cleared++;
+    const minTier = wasBoss || R.path === 'gauntlet' ? 2 : R.path === 'elite' ? 1 : 0; this.boonMin = minTier;
+    if (R.path === 'grove') for (const p of World.players) p.pct = Math.max(0, p.pct - 30);
+    if (R.path === 'lifeline') this.teamStocks++;
+    if (R.path === 'vault') R.bonus += 25;
     this.boonOpts = {}; this.boonPick = {}; this.boonIdx = {};
-    World.players.forEach((p, i) => { this.boonOpts[i] = rollBoons(p, wasBoss); this.boonPick[i] = null; this.boonIdx[i] = 0; });
+    World.players.forEach((p, i) => { this.boonOpts[i] = rollBoonsPlus(p, minTier); this.boonPick[i] = null; this.boonIdx[i] = 0; });
     this.setScene('boon');
   },
   finishBoons() {
     World.players.forEach((p, i) => { const id = this.boonPick[i]; if (id && id !== 'skip') applyBoon(p, id); });
-    this.loadStage(this.run.idx + 1);
+    const next = this.run.idx + 1;
+    if (stageKind(next) === 'normal') { this.pathOpts = rollPaths(); this.pathIdx = 0; this.setScene('path'); }
+    else this.loadStage(next, 'road');
   },
   gameOver() {
     if (this.scene === 'over') return;
-    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0 };
+    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0, cleared: R.cleared, bosses: R.bosses, bonus: R.bonus }; awardShards(this.overStats);
     if (this.overStats.endless > this.best.endless) { this.best.endless = this.overStats.endless; store('sse_best', this.best); }
     this.setScene('over');
   },
@@ -3096,7 +3116,7 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -3117,10 +3137,12 @@ function sceneUpdate() {
         if (i === 1) { G.mode = 'local'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 2) { G.mode = 'host'; G.slots = [{ input: Devices.get(prim), dev: prim }]; Net.host(); G.setScene('lobby'); }
         if (i === 3) { G.mode = 'guest'; G.primary = prim; G.setScene('join'); showJoinBox(true); }
-        if (i === 4) G.setScene('controls');
-        if (i === 5) { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
-        if (i === 6) { setSfxVol(Audio2.vol >= 1 ? 0 : Audio2.vol + 0.1); }
-        if (i === 7) { setMusicVol(Music.vol >= 1 ? 0 : Music.vol + 0.1); }
+        const lab = MODE_OPTS[i];
+        if (lab === 'RIFT FORGE') { G.forgeIdx = 0; G.setScene('forge'); }
+        if (lab === 'CONTROLS') G.setScene('controls');
+        if (lab === 'CONTROLLER SETUP') { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
+        if (lab === 'SFX VOLUME') { setSfxVol(Audio2.vol >= 1 ? 0 : Audio2.vol + 0.1); }
+        if (lab === 'MUSIC VOLUME') { setMusicVol(Music.vol >= 1 ? 0 : Music.vol + 0.1); }
       }
       if (anyBack()) G.setScene('title');
       break;
@@ -3144,13 +3166,27 @@ function sceneUpdate() {
       break;
     }
     case 'boon': updateBoon(); break;
+    case 'path': {
+      const n = 2; const sl = G.slots.find(s => s.dev !== 'net'); const src = sl ? sl.input : null; const d = src ? menuDir(src) : '';
+      if (d === 'left' || d === 'up') { G.pathIdx = 0; Audio2.play('cursor'); } if (d === 'right' || d === 'down') { G.pathIdx = 1; Audio2.play('cursor'); }
+      if (G.clickPick !== undefined) { G.pathIdx = G.clickPick; }
+      if (G.t > 25 && ((src && menuOK(src)) || G.clickPick !== undefined)) { G.clickPick = undefined; Audio2.play('ready'); G.loadStage(G.run.idx + 1, G.pathOpts[G.pathIdx]); }
+      break;
+    }
+    case 'forge': {
+      const n = FORGE.length; const d = anyDir(); if (d === 'up') { G.forgeIdx = (G.forgeIdx + n - 1) % n; Audio2.play('cursor'); } if (d === 'down') { G.forgeIdx = (G.forgeIdx + 1) % n; Audio2.play('cursor'); }
+      if (G.clickPick !== undefined) { G.forgeIdx = G.clickPick; G.clickPick = undefined; G.forgeBuy = 1; }
+      if (anyOK() || G.forgeBuy) { G.forgeBuy = 0; if (Meta.buy(G.forgeIdx)) { Audio2.play('boon'); G.forgeFlash = 20; } else Audio2.play('back'); }
+      if (anyBack()) G.setScene('mode');
+      break;
+    }
     case 'over': if (G.t > 40 && (anyOK() || G.clickPick !== undefined)) { G.clickPick = undefined; G.toCharSel(); } if (G.t > 40 && anyBack()) { Net.leave(); G.setScene('title'); } break;
     case 'victory': {
       const d = menuNav(2); if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; }
       if (G.t > 60 && (anyOK() || G.clickPick !== undefined)) {
         G.clickPick = undefined;
-        if (G.menuIdx === 0) { G.run.endless = true; FX.text(0, 0, '', '#fff'); G.boonOpts = {}; G.boonPick = {}; World.players.forEach((p, i) => { G.boonOpts[i] = rollBoons(p, true); G.boonPick[i] = null; G.boonIdx[i] = 0; }); G.setScene('boon'); }
-        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1 }; if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
+        if (G.menuIdx === 0) { G.run.endless = true; FX.text(0, 0, '', '#fff'); G.boonOpts = {}; G.boonPick = {}; World.players.forEach((p, i) => { G.boonOpts[i] = rollBoonsPlus(p, 2); G.boonPick[i] = null; G.boonIdx[i] = 0; }); G.setScene('boon'); }
+        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1, cleared: G.run.cleared, bosses: G.run.bosses, bonus: G.run.bonus }; awardShards(G.overStats); if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
       }
       break;
     }
@@ -3198,8 +3234,10 @@ function updateBoon() {
   const G = Game;
   World.players.forEach((p, i) => {
     if (G.boonPick[i]) return; const sl = G.slots[i]; if (!sl) { G.boonPick[i] = 'skip'; return; }
+    if (sl.dev === 'net' && Net.guestState && (Net.guestState.rr | 0) !== (G._grr | 0) && G.run.rerolls[i] > 0) { G._grr = Net.guestState.rr | 0; G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); Audio2.play('confirm'); }
     if (sl.dev === 'net') { const gs = Net.guestState; if (gs && Array.isArray(gs.bp) && gs.bp[0] === G.run.idx + (G.run.endless ? 1000 : 0) && typeof gs.bp[1] === 'number') { const id = G.boonOpts[i][gs.bp[1] | 0]; if (id) { G.boonPick[i] = id; Audio2.play('select'); } } return; }
     const s = sl.input; const d = menuDir(s); const n = G.boonOpts[i].length;
+    if (s.cur.sp && G.run.rerolls[i] > 0) { G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); G.boonIdx[i] = 0; Audio2.play('confirm'); UIW.st = 0; return; }
     if (d === 'up' || d === 'left') G.boonIdx[i] = (G.boonIdx[i] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[i] = (G.boonIdx[i] + 1) % n;
     if (G.clickBoon && G.clickBoon[0] === i) { G.boonIdx[i] = G.clickBoon[1]; G.clickBoon = null; G.boonPick[i] = G.boonOpts[i][G.boonIdx[i]]; Audio2.play('boon'); return; }
     if (menuOK(s) && G.t > 20) { G.boonPick[i] = G.boonOpts[i][G.boonIdx[i]] || 'skip'; Audio2.play('boon'); }
@@ -3432,6 +3470,100 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
+// ===== ROGUELITE LAYER: path choice, duo boons, Rift Shards meta-progression, Rift Burst super =====
+// ---- paths (Hades-style door choice with the reward shown up front) ----
+const PATHS = {
+  road: { name: 'RIFT ROAD', icon: '✦', col: '#ffd23c', desc: 'A normal stage.', reward: 'Boon' },
+  elite: { name: 'PROVING GROUNDS', icon: '☠', col: '#ff6b6b', desc: 'Elite enemies everywhere.', reward: 'RARE+ Boon' },
+  grove: { name: 'QUIET GROVE', icon: '✚', col: '#7dff8a', desc: 'Fewer waves, a healing spring.', reward: 'Heal 30% + Boon' },
+  vault: { name: 'SHARD VAULT', icon: '◆', col: '#5ab4ff', desc: 'Extra treasure chests.', reward: 'Double Rift Shards' },
+  gauntlet: { name: 'GAUNTLET', icon: '⚔', col: '#c77dff', desc: 'An extra arena of tough waves.', reward: 'EPIC Boon' },
+  lifeline: { name: 'LIFELINE TRIAL', icon: '♥', col: '#ff8fab', desc: 'Enemies have +25% health.', reward: '+1 Life' },
+};
+function rollPaths() { const keys = shuffle(Object.keys(PATHS).filter(k => k !== 'road')); return rnd() < 0.35 ? ['road', keys[0]] : [keys[0], keys[1]]; }
+
+// ---- duo boons: unlock when you own both prerequisite boons ----
+RARITY[3] = { n: 'DUO', c: '#ffb3e6' };
+BOONS.push(
+  { id: 'stormcall', name: 'Storm Caller', r: 3, req: ['chain', 'speed'], desc: 'Lightning arcs far more often, +8% speed', max: 1, ap: p => { p.mods.chain += 2; p.mods.speed *= 1.08; } },
+  { id: 'bloodpact', name: 'Blood Pact', r: 3, req: ['steal', 'thorns'], desc: 'Heal 15% more of damage dealt, stronger thorns', max: 1, ap: p => { p.mods.steal += 0.15; p.mods.thorns += 0.4; } },
+  { id: 'juggernaut', name: 'Juggernaut', r: 3, req: ['weight', 'take'], desc: 'Smashes & specials shrug off light hits', max: 1, ap: p => { p.mods.armorAll = 1; } },
+  { id: 'skylord', name: 'Sky Sovereign', r: 3, req: ['aerial', 'jump'], desc: '+1 midair jump, aerials deal +20%', max: 1, ap: p => { p.mods.jumps++; p.jumps++; p.mods.aerial *= 1.2; } },
+  { id: 'overcharge', name: 'Overcharge', r: 3, req: ['smash', 'kb'], desc: 'Fully charged smashes erupt in a shockwave', max: 1, ap: p => { p.mods.overcharge = 1; } },
+  { id: 'arcanist', name: 'Arcanist', r: 3, req: ['spec', 'atk'], desc: 'Specials +25%, Rift Burst charges 50% faster', max: 1, ap: p => { p.mods.spec *= 1.25; p.mods.meterMul = (p.mods.meterMul || 1) * 1.5; } },
+);
+BOON_BY_ID.stormcall = BOONS.find(b => b.id === 'stormcall'); for (const b of BOONS) BOON_BY_ID[b.id] = b;
+function rollBoonsPlus(p, minTier = 0) {
+  const have = id => p.boons.filter(x => x === id).length;
+  const fortune = (Game.meta && Game.meta.fortune) || 0;
+  const avail = BOONS.filter(b => b.r < 3 && have(b.id) < b.max);
+  const out = [];
+  for (let i = 0; i < 3; i++) {
+    const r = rnd() - fortune * 0.06; let tier = r < 0.08 ? 2 : r < 0.36 ? 1 : 0; if (minTier >= 2 && i === 0) tier = 2; tier = Math.max(tier, Math.min(minTier, i === 0 ? minTier : 1));
+    let c = avail.filter(b => b.r === tier && !out.includes(b.id)); if (!c.length) c = avail.filter(b => !out.includes(b.id)); if (c.length) out.push(pick(c).id);
+  }
+  const duos = BOONS.filter(b => b.r === 3 && !have(b.id) && b.req.every(q => have(q)));
+  if (duos.length && rnd() < 0.45) out[0] = pick(duos).id;
+  return out;
+}
+
+// ---- meta progression (saved per browser) ----
+const FORGE = [
+  { id: 'might', name: 'MIGHT', desc: '+4% damage per level', max: 5, cost: l => 40 + l * 35 },
+  { id: 'guard', name: 'GUARD', desc: '-4% damage taken per level', max: 5, cost: l => 40 + l * 35 },
+  { id: 'vigor', name: 'VIGOR', desc: '+1 starting life per level', max: 2, cost: l => 120 + l * 140 },
+  { id: 'fortune', name: 'FORTUNE', desc: 'Better boon rarity odds', max: 3, cost: l => 70 + l * 60 },
+  { id: 'reroll', name: 'REROLL', desc: '+1 boon reroll per run (SHIELD on the boon screen)', max: 3, cost: l => 60 + l * 50 },
+  { id: 'head', name: 'HEAD START', desc: 'Begin each run with a random boon', max: 1, cost: l => 150 },
+  { id: 'burst', name: 'RIFT AFFINITY', desc: 'Start runs with a half-charged Rift Burst', max: 1, cost: l => 110 },
+];
+const Meta = {
+  d: store('sse_meta') || { shards: 0, lv: {}, total: 0, runs: 0 },
+  lv(id) { return this.d.lv[id] || 0; },
+  save() { store('sse_meta', this.d); },
+  levels() { return Object.fromEntries(FORGE.map(f => [f.id, this.lv(f.id)])); },
+  buy(i) { const f = FORGE[i], l = this.lv(f.id); if (l >= f.max) return false; const c = f.cost(l); if (this.d.shards < c) return false; this.d.shards -= c; this.d.lv[f.id] = l + 1; this.save(); return true; },
+};
+function applyMeta(p, mu) {
+  if (!mu) return; p.mods.dmg *= 1 + 0.04 * (mu.might || 0); p.mods.take *= 1 - 0.04 * (mu.guard || 0);
+  if (mu.head) { const c = BOONS.filter(b => b.r === 0 && b.id !== 'heal'); applyBoon(p, pick(c).id); }
+  if (mu.burst) p.meter = 50;
+}
+function shardsFor(st) { return Math.round((st.kills || 0) * 0.5 + (st.cleared || 0) * 6 + (st.bosses || 0) * 25 + (st.endless || 0) * 10 + (st.bonus || 0) + (st.win ? 60 : 0)); }
+function awardShards(st) { if (st._awarded) return st._earned; st._awarded = 1; const n = shardsFor(st); st._earned = n; Meta.d.shards += n; Meta.d.total += n; Meta.d.runs++; Meta.save(); return n; }
+
+// ---- Rift Burst (super) ----
+const BURST = [
+  { name: 'METEOR RUSH', col: '#ff6b3c', fx: 'fire' },
+  { name: 'THOUSAND CUTS', col: '#7fc4ff', fx: 'slash' },
+  { name: 'STARFALL', col: '#c77dff', fx: 'arcane' },
+  { name: 'WORLDBREAKER', col: '#ffb347', fx: 'fire' },
+];
+function startBurst(p) {
+  p.meter = 0; p.state = 'burst'; p.sf = 0; p.move = null; p.vx = p.vy = p.kx = p.ky = 0; p.intang = 999; p.buf = {};
+  World.freezeT = 54; World.burster = p; Audio2.play('burst'); World.flashT = 8; World.zp = 0.1;
+}
+function burstStrike(p) {
+  const c = World.cam, vw = W / (2 * c.z) + 40, vh = H / (2 * c.z) + 40; const B = BURST[p.def.id];
+  for (const e of World.enemies) {
+    if (e.dead || e.dying || Math.abs(e.x - c.x) > vw || Math.abs(e.y - c.y) > vh) continue;
+    const dx = e.x - p.x; const ang = dx >= 0 ? 60 : 120;
+    const dmg = 26 * p.mods.dmg * (e.boss ? 1.6 : 1);
+    if (p.def.id === 0) FX.explode(e.x, e.y - 30, 60); if (p.def.id === 2) { FX.ring(e.x, e.y - 30, 80, '#c77dff'); FX.burst(e.x, e.y - 30, '#f0d9ff', 14); } if (p.def.id === 1) { for (let i = 0; i < 3; i++) FX.add({ k: 'slash', x: e.x, y: e.y - 30, a: rr(0, TAU), r: 70, life: 14, max: 14, c: '#dff0ff' }); }
+    if (p.def.id === 3) FX.dust(e.x, e.y);
+    const was = e.intang; if (e.intang) e.intang = 0;
+    e.takeHit({ dmg, ang, bkb: 80, kbg: 95, att: p, x: e.x, y: e.y - 30, ax: p.x, fx: B.fx, unblockable: 1 });
+    onPlayerHit(p, e, dmg, 'hit');
+  }
+  World.shake(p.def.id === 3 ? 22 : 14); World.flashT = 6; Audio2.play('boom'); Audio2.play('bighit');
+  p.state = p.air ? 'air' : 'idle'; p.sf = 0; p.intang = 40;
+}
+// called from Game.simStep while the world is frozen for the cut-in
+function burstFreezeStep() {
+  const p = World.burster; World.freezeT--; World.frame++; updateParticles();
+  if (p) { p.sf++; if (World.freezeT === 0) { burstStrike(p); World.burster = null; } }
+}
+
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -3494,7 +3626,7 @@ function drawControlsPanel(x, y, a = 0.95) {
   T('Up + Special = recovery  ·  Grab ledges by falling near them  ·  Launch foes off-screen for a KO!', W / 2, y + 448, 15, '#ffd23c', { stroke: 0 });
 }
 const MODE_DESC_X = 0;
-const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
+const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'Spend Rift Shards earned from runs on permanent upgrades.', 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
 function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
   opts.forEach((o, i) => {
     const sel = i === idx; Game._ma = Game._ma || {}; const ak = title + o; const k = Game._ma[ak] = lerp(Game._ma[ak] || 0, sel ? 1 : 0, 0.3);
@@ -3539,6 +3671,9 @@ function drawHUD() {
       ctx.save(); const num = String(Math.floor(p.pct)); const sz = 60 * (1 + pop * 0.25); ctx.translate(x + cw - 48 + jx, y + 62 + jy);
       T(num, 0, 0, sz, null, { align: 'right', stroke: 10, grad: ['#ffffff', pctColor(p.pct)] }); T('%', 4, 0, 26, null, { align: 'left', stroke: 6, grad: ['#ffffff', pctColor(p.pct)] }); ctx.restore();
     }
+    { const m = clamp((p.meter || 0) / 100, 0, 1), full = m >= 1; const mx0 = x + 96, my0 = y + 22, mw = cw - 150; ctx.fillStyle = 'rgba(0,0,0,0.55)'; slant(mx0, my0, mw, 9, 4); ctx.fill();
+      if (m > 0) { const mg = ctx.createLinearGradient(mx0, 0, mx0 + mw, 0); mg.addColorStop(0, full ? '#fff7c2' : '#8a3cff'); mg.addColorStop(1, full ? '#ffb02c' : '#ff4fd8'); ctx.fillStyle = mg; slant(mx0, my0, Math.max(6, mw * m), 9, 4); ctx.fill(); }
+      if (full) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(255,220,120,${0.25 + 0.25 * Math.sin(World.frame * 0.3)})`; slant(mx0 - 3, my0 - 3, mw + 6, 15, 5); ctx.fill(); ctx.restore(); T('BURST! SHIELD+SPECIAL', mx0 + mw / 2, my0 - 4, 11, '#ffe9a0', { stroke: 3, shadow: false }); } }
     const bs = p.boons.slice(-12); bs.forEach((id, k) => { ctx.fillStyle = RARITY[BOON_BY_ID[id].r].c; ctx.beginPath(); ctx.arc(x + 100 + k * 11, y + 14, 4, 0, TAU); ctx.fill(); });
   });
   // top-left stage plate
@@ -3576,8 +3711,55 @@ function drawHUD() {
     if (bn.mods.length) T(bn.mods.map(m => MODIFIERS[m].name + ': ' + MODIFIERS[m].desc).join('   ·   '), W / 2, H / 2 + 45, 15, '#ffe9a0', { stroke: 4 });
     ctx.restore();
   }
-  drawCallout(G); drawBossIntro(G);
+  drawCallout(G); drawBossIntro(G); drawBurstCutin();
   if (G.showControls > 0) { G.showControls--; drawControlsPanel(140, 110, 0.94); }
+}
+function drawBurstCutin() {
+  const p = World.burster; if (!p || !(World.freezeT > 0)) return; const t = 54 - World.freezeT; const B = BURST[p.def.id]; const F = p.def;
+  const inK = easeOut(clamp(t / 10, 0, 1)), outK = t > 44 ? (t - 44) / 10 : 0;
+  ctx.fillStyle = `rgba(5,0,15,${0.55 * inK * (1 - outK)})`; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalAlpha = 1 - outK; const bandY = H / 2 - 120, off = (1 - inK) * -W + outK * W;
+  ctx.translate(off, 0); slant(-40, bandY, W + 80, 240, 80); const g = ctx.createLinearGradient(0, bandY, W, bandY + 240); g.addColorStop(0, shade(F.color, -0.5)); g.addColorStop(0.5, F.color); g.addColorStop(1, shade(F.color, -0.4)); ctx.fillStyle = g; ctx.fill();
+  ctx.save(); slant(-40, bandY, W + 80, 240, 80); ctx.clip(); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 3; for (let i = 0; i < 26; i++) { const yy = bandY + ((i * 37 + t * 18) % 240); ctx.beginPath(); ctx.moveTo(((i * 131 + t * 60) % (W + 400)) - 200, yy); ctx.lineTo(((i * 131 + t * 60) % (W + 400)) - 20, yy); ctx.stroke(); }
+  drawPortrait(ctx, F.id, 330 + Math.sin(t * 0.2) * 3, bandY + 130, 120, false); ctx.restore();
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, bandY, W, 5); ctx.fillRect(0, bandY + 235, W, 5);
+  T(F.name + "'S RIFT BURST", 820, bandY + 90, 30, '#fff', { stroke: 7 }); T(B.name, 820, bandY + 160, 66, null, { stroke: 12, grad: ['#ffffff', '#ffd23c'] });
+  ctx.restore();
+}
+function drawPath() {
+  drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.8)'; ctx.fillRect(0, 0, W, H); const G = Game;
+  T('CHOOSE YOUR PATH', W / 2, 92, 50, null, { stroke: 10, grad: ['#fff7c2', '#ffb02c'] });
+  T('Next: ' + stageLabel((G.run ? G.run.idx : 0) + 1) + (Net.isGuest ? '   ·   your partner is choosing' : ''), W / 2, 128, 18, '#ff9ae8', { stroke: 4 });
+  (G.pathOpts || []).forEach((k, i) => {
+    const P0 = PATHS[k]; if (!P0) return; const sel = G.pathIdx === i; const ein = easeBack(clamp((UIW.st - 6 - i * 6) / 18, 0, 1));
+    const x = W / 2 - 430 + i * 460 + (1 - ein) * (i ? 400 : -400), y = 170, w = 400, h = 420; ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1);
+    const lift = sel ? -10 + Math.sin(World.frame * 0.12) * 3 : 0;
+    // door
+    ctx.beginPath(); ctx.moveTo(x + 40, y + h + lift); ctx.lineTo(x + 40, y + 130 + lift); ctx.quadraticCurveTo(x + w / 2, y - 20 + lift, x + w - 40, y + 130 + lift); ctx.lineTo(x + w - 40, y + h + lift); ctx.closePath();
+    const dg = ctx.createLinearGradient(0, y, 0, y + h); dg.addColorStop(0, shade(P0.col, -0.2)); dg.addColorStop(1, shade(P0.col, -0.75)); ctx.fillStyle = dg; ctx.fill(); ctx.lineWidth = sel ? 6 : 3; ctx.strokeStyle = sel ? '#fff' : OL; ctx.stroke();
+    ctx.save(); ctx.clip(); ctx.globalCompositeOperation = 'lighter'; const sg = ctx.createRadialGradient(x + w / 2, y + 170 + lift, 10, x + w / 2, y + 170 + lift, 220); sg.addColorStop(0, rgba(P0.col, sel ? 0.65 : 0.35)); sg.addColorStop(1, rgba(P0.col, 0)); ctx.fillStyle = sg; ctx.fillRect(x, y, w, h); ctx.restore();
+    T(P0.icon, x + w / 2, y + 200 + lift, 92, '#fff', { italic: false, stroke: 10 });
+    T(P0.name, x + w / 2, y + 268 + lift, 28, '#fff', { stroke: 6 });
+    T(P0.desc, x + w / 2, y + 302 + lift, 16, '#e8e2f5', { stroke: 0, italic: false, weight: 600, shadow: false });
+    glass(x + 60, y + 330 + lift, w - 120, 50, P0.col, 12, 0.92); T('REWARD: ' + P0.reward, x + w / 2, y + 362 + lift, 18, P0.col, { stroke: 4 });
+    ctx.restore();
+    clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } });
+  });
+  T('◀ ▶ choose    ATTACK confirm', W / 2, H - 40, 16, '#cfc6e6', { stroke: 4 });
+}
+function drawForge() {
+  drawTitleBG(); const G = Game; T('RIFT FORGE', W / 2, 80, 54, null, { stroke: 10, grad: ['#fff7c2', '#ffb02c'] });
+  glass(W / 2 - 170, 100, 340, 46, '#5ab4ff', 12, 0.9); T('◆ ' + Meta.d.shards + ' RIFT SHARDS', W / 2, 132, 24, '#9fd8ff', { stroke: 5 });
+  FORGE.forEach((f, i) => {
+    const l = Meta.lv(f.id), maxed = l >= f.max, cost = maxed ? 0 : f.cost(l), afford = Meta.d.shards >= cost; const sel = G.forgeIdx === i; const y = 168 + i * 66, x = W / 2 - 360;
+    slant(x - (sel ? 10 : 0), y, 720 + (sel ? 20 : 0), 58, 14); const g = ctx.createLinearGradient(x, 0, x + 720, 0); g.addColorStop(0, sel ? '#4a2f7a' : 'rgba(36,26,62,0.92)'); g.addColorStop(1, sel ? '#26164a' : 'rgba(20,14,36,0.92)'); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = sel ? 3 : 1.5; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.15)'; ctx.stroke();
+    T(f.name, x + 28, y + 26, 22, '#fff', { align: 'left', stroke: 5 }); T(f.desc, x + 28, y + 48, 14, '#cfc6e6', { align: 'left', stroke: 0, italic: false, weight: 600, shadow: false });
+    for (let k = 0; k < f.max; k++) { ctx.fillStyle = k < l ? '#ffd23c' : 'rgba(0,0,0,0.5)'; slant(x + 430 + k * 24, y + 18, 20, 20, 5); ctx.fill(); }
+    T(maxed ? 'MAXED' : '◆ ' + cost, x + 700, y + 38, 20, maxed ? '#7dff8a' : afford ? '#9fd8ff' : '#ff8a8a', { align: 'right', stroke: 4 });
+    clickRegions().push({ x, y, w: 720, h: 58, fn: () => { Game.clickPick = i; } });
+  });
+  if (G.forgeFlash > 0) { G.forgeFlash--; ctx.fillStyle = `rgba(255,230,140,${G.forgeFlash / 60})`; ctx.fillRect(0, 0, W, H); }
+  T('ATTACK: buy upgrade    SPECIAL: back    ·    Shards are earned at the end of every run', W / 2, H - 26, 15, '#cfc6e6', { stroke: 4 });
 }
 function easeOut(k) { return 1 - Math.pow(1 - k, 3); }
 function easeBack(k) { const c = 1.7; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); }
@@ -3607,7 +3789,7 @@ function drawBossIntro(G) {
 const UIW = { last: '', t: 99, st: 0, conf: [], ready: {} };
 function drawWipe() {
   if (UIW.t > 26) return; const t = UIW.t++; const e = easeOut(clamp(t / 24, 0, 1));
-  const cols = ['#1a0f2e', '#8a3cff', '#ff4fd8'];
+  const cols = ['#ff4fd8', '#8a3cff', '#1a0f2e'];
   cols.forEach((c, i) => { const xl = -260 + clamp(e * 1.15 - i * 0.07, 0, 1) * (W + 560); ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(xl, 0); ctx.lineTo(W + 300, 0); ctx.lineTo(W + 300, H); ctx.lineTo(xl - 180, H); ctx.closePath(); ctx.fill(); });
 }
 function drawConfetti(spawn) {
@@ -3659,7 +3841,7 @@ const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: 
 function drawBoon() {
   drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.78)'; ctx.fillRect(0, 0, W, H); const G = Game;
   T(G.run && G.run.endless && G.run.idx === 11 ? 'ENDLESS AWAITS · CHOOSE A BOON' : 'STAGE CLEAR!', W / 2, 74, 46, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
-  T('Choose a boon', W / 2, 104, 18, '#ff9ae8', { stroke: 4 });
+  T('Choose a boon' + (G.run && G.run.rerolls ? '   ·   SHIELD: reroll (' + Object.values(G.run.rerolls).map(v => v | 0).join(' / ') + ' left)' : ''), W / 2, 104, 18, '#ff9ae8', { stroke: 4 });
   const n = World.players.length; const colW = n > 1 ? 560 : 640;
   World.players.forEach((p, i) => {
     const x0 = n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
@@ -3720,7 +3902,10 @@ function sceneDraw() {
     case 'charsel': drawCharSel(); break;
     case 'play': drawWorld(); drawHUD(); if (G.paused || (Net.isGuest && Net.hostPaused)) drawPause(); if (Net.isGuest && G.localPause) drawPause(true); break;
     case 'boon': drawBoon(); break;
-    case 'over': { drawTitleBG(); const s = G.overStats || {}; drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (G.t > 40) T('ATTACK: new run    ·    SPECIAL: title', W / 2, 380, 22, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
+    case 'path': drawPath(); break;
+    case 'forge': drawForge(); break;
+    case 'over': { drawTitleBG(); const s = G.overStats || {}; drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (s._earned !== undefined) { glass(W / 2 - 220, 318, 440, 50, '#5ab4ff', 12, 0.9); T('+' + s._earned + ' RIFT SHARDS  ·  total ' + Meta.d.shards, W / 2, 352, 22, '#9fd8ff', { stroke: 5 }); }
+      if (G.t > 40 || Net.isGuest) T('ATTACK: new run    ·    SPECIAL: title    ·    spend shards in the RIFT FORGE', W / 2, 410, 20, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
     case 'victory': { drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.72)'; ctx.fillRect(0, 0, W, H); T('THE HOLLOW CROWN FALLS', W / 2, 170, 58, null, { stroke: 11, grad: ['#fff7c2', '#ffb02c'] }); T('RUN TIME ' + fmtTime(G.run ? G.run.time : 0), W / 2, 220, 22, '#fff', { stroke: 5 }); T('The rift is still open… how far can you go?', W / 2, 258, 20, '#ff9ae8', { stroke: 5 }); drawMenu('', ['ENTER ENDLESS MODE', 'END RUN (VICTORY)'], G.menuIdx, 360); break; }
     case 'wait': drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); glass(W / 2 - 360, 260, 720, 110, '#5ab4ff', 22); T(Net.status || 'Waiting for host…', W / 2, 326, 24, '#fff', { stroke: 6 }); break;
   }

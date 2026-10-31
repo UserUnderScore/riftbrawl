@@ -61,7 +61,7 @@ function genStage(seed, idx, kind, opts = {}) {
     const A = { l, r: l + len, trig: l + 120, waves, floor: gy, done: false };
     st.arenas.push(A); x += len + 80; return A;
   };
-  const wave = (n) => { const w = []; const eliteP = 0.05 + idx * 0.03 + (st.mods.includes('elite') ? 0.3 : 0) + (opts.endless ? 0.15 : 0);
+  const wave = (n) => { const w = []; const eliteP = 0.05 + idx * 0.03 + (st.mods.includes('elite') ? 0.3 : 0) + (opts.endless ? 0.15 : 0) + (opts.path === 'elite' ? 0.35 : 0);
     let flits = 0, rivals = 0;
     for (let i = 0; i < n; i++) {
       let t = weightedPick(R, opts.endless ? 12 : idx);
@@ -75,12 +75,13 @@ function genStage(seed, idx, kind, opts = {}) {
   if (kind === 'normal') {
     travel(R.i(1, 2));
     // event room
-    const evx = x + 60; solid(x, gy, 380); st.events.push({ type: R.pick(['chest', 'spring', 'chest', 'elite']), x: x + 190, y: gy }); x += 380;
-    const nw = idx >= 5 || opts.endless ? 3 : 2;
+    const evx = x + 60; solid(x, gy, 380); const evT = R.pick(['chest', 'spring', 'chest', 'elite']); st.events.push({ type: opts.path === 'grove' ? 'spring' : opts.path === 'vault' ? 'chest' : evT, x: x + 190, y: gy }); x += 380;
+    if (opts.path === 'vault') { solid(x, gy, 300); st.events.push({ type: 'chest', x: x + 150, y: gy }); x += 300; }
+    const nw = Math.max(1, (idx >= 5 || opts.endless ? 3 : 2) - (opts.path === 'grove' ? 1 : 0));
     arena(R.r(1000, 1200), Array.from({ length: nw }, () => wave(wsize())));
     travel(R.i(1, 2));
     arena(R.r(1000, 1200), Array.from({ length: nw }, () => wave(wsize())));
-    if (idx >= 8 || opts.endless) { travel(1); arena(R.r(1000, 1200), Array.from({ length: 2 }, () => wave(wsize()))); }
+    if (idx >= 8 || opts.endless || opts.path === 'gauntlet') { travel(1); arena(R.r(1000, 1200), Array.from({ length: opts.path === 'gauntlet' ? 3 : 2 }, () => wave(wsize() + (opts.path === 'gauntlet' ? 1 : 0)))); }
     solid(x, G, 600); st.goal = { x: x + 300, y: G }; x += 600;
   } else {
     const boss = kind.split(':')[1];

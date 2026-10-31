@@ -60,7 +60,7 @@ function drawControlsPanel(x, y, a = 0.95) {
   T('Up + Special = recovery  ·  Grab ledges by falling near them  ·  Launch foes off-screen for a KO!', W / 2, y + 448, 15, '#ffd23c', { stroke: 0 });
 }
 const MODE_DESC_X = 0;
-const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
+const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'Spend Rift Shards earned from runs on permanent upgrades.', 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
 function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
   opts.forEach((o, i) => {
     const sel = i === idx; Game._ma = Game._ma || {}; const ak = title + o; const k = Game._ma[ak] = lerp(Game._ma[ak] || 0, sel ? 1 : 0, 0.3);
@@ -105,6 +105,9 @@ function drawHUD() {
       ctx.save(); const num = String(Math.floor(p.pct)); const sz = 60 * (1 + pop * 0.25); ctx.translate(x + cw - 48 + jx, y + 62 + jy);
       T(num, 0, 0, sz, null, { align: 'right', stroke: 10, grad: ['#ffffff', pctColor(p.pct)] }); T('%', 4, 0, 26, null, { align: 'left', stroke: 6, grad: ['#ffffff', pctColor(p.pct)] }); ctx.restore();
     }
+    { const m = clamp((p.meter || 0) / 100, 0, 1), full = m >= 1; const mx0 = x + 96, my0 = y + 22, mw = cw - 150; ctx.fillStyle = 'rgba(0,0,0,0.55)'; slant(mx0, my0, mw, 9, 4); ctx.fill();
+      if (m > 0) { const mg = ctx.createLinearGradient(mx0, 0, mx0 + mw, 0); mg.addColorStop(0, full ? '#fff7c2' : '#8a3cff'); mg.addColorStop(1, full ? '#ffb02c' : '#ff4fd8'); ctx.fillStyle = mg; slant(mx0, my0, Math.max(6, mw * m), 9, 4); ctx.fill(); }
+      if (full) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(255,220,120,${0.25 + 0.25 * Math.sin(World.frame * 0.3)})`; slant(mx0 - 3, my0 - 3, mw + 6, 15, 5); ctx.fill(); ctx.restore(); T('BURST! SHIELD+SPECIAL', mx0 + mw / 2, my0 - 4, 11, '#ffe9a0', { stroke: 3, shadow: false }); } }
     const bs = p.boons.slice(-12); bs.forEach((id, k) => { ctx.fillStyle = RARITY[BOON_BY_ID[id].r].c; ctx.beginPath(); ctx.arc(x + 100 + k * 11, y + 14, 4, 0, TAU); ctx.fill(); });
   });
   // top-left stage plate
@@ -142,8 +145,55 @@ function drawHUD() {
     if (bn.mods.length) T(bn.mods.map(m => MODIFIERS[m].name + ': ' + MODIFIERS[m].desc).join('   ·   '), W / 2, H / 2 + 45, 15, '#ffe9a0', { stroke: 4 });
     ctx.restore();
   }
-  drawCallout(G); drawBossIntro(G);
+  drawCallout(G); drawBossIntro(G); drawBurstCutin();
   if (G.showControls > 0) { G.showControls--; drawControlsPanel(140, 110, 0.94); }
+}
+function drawBurstCutin() {
+  const p = World.burster; if (!p || !(World.freezeT > 0)) return; const t = 54 - World.freezeT; const B = BURST[p.def.id]; const F = p.def;
+  const inK = easeOut(clamp(t / 10, 0, 1)), outK = t > 44 ? (t - 44) / 10 : 0;
+  ctx.fillStyle = `rgba(5,0,15,${0.55 * inK * (1 - outK)})`; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.globalAlpha = 1 - outK; const bandY = H / 2 - 120, off = (1 - inK) * -W + outK * W;
+  ctx.translate(off, 0); slant(-40, bandY, W + 80, 240, 80); const g = ctx.createLinearGradient(0, bandY, W, bandY + 240); g.addColorStop(0, shade(F.color, -0.5)); g.addColorStop(0.5, F.color); g.addColorStop(1, shade(F.color, -0.4)); ctx.fillStyle = g; ctx.fill();
+  ctx.save(); slant(-40, bandY, W + 80, 240, 80); ctx.clip(); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 3; for (let i = 0; i < 26; i++) { const yy = bandY + ((i * 37 + t * 18) % 240); ctx.beginPath(); ctx.moveTo(((i * 131 + t * 60) % (W + 400)) - 200, yy); ctx.lineTo(((i * 131 + t * 60) % (W + 400)) - 20, yy); ctx.stroke(); }
+  drawPortrait(ctx, F.id, 330 + Math.sin(t * 0.2) * 3, bandY + 130, 120, false); ctx.restore();
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, bandY, W, 5); ctx.fillRect(0, bandY + 235, W, 5);
+  T(F.name + "'S RIFT BURST", 820, bandY + 90, 30, '#fff', { stroke: 7 }); T(B.name, 820, bandY + 160, 66, null, { stroke: 12, grad: ['#ffffff', '#ffd23c'] });
+  ctx.restore();
+}
+function drawPath() {
+  drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.8)'; ctx.fillRect(0, 0, W, H); const G = Game;
+  T('CHOOSE YOUR PATH', W / 2, 92, 50, null, { stroke: 10, grad: ['#fff7c2', '#ffb02c'] });
+  T('Next: ' + stageLabel((G.run ? G.run.idx : 0) + 1) + (Net.isGuest ? '   ·   your partner is choosing' : ''), W / 2, 128, 18, '#ff9ae8', { stroke: 4 });
+  (G.pathOpts || []).forEach((k, i) => {
+    const P0 = PATHS[k]; if (!P0) return; const sel = G.pathIdx === i; const ein = easeBack(clamp((UIW.st - 6 - i * 6) / 18, 0, 1));
+    const x = W / 2 - 430 + i * 460 + (1 - ein) * (i ? 400 : -400), y = 170, w = 400, h = 420; ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1);
+    const lift = sel ? -10 + Math.sin(World.frame * 0.12) * 3 : 0;
+    // door
+    ctx.beginPath(); ctx.moveTo(x + 40, y + h + lift); ctx.lineTo(x + 40, y + 130 + lift); ctx.quadraticCurveTo(x + w / 2, y - 20 + lift, x + w - 40, y + 130 + lift); ctx.lineTo(x + w - 40, y + h + lift); ctx.closePath();
+    const dg = ctx.createLinearGradient(0, y, 0, y + h); dg.addColorStop(0, shade(P0.col, -0.2)); dg.addColorStop(1, shade(P0.col, -0.75)); ctx.fillStyle = dg; ctx.fill(); ctx.lineWidth = sel ? 6 : 3; ctx.strokeStyle = sel ? '#fff' : OL; ctx.stroke();
+    ctx.save(); ctx.clip(); ctx.globalCompositeOperation = 'lighter'; const sg = ctx.createRadialGradient(x + w / 2, y + 170 + lift, 10, x + w / 2, y + 170 + lift, 220); sg.addColorStop(0, rgba(P0.col, sel ? 0.65 : 0.35)); sg.addColorStop(1, rgba(P0.col, 0)); ctx.fillStyle = sg; ctx.fillRect(x, y, w, h); ctx.restore();
+    T(P0.icon, x + w / 2, y + 200 + lift, 92, '#fff', { italic: false, stroke: 10 });
+    T(P0.name, x + w / 2, y + 268 + lift, 28, '#fff', { stroke: 6 });
+    T(P0.desc, x + w / 2, y + 302 + lift, 16, '#e8e2f5', { stroke: 0, italic: false, weight: 600, shadow: false });
+    glass(x + 60, y + 330 + lift, w - 120, 50, P0.col, 12, 0.92); T('REWARD: ' + P0.reward, x + w / 2, y + 362 + lift, 18, P0.col, { stroke: 4 });
+    ctx.restore();
+    clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } });
+  });
+  T('◀ ▶ choose    ATTACK confirm', W / 2, H - 40, 16, '#cfc6e6', { stroke: 4 });
+}
+function drawForge() {
+  drawTitleBG(); const G = Game; T('RIFT FORGE', W / 2, 80, 54, null, { stroke: 10, grad: ['#fff7c2', '#ffb02c'] });
+  glass(W / 2 - 170, 100, 340, 46, '#5ab4ff', 12, 0.9); T('◆ ' + Meta.d.shards + ' RIFT SHARDS', W / 2, 132, 24, '#9fd8ff', { stroke: 5 });
+  FORGE.forEach((f, i) => {
+    const l = Meta.lv(f.id), maxed = l >= f.max, cost = maxed ? 0 : f.cost(l), afford = Meta.d.shards >= cost; const sel = G.forgeIdx === i; const y = 168 + i * 66, x = W / 2 - 360;
+    slant(x - (sel ? 10 : 0), y, 720 + (sel ? 20 : 0), 58, 14); const g = ctx.createLinearGradient(x, 0, x + 720, 0); g.addColorStop(0, sel ? '#4a2f7a' : 'rgba(36,26,62,0.92)'); g.addColorStop(1, sel ? '#26164a' : 'rgba(20,14,36,0.92)'); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = sel ? 3 : 1.5; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.15)'; ctx.stroke();
+    T(f.name, x + 28, y + 26, 22, '#fff', { align: 'left', stroke: 5 }); T(f.desc, x + 28, y + 48, 14, '#cfc6e6', { align: 'left', stroke: 0, italic: false, weight: 600, shadow: false });
+    for (let k = 0; k < f.max; k++) { ctx.fillStyle = k < l ? '#ffd23c' : 'rgba(0,0,0,0.5)'; slant(x + 430 + k * 24, y + 18, 20, 20, 5); ctx.fill(); }
+    T(maxed ? 'MAXED' : '◆ ' + cost, x + 700, y + 38, 20, maxed ? '#7dff8a' : afford ? '#9fd8ff' : '#ff8a8a', { align: 'right', stroke: 4 });
+    clickRegions().push({ x, y, w: 720, h: 58, fn: () => { Game.clickPick = i; } });
+  });
+  if (G.forgeFlash > 0) { G.forgeFlash--; ctx.fillStyle = `rgba(255,230,140,${G.forgeFlash / 60})`; ctx.fillRect(0, 0, W, H); }
+  T('ATTACK: buy upgrade    SPECIAL: back    ·    Shards are earned at the end of every run', W / 2, H - 26, 15, '#cfc6e6', { stroke: 4 });
 }
 function easeOut(k) { return 1 - Math.pow(1 - k, 3); }
 function easeBack(k) { const c = 1.7; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); }
@@ -173,7 +223,7 @@ function drawBossIntro(G) {
 const UIW = { last: '', t: 99, st: 0, conf: [], ready: {} };
 function drawWipe() {
   if (UIW.t > 26) return; const t = UIW.t++; const e = easeOut(clamp(t / 24, 0, 1));
-  const cols = ['#1a0f2e', '#8a3cff', '#ff4fd8'];
+  const cols = ['#ff4fd8', '#8a3cff', '#1a0f2e'];
   cols.forEach((c, i) => { const xl = -260 + clamp(e * 1.15 - i * 0.07, 0, 1) * (W + 560); ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(xl, 0); ctx.lineTo(W + 300, 0); ctx.lineTo(W + 300, H); ctx.lineTo(xl - 180, H); ctx.closePath(); ctx.fill(); });
 }
 function drawConfetti(spawn) {
@@ -225,7 +275,7 @@ const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: 
 function drawBoon() {
   drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.78)'; ctx.fillRect(0, 0, W, H); const G = Game;
   T(G.run && G.run.endless && G.run.idx === 11 ? 'ENDLESS AWAITS · CHOOSE A BOON' : 'STAGE CLEAR!', W / 2, 74, 46, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
-  T('Choose a boon', W / 2, 104, 18, '#ff9ae8', { stroke: 4 });
+  T('Choose a boon' + (G.run && G.run.rerolls ? '   ·   SHIELD: reroll (' + Object.values(G.run.rerolls).map(v => v | 0).join(' / ') + ' left)' : ''), W / 2, 104, 18, '#ff9ae8', { stroke: 4 });
   const n = World.players.length; const colW = n > 1 ? 560 : 640;
   World.players.forEach((p, i) => {
     const x0 = n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
@@ -286,7 +336,10 @@ function sceneDraw() {
     case 'charsel': drawCharSel(); break;
     case 'play': drawWorld(); drawHUD(); if (G.paused || (Net.isGuest && Net.hostPaused)) drawPause(); if (Net.isGuest && G.localPause) drawPause(true); break;
     case 'boon': drawBoon(); break;
-    case 'over': { drawTitleBG(); const s = G.overStats || {}; drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (G.t > 40) T('ATTACK: new run    ·    SPECIAL: title', W / 2, 380, 22, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
+    case 'path': drawPath(); break;
+    case 'forge': drawForge(); break;
+    case 'over': { drawTitleBG(); const s = G.overStats || {}; drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (s._earned !== undefined) { glass(W / 2 - 220, 318, 440, 50, '#5ab4ff', 12, 0.9); T('+' + s._earned + ' RIFT SHARDS  ·  total ' + Meta.d.shards, W / 2, 352, 22, '#9fd8ff', { stroke: 5 }); }
+      if (G.t > 40 || Net.isGuest) T('ATTACK: new run    ·    SPECIAL: title    ·    spend shards in the RIFT FORGE', W / 2, 410, 20, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
     case 'victory': { drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.72)'; ctx.fillRect(0, 0, W, H); T('THE HOLLOW CROWN FALLS', W / 2, 170, 58, null, { stroke: 11, grad: ['#fff7c2', '#ffb02c'] }); T('RUN TIME ' + fmtTime(G.run ? G.run.time : 0), W / 2, 220, 22, '#fff', { stroke: 5 }); T('The rift is still open… how far can you go?', W / 2, 258, 20, '#ff9ae8', { stroke: 5 }); drawMenu('', ['ENTER ENDLESS MODE', 'END RUN (VICTORY)'], G.menuIdx, 360); break; }
     case 'wait': drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); glass(W / 2 - 360, 260, 720, 110, '#5ab4ff', 22); T(Net.status || 'Waiting for host…', W / 2, 326, 24, '#fff', { stroke: 6 }); break;
   }

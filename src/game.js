@@ -29,7 +29,7 @@ const RARITY = [{ n: 'COMMON', c: '#d9d9d9' }, { n: 'RARE', c: '#5ab4ff' }, { n:
 const BOON_BY_ID = Object.fromEntries(BOONS.map(b => [b.id, b]));
 function rollBoons(p, bossReward) {
   const have = id => p.boons.filter(x => x === id).length;
-  const avail = BOONS.filter(b => have(b.id) < b.max);
+  const avail = BOONS.filter(b => b.r < 3 && have(b.id) < b.max);
   const out = [];
   for (let i = 0; i < 3; i++) {
     let r = rnd(); let tier = bossReward ? (i === 0 ? 2 : r < 0.5 ? 1 : 2) : (r < 0.08 ? 2 : r < 0.35 ? 1 : 0);
@@ -72,22 +72,24 @@ const Game = {
   setScene(s) { this.scene = s; this.menuIdx = 0; this.t = 0; },
   // --- run lifecycle ---
   startRun() {
-    this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0 };
-    World.reset(); Particles.length = 0;
+    this.meta = Meta.levels(); const gmu = (Net.guestState && Net.guestState.mu) || null;
+    this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0, cleared: 0, bosses: 0, bonus: 0, path: 'road', rerolls: { 0: this.meta.reroll || 0, 1: this.slots[1] && this.slots[1].dev === 'net' ? ((gmu && gmu.reroll) || 0) : (this.meta.reroll || 0) } };
+    World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null;
     World.players = this.slots.map((s, i) => new Fighter(FIGHTERS[this.csel[i]], i, s.input));
-    this.teamStocks = World.players.length > 1 ? 4 : 3;
-    this.loadStage(0);
+    World.players.forEach((p, i) => applyMeta(p, this.slots[i] && this.slots[i].dev === 'net' ? gmu : this.meta));
+    this.teamStocks = (World.players.length > 1 ? 4 : 3) + (this.meta.vigor || 0);
+    this.loadStage(0, 'road');
   },
-  loadStage(idx) {
-    const R = this.run; R.idx = idx; R.stageSeed = (R.seed + idx * 7919) >>> 0;
+  loadStage(idx, path = 'road') {
+    const R = this.run; R.idx = idx; R.stageSeed = (R.seed + idx * 7919) >>> 0; R.path = path;
     const kind = stageKind(idx), rr0 = SRng(R.stageSeed ^ 0xabc);
     const mods = [];
     if (kind === 'normal' && (idx >= 2 || R.endless)) { const n = idx >= 12 ? (rr0.chance(0.5) ? 2 : 1) : (rr0.chance(0.35) ? 1 : 0); const ks = shuffle(Object.keys(MODIFIERS), rr0.f); for (let i = 0; i < n; i++) mods.push(ks[i]); }
     const np = World.players.length;
-    World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np });
+    World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np, path });
     this.applyStageState(mods);
     const e = Math.max(0, idx - 11);
-    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np > 1 ? 1.15 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
+    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
     for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
     World.players.forEach((p, i) => {
@@ -105,7 +107,7 @@ const Game = {
   bossDefeated(e) {
     this.callout('BOSS DEFEATED!', '#ffd23c', 54); World.shake(20); World.slowmo(60); World.zp = 0.12; World.flashT = 10; Audio2.play('ko');
     for (const o of World.enemies) if (o !== e && !o.dead) { o.hurtRaw(9999, true); }
-    this.teamStocks++;
+    this.teamStocks++; if (this.run) this.run.bosses++;
     FX.text(e.x, e.y - 120, '+1 STOCK', '#7dff8a', 20);
     if (e.type === 'crown' && this.run && !this.run.endless && this.run.idx === 11) this.crownDown = 120;
   },
@@ -115,6 +117,7 @@ const Game = {
   },
   // --- per-frame simulation (host / local) ---
   simStep() {
+    if (World.freezeT > 0) { burstFreezeStep(); return; }
     const R = this.run; R.time++; this.stageT++;
     World.frame++;
     for (const p of World.players) p.update();
@@ -208,18 +211,24 @@ const Game = {
   stageClear() {
     if (this.scene !== 'play') return;
     if (this.run.idx === 11 && !this.run.endless) { if (!this.crownDown) { this.setScene('victory'); this.victoryIdx = 0; } return; }
-    Audio2.play('boon'); const R = this.run; const wasBoss = stageKind(R.idx).startsWith('boss');
+    Audio2.play('boon'); const R = this.run; const wasBoss = stageKind(R.idx).startsWith('boss'); R.cleared++;
+    const minTier = wasBoss || R.path === 'gauntlet' ? 2 : R.path === 'elite' ? 1 : 0; this.boonMin = minTier;
+    if (R.path === 'grove') for (const p of World.players) p.pct = Math.max(0, p.pct - 30);
+    if (R.path === 'lifeline') this.teamStocks++;
+    if (R.path === 'vault') R.bonus += 25;
     this.boonOpts = {}; this.boonPick = {}; this.boonIdx = {};
-    World.players.forEach((p, i) => { this.boonOpts[i] = rollBoons(p, wasBoss); this.boonPick[i] = null; this.boonIdx[i] = 0; });
+    World.players.forEach((p, i) => { this.boonOpts[i] = rollBoonsPlus(p, minTier); this.boonPick[i] = null; this.boonIdx[i] = 0; });
     this.setScene('boon');
   },
   finishBoons() {
     World.players.forEach((p, i) => { const id = this.boonPick[i]; if (id && id !== 'skip') applyBoon(p, id); });
-    this.loadStage(this.run.idx + 1);
+    const next = this.run.idx + 1;
+    if (stageKind(next) === 'normal') { this.pathOpts = rollPaths(); this.pathIdx = 0; this.setScene('path'); }
+    else this.loadStage(next, 'road');
   },
   gameOver() {
     if (this.scene === 'over') return;
-    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0 };
+    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0, cleared: R.cleared, bosses: R.bosses, bonus: R.bonus }; awardShards(this.overStats);
     if (this.overStats.endless > this.best.endless) { this.best.endless = this.overStats.endless; store('sse_best', this.best); }
     this.setScene('over');
   },
@@ -249,7 +258,7 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -270,10 +279,12 @@ function sceneUpdate() {
         if (i === 1) { G.mode = 'local'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 2) { G.mode = 'host'; G.slots = [{ input: Devices.get(prim), dev: prim }]; Net.host(); G.setScene('lobby'); }
         if (i === 3) { G.mode = 'guest'; G.primary = prim; G.setScene('join'); showJoinBox(true); }
-        if (i === 4) G.setScene('controls');
-        if (i === 5) { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
-        if (i === 6) { setSfxVol(Audio2.vol >= 1 ? 0 : Audio2.vol + 0.1); }
-        if (i === 7) { setMusicVol(Music.vol >= 1 ? 0 : Music.vol + 0.1); }
+        const lab = MODE_OPTS[i];
+        if (lab === 'RIFT FORGE') { G.forgeIdx = 0; G.setScene('forge'); }
+        if (lab === 'CONTROLS') G.setScene('controls');
+        if (lab === 'CONTROLLER SETUP') { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
+        if (lab === 'SFX VOLUME') { setSfxVol(Audio2.vol >= 1 ? 0 : Audio2.vol + 0.1); }
+        if (lab === 'MUSIC VOLUME') { setMusicVol(Music.vol >= 1 ? 0 : Music.vol + 0.1); }
       }
       if (anyBack()) G.setScene('title');
       break;
@@ -297,13 +308,27 @@ function sceneUpdate() {
       break;
     }
     case 'boon': updateBoon(); break;
+    case 'path': {
+      const n = 2; const sl = G.slots.find(s => s.dev !== 'net'); const src = sl ? sl.input : null; const d = src ? menuDir(src) : '';
+      if (d === 'left' || d === 'up') { G.pathIdx = 0; Audio2.play('cursor'); } if (d === 'right' || d === 'down') { G.pathIdx = 1; Audio2.play('cursor'); }
+      if (G.clickPick !== undefined) { G.pathIdx = G.clickPick; }
+      if (G.t > 25 && ((src && menuOK(src)) || G.clickPick !== undefined)) { G.clickPick = undefined; Audio2.play('ready'); G.loadStage(G.run.idx + 1, G.pathOpts[G.pathIdx]); }
+      break;
+    }
+    case 'forge': {
+      const n = FORGE.length; const d = anyDir(); if (d === 'up') { G.forgeIdx = (G.forgeIdx + n - 1) % n; Audio2.play('cursor'); } if (d === 'down') { G.forgeIdx = (G.forgeIdx + 1) % n; Audio2.play('cursor'); }
+      if (G.clickPick !== undefined) { G.forgeIdx = G.clickPick; G.clickPick = undefined; G.forgeBuy = 1; }
+      if (anyOK() || G.forgeBuy) { G.forgeBuy = 0; if (Meta.buy(G.forgeIdx)) { Audio2.play('boon'); G.forgeFlash = 20; } else Audio2.play('back'); }
+      if (anyBack()) G.setScene('mode');
+      break;
+    }
     case 'over': if (G.t > 40 && (anyOK() || G.clickPick !== undefined)) { G.clickPick = undefined; G.toCharSel(); } if (G.t > 40 && anyBack()) { Net.leave(); G.setScene('title'); } break;
     case 'victory': {
       const d = menuNav(2); if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; }
       if (G.t > 60 && (anyOK() || G.clickPick !== undefined)) {
         G.clickPick = undefined;
-        if (G.menuIdx === 0) { G.run.endless = true; FX.text(0, 0, '', '#fff'); G.boonOpts = {}; G.boonPick = {}; World.players.forEach((p, i) => { G.boonOpts[i] = rollBoons(p, true); G.boonPick[i] = null; G.boonIdx[i] = 0; }); G.setScene('boon'); }
-        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1 }; if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
+        if (G.menuIdx === 0) { G.run.endless = true; FX.text(0, 0, '', '#fff'); G.boonOpts = {}; G.boonPick = {}; World.players.forEach((p, i) => { G.boonOpts[i] = rollBoonsPlus(p, 2); G.boonPick[i] = null; G.boonIdx[i] = 0; }); G.setScene('boon'); }
+        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1, cleared: G.run.cleared, bosses: G.run.bosses, bonus: G.run.bonus }; awardShards(G.overStats); if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
       }
       break;
     }
@@ -351,8 +376,10 @@ function updateBoon() {
   const G = Game;
   World.players.forEach((p, i) => {
     if (G.boonPick[i]) return; const sl = G.slots[i]; if (!sl) { G.boonPick[i] = 'skip'; return; }
+    if (sl.dev === 'net' && Net.guestState && (Net.guestState.rr | 0) !== (G._grr | 0) && G.run.rerolls[i] > 0) { G._grr = Net.guestState.rr | 0; G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); Audio2.play('confirm'); }
     if (sl.dev === 'net') { const gs = Net.guestState; if (gs && Array.isArray(gs.bp) && gs.bp[0] === G.run.idx + (G.run.endless ? 1000 : 0) && typeof gs.bp[1] === 'number') { const id = G.boonOpts[i][gs.bp[1] | 0]; if (id) { G.boonPick[i] = id; Audio2.play('select'); } } return; }
     const s = sl.input; const d = menuDir(s); const n = G.boonOpts[i].length;
+    if (s.cur.sp && G.run.rerolls[i] > 0) { G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); G.boonIdx[i] = 0; Audio2.play('confirm'); UIW.st = 0; return; }
     if (d === 'up' || d === 'left') G.boonIdx[i] = (G.boonIdx[i] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[i] = (G.boonIdx[i] + 1) % n;
     if (G.clickBoon && G.clickBoon[0] === i) { G.boonIdx[i] = G.clickBoon[1]; G.clickBoon = null; G.boonPick[i] = G.boonOpts[i][G.boonIdx[i]]; Audio2.play('boon'); return; }
     if (menuOK(s) && G.t > 20) { G.boonPick[i] = G.boonOpts[i][G.boonIdx[i]] || 'skip'; Audio2.play('boon'); }

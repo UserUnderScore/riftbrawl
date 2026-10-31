@@ -76,7 +76,7 @@ class Fighter {
     this.boons = []; this.mods = { dmg: 1, kb: 1, take: 1, weight: 0, speed: 1, jumps: 0, shield: 1, spec: 1, smash: 1, smashChg: 1, steal: 0, thorns: 0, atk: 1, exec: 0, meteor: 0, phoenix: 0, chain: 0, orb: 0, landShock: 0, size: 1, aerial: 1, lagMul: 1 };
     this.phoenixUsed = false; this.jabNext = null; this.jabT = 0; this.kos = 0; this.dmgDealt = 0; this.tumble = 0; this.hammerOut = null; this.orbA = 0;
     this.inp = new InputSource('none').blank(); this.lastHitBy = null; this.counterD = 0; this.fallStart = 0;
-    this.buf = {}; this.coyote = 0; this.techBuf = 0; this.techLock = 0; this.wallT = 0; this.wallSide = 0; this.wallJumped = 0; this.staleQ = []; this.stale = 1; this.bounced = 0; this.rollDir = 1;
+    this.meter = 0; this.buf = {}; this.coyote = 0; this.techBuf = 0; this.techLock = 0; this.wallT = 0; this.wallSide = 0; this.wallJumped = 0; this.staleQ = []; this.stale = 1; this.bounced = 0; this.rollDir = 1;
   }
   get st() { return this.def.stats; }
   get maxJumps() { return this.st.jumps + this.mods.jumps; }
@@ -129,6 +129,7 @@ class Fighter {
     if (this.state !== 'shield') this.shieldHP = Math.min(50 * this.mods.shield, this.shieldHP + 0.12);
     // orbit orb boon
     if (this.mods.orb) this.orbA += 0.08;
+    if (this.team === 0 && raw.s && raw.bp && this.meter >= 100 && (this.actionable() || this.state === 'shield')) { startBurst(this); return; }
     const smashDir = this.smashInput(raw) || inp._sd;
 
     switch (this.state) {
@@ -210,6 +211,7 @@ class Fighter {
         break;
       }
       case 'ledge': this.updateLedge(inp); break;
+      case 'burst': this.vx = this.vy = 0; break;
       case 'climb': { const C = this.climb, k = clamp(this.sf / 13, 0, 1), e = 1 - Math.pow(1 - k, 3); this.x = lerp(C.x0, C.x1, clamp((e - 0.3) / 0.7, 0, 1)); this.y = lerp(C.y0, C.y1, clamp(e / 0.6, 0, 1)) - Math.sin(k * Math.PI) * 10; this.vx = this.vy = 0; if (this.sf >= 14) { this.x = C.x1; this.y = C.y1; this.state = 'land0'; this.sf = 0; FX.dust(this.x, this.y); } break; }
     }
     this.prevMx = inp.mx; this.prevMy = inp.my;
@@ -284,6 +286,7 @@ class Fighter {
     const sp = mv.special ? 1 : this.mods.atk;
     this.mft += sp; const prev = this.mf; this.mf = Math.floor(this.mft);
     for (let t = prev + 1; t <= this.mf; t++) if (mv.go) { mv.go(this, t); if (this.move !== mv) return; }
+    if (mv.smash && this.mods.overcharge && this.chg > 0.8 && this._oc !== this.mid && mv.hb.length && this.mf >= mv.hb[0].s) { this._oc = this.mid; spawnProj('blast', this, this.x + this.face * 50, this.y - 30, 0, 0, { r: 85, dmg: 10 }); FX.explode(this.x + this.face * 50, this.y - 30, 80); World.shake(8); Audio2.play('boom'); }
     if (!mv.go && this.mf > prev) { }
     if (mv.dash) { if (this.mf < 18) this.vx = this.face * Math.max(Math.abs(this.vx) * 0.97, 3); }
     if (mv.jab && this.mf >= 4) { this.jabNext = mv.jab === 1 ? 'jab2' : 'jab3'; this.jabT = 18; }
@@ -327,7 +330,7 @@ class Fighter {
     if (km > 0) { const nm = Math.max(0, km - KB_DECAY); this.kx *= nm / km; this.ky *= nm / km; }
     if (this.state === 'hitstun' && km > 8 && World.frame % 2 === 0) FX.trail(this.x - this.kx, this.y - 30 - this.ky, km > 14 ? 'rgba(255,120,60,0.6)' : 'rgba(90,90,100,0.45)', 5 + km * 0.3);
     const passB = this.state === 'hitstun' && km > 13;
-    if (this.state === 'walltech' || this.state === 'revive' || this.state === 'climb') return;
+    if (this.state === 'walltech' || this.state === 'revive' || this.state === 'climb' || this.state === 'burst') return;
     const wasAir = this.air; const vyBefore = this.vy + this.ky; const vxBefore = this.vx + this.kx;
     const r = moveBody(this, this.vx + this.kx, this.vy + this.ky, { passBarrier: passB, noWorldEdge: passB });
     if (r.wall) {
@@ -417,7 +420,8 @@ class Fighter {
     this.pct = Math.min(999, this.pct + dmg);
     if (this.mods.thorns && info.att && info.att.takeHit && info.att.team !== 0) info.att.hurtRaw?.(info.dmg * this.mods.thorns);
     let kb = calcKB(this.pct * (this.team === 0 ? 1.6 : 1.3), dmg, this.weight, info.bkb, info.kbg * (this.team === 0 && info.att && info.att.team !== 0 ? 1.15 : 1));
-    if (this.state === 'move' && this.move.armor && this.mf >= this.move.armor[0] && this.mf <= this.move.armor[1] && kb < 130) { this.hitlag = 4; FX.burst(info.x, info.y, '#ffffff', 4); Audio2.play('hit', 0); return 'armor'; }
+    if (this.team === 0 && this.pct > 0) this.meter = Math.min(100, this.meter + dmg * 0.5);
+    if (this.state === 'move' && ((this.move.armor && this.mf >= this.move.armor[0] && this.mf <= this.move.armor[1] && kb < 130) || (this.mods.armorAll && (this.move.smash || this.move.special) && kb < 100))) { this.hitlag = 4; FX.burst(info.x, info.y, '#ffffff', 4); Audio2.play('hit', 0); return 'armor'; }
     this.launch(kb, info);
     return 'hit';
   }
@@ -628,7 +632,8 @@ function onPlayerHit(p, e, dmg, res) {
   if (p.move && p._staleMid !== p.mid) { p._staleMid = p.mid; p.staleQ.push(p.move.name); if (p.staleQ.length > 9) p.staleQ.shift(); }
   if (res !== 'shield') p.hitlag = Math.max(p.hitlag, Math.floor(hitlagFor(dmg) * (p.move && p.move.special ? 0.5 : 0.85)));
   if (p.mods.steal) p.pct = Math.max(0, p.pct - dmg * p.mods.steal);
-  if (p.mods.chain && Math.random() < 0.5) {
+  if (p.team === 0) { const was = p.meter; p.meter = Math.min(100, p.meter + dmg * 0.9 * (p.mods.meterMul || 1)); if (was < 100 && p.meter >= 100) { FX.text(p.x, p.y - 100, 'BURST READY!', '#ffd23c', 18); Audio2.play('ready'); } }
+  if (p.mods.chain && Math.random() < Math.min(0.9, 0.3 + 0.2 * p.mods.chain)) {
     const o = World.enemies.filter(x => !x.dead && x !== e).sort((a, b) => dist(a.x, a.y, e.x, e.y) - dist(b.x, b.y, e.x, e.y))[0];
     if (o && dist(o.x, o.y, e.x, e.y) < 260) { FX.zap(e.x, e.y - 30, o.x, o.y - 30); o.hurtRaw(5 * p.mods.chain); }
   }
