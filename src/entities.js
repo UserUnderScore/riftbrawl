@@ -385,13 +385,13 @@ class Fighter {
 
 // --- Projectiles ---
 const PROJ = {
-  wave: { r: 18, life: 40, dmg: 7, a: 40, bkb: 25, kbg: 55, pierce: 2, solid: 1 },
-  orb: { r: 9, life: 80, dmg: 5, a: 45, bkb: 30, kbg: 50, pierce: 1, solid: 1 },
-  bolt: { r: 9, life: 24, dmg: 6, a: 30, bkb: 20, kbg: 28, pierce: 3, stun: 25, solid: 1, fx: 'spark' },
+  wave: { r: 23, life: 40, dmg: 7, a: 40, bkb: 25, kbg: 55, pierce: 2, solid: 1 },
+  orb: { r: 11, life: 80, dmg: 5, a: 45, bkb: 30, kbg: 50, pierce: 1, solid: 1 },
+  bolt: { r: 12, life: 24, dmg: 6, a: 30, bkb: 20, kbg: 28, pierce: 3, stun: 25, solid: 1, fx: 'spark' },
   mine: { r: 10, life: 1200, dmg: 0, grav: 0.4, solid: 0, mine: 1 },
   blast: { r: 55, life: 4, dmg: 12, a: 85, bkb: 50, kbg: 70, pierce: 99, radial: 1, fx: 'fire' },
-  hammer: { r: 16, life: 220, dmg: 10, a: 45, bkb: 30, kbg: 70, pierce: 99, solid: 0 },
-  shock: { r: 14, life: 40, dmg: 8, a: 80, bkb: 40, kbg: 50, pierce: 99, ground: 1, solid: 1 },
+  hammer: { r: 21, life: 220, dmg: 10, a: 45, bkb: 30, kbg: 70, pierce: 99, solid: 0 },
+  shock: { r: 18, life: 40, dmg: 8, a: 80, bkb: 40, kbg: 50, pierce: 99, ground: 1, solid: 1 },
   // enemy
   goo: { r: 10, life: 160, dmg: 7, a: 60, bkb: 25, kbg: 40, grav: 0.3, solid: 1 },
   bullet: { r: 7, life: 90, dmg: 6, a: 30, bkb: 20, kbg: 35, solid: 1 },
@@ -402,6 +402,7 @@ const PROJ = {
   egg: { r: 12, life: 200, dmg: 6, a: 70, bkb: 30, kbg: 30, grav: 0.35, solid: 1, egg: 1 },
   rock: { r: 14, life: 200, dmg: 9, a: 70, bkb: 30, kbg: 40, grav: 0.25, solid: 1 },
   ebomb: { r: 80, life: 5, dmg: 18, a: 'radial', bkb: 60, kbg: 75, pierce: 99, radial: 1, ff: 1, fx: 'fire' },
+  erang: { r: 13, life: 200, dmg: 6, a: 40, bkb: 25, kbg: 40, pierce: 99, solid: 0 },
   swordwave: { r: 22, life: 70, dmg: 10, a: 35, bkb: 40, kbg: 55, solid: 1 },
 };
 function spawnProj(type, owner, x, y, vx, vy, extra = {}) {
@@ -410,17 +411,18 @@ function spawnProj(type, owner, x, y, vx, vy, extra = {}) {
   if (owner && owner.team === 0) {
     const m = owner.mods; p.dmg *= m.dmg * m.spec; p.kbg *= m.kb;
   } else if (p.team === 1 && extra.dmg === undefined) p.dmg *= World.diff.dmg;
-  if (type === 'orb') { const c = extra.c || 0; p.r = 9 + 11 * c; p.dmg = (5 + 15 * c) * (owner.mods.dmg * owner.mods.spec); p.kbg = 50 + 40 * c; }
+  if (type === 'orb') { const c = extra.c || 0; p.r = 11 + 13 * c; p.dmg = (5 + 15 * c) * (owner.mods.dmg * owner.mods.spec); p.kbg = 50 + 40 * c; }
   World.projs.push(p); return p;
 }
 function updateProj(p) {
   p.t++; p.life--;
   const D = PROJ[p.type];
-  if (p.type === 'hammer') {
+  if (p.type === 'hammer' || p.type === 'erang') {
     const o = p.owner; const dir = sign(p.vx0 || (p.vx0 = p.vx));
-    if (!p.ret) { p.vx -= dir * 0.36; p.vy = Math.sin(p.t / 10) * 0.6; if (sign(p.vx) !== dir) { p.ret = 1; p.hits.clear(); } }
-    else { const dx = o.x - p.x, dy = (o.y - 40) - p.y, m = Math.hypot(dx, dy) || 1; const s = Math.min(14, 4 + p.t * 0.08); p.vx = dx / m * s; p.vy = dy / m * s; if (m < 30 || o.dead) { p.life = 0; o.hammerOut = null; } }
-    if (p.life <= 0) o.hammerOut = null;
+    if (p.type === 'erang' && (!o || o.dead || o.dying)) p.life = 0;
+    if (!p.ret) { p.vx -= dir * (p.type === 'erang' ? 0.3 : 0.36); p.vy = Math.sin(p.t / 10) * 0.6; if (sign(p.vx) !== dir) { p.ret = 1; p.hits.clear(); } }
+    else { const dx = o.x - p.x, dy = (o.y - 40) - p.y, m = Math.hypot(dx, dy) || 1; const s = Math.min(14, 4 + p.t * 0.08); p.vx = dx / m * s; p.vy = dy / m * s; if (m < 30 || o.dead) { p.life = 0; if (p.type === 'hammer') o.hammerOut = null; } }
+    if (p.life <= 0 && p.type === 'hammer') o.hammerOut = null;
   }
   if (p.type === 'mine') {
     if (p.t > 30) {
@@ -540,12 +542,14 @@ const FX = {
   after(x, y, face, c) { this.add({ k: 'after', x, y, face, life: 12, max: 12, c }); },
   trail(x, y, c, s) { this.add({ k: 'dust', x, y, vx: 0, vy: 0, life: 14, max: 14, c, s }); },
   zap(x1, y1, x2, y2) { this.add({ k: 'zap', x: x1, y: y1, x2, y2, life: 10, max: 10, c: '#bfe3ff' }); },
-  portal(x, y) { this.add({ k: 'portal', x, y, life: 40, max: 40, c: '#b05cff' }); },
+  portal(x, y) { this.swarm(x, y + 20, 50); },
+  swarm(x, y, h = 50) { for (let i = 0; i < 26; i++) { const a = rr(0, TAU), d = rr(50, 110), t = ri(18, 40); this.add({ k: 'cube', x: x + Math.cos(a) * d, y: y - h / 2 + Math.sin(a) * d, vx: -Math.cos(a) * d / t, vy: -Math.sin(a) * d / t, life: t, max: t, c: Math.random() < 0.6 ? '#2a1140' : '#9b3cff', s: rr(4, 9), rot: rr(0, 3) }); } this.add({ k: 'ring', x, y: y - h / 2, r0: 70, r: 4, life: 36, max: 36, c: 'rgba(155,60,255,0.6)' }); },
+  dissolve(x, y, h = 50) { for (let i = 0; i < 22; i++) this.add({ k: 'cube', x: x + rr(-18, 18), y: y - rr(0, h), vx: rr(-0.8, 0.8), vy: rr(-2.4, -0.6), life: ri(30, 55), max: 55, c: Math.random() < 0.6 ? '#2a1140' : '#9b3cff', s: rr(4, 10), rot: rr(0, 3), rise: 1 }); },
 };
 function updateParticles() {
   for (let i = Particles.length - 1; i >= 0; i--) {
     const p = Particles[i]; p.life--;
-    if (p.vx !== undefined) { p.x += p.vx; p.y += p.vy || 0; if (p.k === 'spark') { p.vx *= 0.92; p.vy = p.vy * 0.92 + 0.15; } }
+    if (p.k === 'cube') p.rot += 0.12; if (p.vx !== undefined) { p.x += p.vx; p.y += p.vy || 0; if (p.k === 'spark') { p.vx *= 0.92; p.vy = p.vy * 0.92 + 0.15; } }
     if (p.k === 'text') p.y += p.vy;
     if (p.life <= 0) Particles.splice(i, 1);
   }

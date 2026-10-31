@@ -1,12 +1,20 @@
 // ===== ENEMIES (10 types) + BOSSES =====
 function A(s, e, x, y, r, d, a, bkb, kbg, o = {}) { return { s, e, x, y, r, d, a, bkb, kbg, ...o }; }
 const ENEMY = {
-  shade: { name: 'Shade', w: 20, h: 50, hp: 30, spd: 2.6, weight: 90, col: '#3b2f55', eye: '#ff4fd8',
+  shade: { name: 'Shade', w: 22, h: 50, hp: 30, spd: 2.6, weight: 90, col: '#2b2d42', eye: '#ff4fd8',
     atks: {
+      slash: { d: 40, tele: 14, hb: [A(14, 18, 34, -30, 22, 9, 40, 35, 70)], go: (e, t) => { if (t === 14) Audio2.play('swing'); } },
+      rang: { d: 44, tele: 16, go: (e, t) => { if (t === 16) { spawnProj('erang', e, e.x + e.face * 18, e.y - 32, e.face * 9, 0); Audio2.play('swing'); } } },
       jab2: { d: 36, tele: 10, hb: [A(10, 12, 22, -34, 12, 4, 30, 20, 15), A(20, 23, 24, -34, 13, 5, 40, 35, 60)] },
       kick: { d: 42, tele: 16, hb: [A(16, 24, 20, -24, 14, 8, 45, 35, 70)], go: (e, t) => { if (t === 16) e.vx = e.face * 6; } },
     },
-    ai(e, T) { e.walk(T, 2.6); if (e.cd <= 0 && Math.abs(T.dx) < 50 && Math.abs(T.dy) < 40) { e.attack(rnd() < 0.6 ? 'jab2' : 'kick'); e.cd = 50; } } },
+    ai(e, T) {
+      const v = e.id % 3, ad = Math.abs(T.dx);
+      if (v === 2 && ad < 200) e.walk(T, -1.5); else e.walk(T, 2.6);
+      if (e.cd > 0) return;
+      if (v === 2 && ad > 140 && ad < 430 && Math.abs(T.dy) < 70 && !World.projs.some(p => p.owner === e)) { e.face = sign(T.dx); e.attack('rang'); e.cd = 90; return; }
+      if (ad < (v === 1 ? 64 : 50) && Math.abs(T.dy) < 40) { e.attack(v === 1 ? 'slash' : rnd() < 0.6 ? 'jab2' : 'kick'); e.cd = 50; }
+    } },
   spitter: { name: 'Spitter', w: 34, h: 30, hp: 28, spd: 1.2, weight: 80, col: '#2f5544', eye: '#a8ff3c',
     atks: {
       spit: { d: 40, tele: 20, go: (e, t, T) => { if (t === 20 && T) { const vx = clamp(T.dx / 42, -8, 8); spawnProj('goo', e, e.x + e.face * 14, e.y - 22, vx, -7.5); Audio2.play('shoot'); } } },
@@ -71,6 +79,7 @@ class Enemy {
     this.x = x; this.y = y; this.vx = 0; this.vy = 0; this.kx = 0; this.ky = 0; this.face = -1; this.air = 1; this.t = 0;
     this.scale = 1; this.w = d.w; this.h = d.h; this.maxHp = d.hp * World.diff.hp; this.hp = this.maxHp; this.pct = 0; this.weight = d.weight;
     this.hitstun = 0; this.hitlag = 0; this.atk = null; this.af = 0; this.cd = 60 + ri(0, 60); this.hitSet = new Set(); this.mid = 0; this.dead = false; this.dying = 0; this.flash = 0;
+    this.spawnT = o.spawn ? 40 : 0;
     this.elite = o.elite || null; this.minion = o.minion; this.spd = 1; this.dmgMul = 1; this.ward = 0; this.wardT = 0; this.boss = !!d.boss; this.jumpCD = 0;
     if (this.elite) {
       if (this.elite === 'giant') { this.scale = 1.35; this.maxHp *= 1.8; this.dmgMul = 1.3; this.weight *= 1.3; }
@@ -103,6 +112,7 @@ class Enemy {
     if (this.dead) return;
     this.t++; if (this.flash > 0) this.flash--; if (this.jumpCD > 0) this.jumpCD--; if (this.blinkCD > 0) this.blinkCD--;
     if (this.hitlag > 0) { this.hitlag--; return; }
+    if (this.spawnT > 0) { this.spawnT--; if (!this.def.fly) this.physics(); return; }
     if (this.asleep) { const T0 = this.target(); if (!T0 || Math.abs(T0.dx) > 760) { this.physics(); return; } this.asleep = false; }
     if (this.ward === 0 && this.elite === 'warded') { this.wardT++; if (this.wardT > 300) { this.ward = 25; this.wardT = 0; } }
     if (this.dying) { this.dying++; this.physics(); if (this.dying > 40) this.remove(); return; }
@@ -133,14 +143,14 @@ class Enemy {
     if (fly) { this.vy *= 1; }
   }
   hitboxes() {
-    const out = []; if (!this.atk || this.dying || this.hitstun > 0) return out;
+    const out = []; if (!this.atk || this.dying || this.hitstun > 0 || this.spawnT > 0) return out;
     const t = Math.floor(this.af), sc = this.scale;
     (this.atk.hb || []).forEach((h, i) => { if (t >= h.s && t <= h.e) out.push({ x: this.x + this.face * h.x * sc, y: this.y + h.y * sc, r: h.r * sc, d: h.d * this.dmgMul, a: h.a, bkb: h.bkb, kbg: h.kbg, key: this.mid * 10 + i, fx: h.fx, ang: h.ang, unblockable: h.unblockable }); });
     return out;
   }
   hurt() { return { x: this.x - this.w / 2, y: this.y - this.h, w: this.w, h: this.h }; }
   takeHit(info) {
-    if (this.dead || this.dying) return null;
+    if (this.dead || this.dying || this.spawnT > 0) return null;
     // shieldbearer front guard
     if (this.def.shield && !this.stunGuard) {
       const fromFront = sign((info.ax ?? info.x) - this.x) === this.face; const above = info.y < this.y - this.h * 0.95;
@@ -185,7 +195,7 @@ class Enemy {
     if (!this.dying) { this.hp = 0; this.dying = 1; this.onDeath(); }
     this.remove();
   }
-  remove() { this.dead = true; }
+  remove() { if (!this.dead && !this.exploded) FX.dissolve(this.x, this.y, this.h); this.dead = true; }
   ko() { if (this.dead) return; FX.ko(this.x, this.y, '#ff4fd8'); Audio2.play('ko'); FX.text(this.x, this.y - 40, 'KO!', '#ffde3c', 22); if (!this.dying) { this.hp = 0; this.dying = 1; if (this.boss) { Game.bossDefeated(this); } this.onDeath(); } this.remove(); }
 }
 

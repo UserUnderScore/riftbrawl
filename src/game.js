@@ -180,10 +180,10 @@ const Game = {
     for (const s of w) {
       if (s.boss) {
         const e = new Enemy(s.type, (A.l + A.r) / 2, A.floor - (BOSS[s.type].fly ? 260 : 10), {});
-        e.maxHp *= World.players.length > 1 ? 1.6 : 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; FX.portal(e.x, e.y - 60); continue;
+        e.maxHp *= World.players.length > 1 ? 1.6 : 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
       }
       const x = A.l + 80 + s.side * (A.r - A.l - 160); const y = A.floor - 140 - rr(0, 120);
-      const e = spawnEnemy(s.type, x, y, { elite: s.elite }); if (e) { FX.portal(x, y - 25); e.cd = 50 + ri(0, 50); }
+      const e = spawnEnemy(s.type, x, y, { elite: s.elite, spawn: 1 }); if (e) { FX.swarm(x, y, e.h); e.cd = 50 + ri(0, 50); }
     }
     Audio2.play('portal');
     FX.text(World.cam.x, World.cam.y - 200, A.waves.length > 1 ? `WAVE ${wi + 1}/${A.waves.length}` : '', '#ff4fd8', 28);

@@ -120,6 +120,7 @@ const FIGHTERS = [
   },
 ];
 // Build complete move tables with per-fighter scaling
+const HB_SCALE = 1.35; // generous player hitboxes
 for (const F of FIGHTERS) {
   const base = baseMoves(); const m = F.mul; F.moves = {};
   for (const [k, mv] of Object.entries(base)) {
@@ -127,15 +128,15 @@ for (const F of FIGHTERS) {
     nm.d = Math.round(mv.d * m.spd);
     const sc = m.spd; nm.kf = mv.kf.map(([f, p]) => [Math.round(f * sc), p]);
     if (mv.charge) nm.charge = Math.round(mv.charge * sc);
-    nm.hb = mv.hb.map(h => ({ ...h, s: Math.round(h.s * sc), e: Math.max(Math.round(h.s * sc) + 1, Math.round(h.e * sc)), x: h.x * m.reach, y: h.y, r: h.r * m.rad * (F.weapon === 'none' ? 1 : 1.08), d: Math.round(h.d * m.dmg), bkb: h.bkb, kbg: h.kbg * m.kb }));
+    nm.hb = mv.hb.map(h => ({ ...h, s: Math.round(h.s * sc), e: Math.max(Math.round(h.s * sc) + 1, Math.round(h.e * sc)), x: h.x * m.reach, y: h.y, r: h.r * m.rad * (F.weapon === 'none' ? 1 : 1.08) * HB_SCALE, d: Math.round(h.d * m.dmg), bkb: h.bkb, kbg: h.kbg * m.kb }));
     F.moves[k] = nm;
   }
   // Signature tweaks
   if (F.id === 1) { F.moves.dair.hb[0].a = -90; F.moves.utilt.hb[0].r *= 1.2; F.moves.fsmash.hb[0].d = 17; }
   if (F.id === 2) { // magic sparks on normals
     for (const k of ['fsmash', 'usmash', 'dsmash', 'fair', 'bair', 'uair']) F.moves[k].hb.forEach(h => h.fx = 'spark');
-    F.moves.nair.hb = [HB(4, 22, 0, -30, 26, 2, 70, 30, 0, { multi: 4, fx: 'spark' }), HB(23, 25, 0, -30, 26, 5, 45, 40, 80, { fx: 'spark' })];
+    F.moves.nair.hb = [HB(4, 22, 0, -30, 26 * HB_SCALE, 2, 70, 30, 0, { multi: 4, fx: 'spark' }), HB(23, 25, 0, -30, 26 * HB_SCALE, 5, 45, 40, 80, { fx: 'spark' })];
   }
   if (F.id === 3) { F.moves.fsmash.hb[0].d = 24; F.moves.fsmash.hb[0].r *= 1.15; F.moves.dair.hb[0].d = 16; }
-  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = { ...mv, name: k, hb: mv.hb || [], special: 1 };
+  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = { ...mv, name: k, hb: (mv.hb || []).map(h => ({ ...h, r: h.r * HB_SCALE })), special: 1 };
 }
