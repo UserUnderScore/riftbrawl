@@ -63,7 +63,9 @@ const MODE_DESC_X = 0;
 const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
 function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
   opts.forEach((o, i) => {
-    const sel = i === idx; const w = sel ? 470 : 430, h = 48, x = (x0 ?? W / 2 - 220) - (sel ? 10 : 0), y = y0 + i * 58 - 32;
+    const sel = i === idx; Game._ma = Game._ma || {}; const ak = title + o; const k = Game._ma[ak] = lerp(Game._ma[ak] || 0, sel ? 1 : 0, 0.3);
+    const intro = easeOut(clamp((UIW.st - i * 2) / 14, 0, 1)); const w = 430 + 40 * k, h = 48, x = (x0 ?? W / 2 - 220) - 10 * k - (1 - intro) * 300, y = y0 + i * 58 - 32;
+    if (intro < 1) ctx.globalAlpha = intro;
     if (sel) { slant(x + 6, y + 6, w, h); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill(); }
     slant(x, y, w, h); const g = ctx.createLinearGradient(x, 0, x + w, 0); if (sel) { g.addColorStop(0, '#ff4fd8'); g.addColorStop(1, '#8a3cff'); } else { g.addColorStop(0, 'rgba(40,28,70,0.92)'); g.addColorStop(1, 'rgba(24,16,44,0.92)'); } ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.15)'; ctx.stroke();
     T(o, x + 34, y + 33, sel ? 24 : 21, sel ? '#fff' : '#d8d0ea', { align: 'left', stroke: sel ? 5 : 0, shadow: sel });
@@ -76,8 +78,8 @@ function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
       clickRegions().push({ x, y, w: bx - x - 8, h, fn: () => { Game.menuIdx = i; Game.pauseIdx = i; } });
       return;
     }
-    if (sel) { ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.moveTo(x + w - 40, y + 14); ctx.lineTo(x + w - 26, y + 24); ctx.lineTo(x + w - 40, y + 34); ctx.fill(); }
-    clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } });
+    if (sel) { const bob = Math.sin(World.frame * 0.25) * 3; ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.moveTo(x + w - 40 + bob, y + 14); ctx.lineTo(x + w - 26, y + 24); ctx.lineTo(x + w - 40, y + 34); ctx.fill(); }
+    clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } }); ctx.globalAlpha = 1;
   });
 }
 function pctGrad(p) { const c = pctColor(p); return [shade('#ffffff', 0) === c ? '#fff' : '#ffffff', c]; }
@@ -85,8 +87,9 @@ function pctColor(p) { const t = clamp(p / 150, 0, 1); const stops = [[255, 255,
 function drawHUD() {
   const G = Game, R = G.run; if (!R) return;
   const n = World.players.length; const cw = 270, gap = 26, total = n * cw + (n - 1) * gap; const x0 = W / 2 - total / 2;
+  const slide = (1 - easeOut(clamp(((G.stageT || 0) - 6) / 34, 0, 1))) * 130;
   World.players.forEach((p, i) => {
-    const x = x0 + i * (cw + gap), y = H - 92; const col = p.def.color;
+    const x = x0 + i * (cw + gap), y = H - 92 + slide + i * slide * 0.3; const col = p.def.color;
     if (p._hp === undefined) p._hp = p.pct; if (p.pct > p._hp + 0.5) { p._pop = 12; } p._hp = p.pct; if (p._pop > 0) p._pop--;
     glass(x, y, cw, 80, col, 16, 0.9);
     // portrait
@@ -139,7 +142,44 @@ function drawHUD() {
     if (bn.mods.length) T(bn.mods.map(m => MODIFIERS[m].name + ': ' + MODIFIERS[m].desc).join('   ·   '), W / 2, H / 2 + 45, 15, '#ffe9a0', { stroke: 4 });
     ctx.restore();
   }
+  drawCallout(G); drawBossIntro(G);
   if (G.showControls > 0) { G.showControls--; drawControlsPanel(140, 110, 0.94); }
+}
+function easeOut(k) { return 1 - Math.pow(1 - k, 3); }
+function easeBack(k) { const c = 1.7; return 1 + (c + 1) * Math.pow(k - 1, 3) + c * Math.pow(k - 1, 2); }
+function drawCallout(G) {
+  const c = G.co; if (!c || c.t > 96) return; c.t++;
+  const t = c.t, inK = easeBack(clamp(t / 12, 0, 1)), outK = t > 76 ? (t - 76) / 20 : 0; const sc = 0.4 + 0.6 * inK + outK * 0.3;
+  ctx.save(); ctx.globalAlpha = clamp(1 - outK, 0, 1); ctx.translate(W / 2, H * 0.3); ctx.scale(sc, sc); ctx.rotate(-0.04);
+  ctx.font = `italic 900 ${c.size}px ${FONT}`; const w = ctx.measureText(c.text).width + 90;
+  slant(-w / 2, -c.size * 0.95, w, c.size * 1.25, 26); ctx.fillStyle = 'rgba(20,12,36,0.82)'; ctx.fill(); ctx.strokeStyle = c.col; ctx.lineWidth = 4; ctx.stroke();
+  T(c.text, 0, 0, c.size, null, { stroke: Math.max(6, c.size * 0.17), grad: ['#ffffff', c.col] });
+  ctx.restore();
+}
+const BOSS_SUB = { gatekeeper: 'WARDEN OF THE FIRST GATE', matriarch: 'QUEEN OF THE SWARM', crown: 'HEART OF THE RIFT' };
+function drawBossIntro(G) {
+  const bi = G.bossIntro; if (!bi || bi.t >= 130) return; const t = bi.t; const b = G.bossRef; const type = bi.type || (b && b.type) || 'gatekeeper';
+  const bar = 90 * easeOut(clamp(t / 14, 0, 1)) * (t > 116 ? 1 - (t - 116) / 14 : 1);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bar); ctx.fillRect(0, H - bar, W, bar);
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.9); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(120,0,60,${0.45 * Math.min(1, t / 20)})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  if (t > 28) {
+    const k = clamp((t - 28) / 10, 0, 1); const sc = 2.6 - 1.6 * easeOut(k); const sh = t < 44 ? rr(-6, 6) * (1 - (t - 28) / 16) : 0; const al = t > 116 ? 1 - (t - 116) / 14 : 1;
+    ctx.save(); ctx.globalAlpha = al * k; ctx.translate(W / 2 + sh, H * 0.62 + sh); ctx.scale(sc, sc);
+    T((BOSS[type] ? BOSS[type].name : 'BOSS').toUpperCase(), 0, 0, 64, null, { stroke: 12, grad: ['#ffffff', '#ff3cd5'] }); ctx.restore();
+    if (t === 29) { World.shake(10); }
+    if (t > 50) { ctx.globalAlpha = clamp((t - 50) / 14, 0, 1) * al; T(BOSS_SUB[type] || '', W / 2, H * 0.62 + 46, 22, '#ffe9a0', { stroke: 5 }); ctx.globalAlpha = 1; }
+  }
+}
+const UIW = { last: '', t: 99, st: 0, conf: [], ready: {} };
+function drawWipe() {
+  if (UIW.t > 26) return; const t = UIW.t++; const e = easeOut(clamp(t / 24, 0, 1));
+  const cols = ['#1a0f2e', '#8a3cff', '#ff4fd8'];
+  cols.forEach((c, i) => { const xl = -260 + clamp(e * 1.15 - i * 0.07, 0, 1) * (W + 560); ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(xl, 0); ctx.lineTo(W + 300, 0); ctx.lineTo(W + 300, H); ctx.lineTo(xl - 180, H); ctx.closePath(); ctx.fill(); });
+}
+function drawConfetti(spawn) {
+  if (spawn && UIW.conf.length < 160 && World.frame % 2 === 0) for (let i = 0; i < 3; i++) UIW.conf.push({ x: rr(0, W), y: -10, vx: rr(-1, 1), vy: rr(2, 4), r: rr(0, TAU), vr: rr(-0.2, 0.2), c: pick(['#ffd23c', '#ff4fd8', '#5ab4ff', '#7dff8a', '#ffffff']) });
+  for (const p of UIW.conf) { p.x += p.vx + Math.sin(p.y * 0.02) * 0.6; p.y += p.vy; p.r += p.vr; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-4, -2, 8, 4); ctx.restore(); }
+  UIW.conf = UIW.conf.filter(p => p.y < H + 20);
 }
 function heart(x, y, r) { ctx.fillStyle = '#ff4d6d'; ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y + r); ctx.bezierCurveTo(x - r * 1.8, y - r * 0.2, x - r * 0.9, y - r * 1.5, x, y - r * 0.5); ctx.bezierCurveTo(x + r * 0.9, y - r * 1.5, x + r * 1.8, y - r * 0.2, x, y + r); ctx.fill(); ctx.stroke(); }
 function drawCharSel() {
@@ -153,7 +193,12 @@ function drawCharSel() {
     const fid = G.csel[k] ?? 0, F = FIGHTERS[fid]; const left = k === 0; const px = left ? 60 : W - 60 - 360, py = 112;
     glass(px, py, 360, 400, F.color, 24, 0.85);
     ctx.save(); slant(px, py, 360, 400, 24); ctx.clip(); const sg = ctx.createRadialGradient(px + 180, py + 230, 10, px + 180, py + 230, 230); sg.addColorStop(0, rgba(F.color, 0.55)); sg.addColorStop(1, rgba(F.color, 0)); ctx.fillStyle = sg; ctx.fillRect(px, py, 360, 400);
-    drawFighterArt(fid, px + 180, py + 300, left ? 1 : -1, 3.1, menuIdlePose(fid, t)); ctx.restore();
+    const rk = 'r' + k; if (G.cready[k] && UIW.ready[rk] === undefined) UIW.ready[rk] = UIW.st; if (!G.cready[k]) delete UIW.ready[rk];
+    const rt = UIW.ready[rk] !== undefined ? UIW.st - UIW.ready[rk] : -1;
+    const pose = rt >= 0 ? kfPose(F.moves.usmash.kf, Math.min(F.moves.usmash.kf[2][0] + 2, rt * 0.9)) : menuIdlePose(fid, t);
+    drawFighterArt(fid, px + 180, py + 300 - (rt >= 0 && rt < 10 ? Math.sin(rt / 10 * Math.PI) * 20 : 0), left ? 1 : -1, 3.1, pose);
+    if (rt >= 0 && rt < 16) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - rt / 16)})`; ctx.fillRect(px, py, 360, 400); ctx.globalCompositeOperation = 'source-over'; }
+    ctx.restore();
     T((k === 0 ? 'P1' : 'P2'), px + 34, py + 36, 22, k === 0 ? '#ff6b6b' : '#5ab4ff', { align: 'left', stroke: 5 });
     T(F.name, px + 180, py + 340, 46, F.color, { stroke: 9 }); T(F.title.toUpperCase(), px + 180, py + 366, 16, '#fff', { stroke: 4 });
     if (G.cready[k]) { ctx.save(); ctx.translate(px + 180, py + 180); ctx.rotate(-0.15); slant(-130, -34, 260, 64, 18); ctx.fillStyle = 'rgba(255,210,60,0.95)'; ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 4; ctx.stroke(); T('READY!', 0, 18, 46, '#fff', { stroke: 9 }); ctx.restore(); }
@@ -186,8 +231,9 @@ function drawBoon() {
     const x0 = n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
     T('P' + (i + 1) + ' · ' + p.def.name + (G.boonPick[i] ? '  ✓' : ''), x0 + colW / 2, 140, 22, p.def.color, { stroke: 5 });
     (G.boonOpts[i] || []).forEach((id, k) => {
-      const b = BOON_BY_ID[id]; const y = 158 + k * 156; const sel = G.boonIdx[i] === k && !G.boonPick[i]; const picked = G.boonPick[i] === id; const rc = RARITY[b.r].c;
-      const lift = sel ? -4 : 0; slant(x0, y + lift, colW, 138, 20);
+      const b = BOON_BY_ID[id]; const sel = G.boonIdx[i] === k && !G.boonPick[i]; const picked = G.boonPick[i] === id; const rc = RARITY[b.r].c;
+      const ein = easeBack(clamp((UIW.st - 8 - k * 6 - i * 3) / 18, 0, 1)); ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1); ctx.translate((1 - ein) * (i ? 500 : -500), 0);
+      const y = 158 + k * 156; const lift = sel ? -4 + Math.sin(World.frame * 0.15) * 1.5 : 0; slant(x0, y + lift, colW, 138, 20);
       const g = ctx.createLinearGradient(x0, y, x0 + colW, y + 138); g.addColorStop(0, picked ? '#2f6b3a' : sel ? '#4a2f7a' : '#2a1f45'); g.addColorStop(1, picked ? '#173a1e' : sel ? '#26164a' : '#160f28'); ctx.fillStyle = g; ctx.fill();
       ctx.lineWidth = sel || picked ? 4 : 2.5; ctx.strokeStyle = sel ? '#fff' : rc; ctx.stroke();
       // icon medallion
@@ -197,6 +243,8 @@ function drawBoon() {
       T(b.name, x0 + 140, y + 72 + lift, 32, '#fff', { align: 'left', stroke: 6 });
       T(b.desc, x0 + 140, y + 104 + lift, 17, '#e0d8f0', { align: 'left', stroke: 0, italic: false, weight: 600, shadow: false });
       const have = p.boons.filter(z => z === id).length; if (have) T('OWNED ×' + have, x0 + colW - 30, y + 34 + lift, 13, '#bfb4d8', { align: 'right', stroke: 3 });
+      if (picked) { ctx.save(); ctx.translate(x0 + colW - 70, y + 92); ctx.rotate(-0.2); T('CHOSEN!', 0, 0, 26, '#7dff8a', { stroke: 6 }); ctx.restore(); }
+      ctx.restore();
       if (G.slots[i] && G.slots[i].dev !== 'net') clickRegions().push({ x: x0, y, w: colW, h: 138, fn: () => { Game.clickBoon = [i, k]; } });
     });
     if (G.slots[i] && G.slots[i].dev === 'net' && !G.boonPick[i]) T('waiting for partner…', x0 + colW / 2, 650, 18, '#cfc6e6', { stroke: 4 });
@@ -211,6 +259,7 @@ function drawPause(local) {
 function sceneDraw() {
   const G = Game; Game.clicks = [];
   const sc = Net.isGuest ? Net.guestScene : G.scene;
+  if (sc !== UIW.last) { if (!(UIW.last === 'play' && sc === 'boon') && !(UIW.last === 'boon' && sc === 'play')) UIW.t = 0; UIW.last = sc; UIW.st = 0; UIW.conf = []; } UIW.st++;
   setupHD(); ctx.setTransform(HD.k, 0, 0, HD.k, 0, 0); ctx.clearRect(0, 0, W, H); ctx.imageSmoothingQuality = 'high';
   switch (sc) {
     case 'title':
@@ -241,6 +290,8 @@ function sceneDraw() {
     case 'victory': { drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.72)'; ctx.fillRect(0, 0, W, H); T('THE HOLLOW CROWN FALLS', W / 2, 170, 58, null, { stroke: 11, grad: ['#fff7c2', '#ffb02c'] }); T('RUN TIME ' + fmtTime(G.run ? G.run.time : 0), W / 2, 220, 22, '#fff', { stroke: 5 }); T('The rift is still open… how far can you go?', W / 2, 258, 20, '#ff9ae8', { stroke: 5 }); drawMenu('', ['ENTER ENDLESS MODE', 'END RUN (VICTORY)'], G.menuIdx, 360); break; }
     case 'wait': drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); glass(W / 2 - 360, 260, 720, 110, '#5ab4ff', 22); T(Net.status || 'Waiting for host…', W / 2, 326, 24, '#fff', { stroke: 6 }); break;
   }
+  if (sc === 'victory' || (sc === 'over' && G.overStats && G.overStats.win)) drawConfetti(true);
+  drawWipe();
   UI.toasts.forEach((t, i) => { t.life--; ctx.globalAlpha = clamp(t.life / 30, 0, 1); ctx.font = `italic 800 16px ${FONT}`; const w = ctx.measureText(t.t).width + 40; glass(W - w - 16, 100 + i * 44, w, 36, '#7dff8a', 10, 0.92); T(t.t, W - 16 - w / 2 - 4, 124 + i * 44, 16, '#fff', { stroke: 4 }); ctx.globalAlpha = 1; });
   UI.toasts = UI.toasts.filter(t => t.life > 0);
 }

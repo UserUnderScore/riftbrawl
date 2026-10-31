@@ -80,6 +80,7 @@ function fighterPose(f) {
     case 'walltech': return P(-4, -26, -0.15, 15, -8, 15, 6, 10, 18, 2, 24, -40);
     case 'ceiltech': return P(0, -26, 0, 6, -27, -6, -27, 6, 24, -6, 22, -90);
     case 'down': return P(0, -25, 0.05, 10, 12, -8, 14, 6, 25, -6, 24, 80);
+    case 'climb': return mix(POSE.ledge, P(0, -15, 0.5, 14, 14, -6, 12, 12, 14, -10, 16, 40), clamp(f.sf / 12, 0, 1));
     case 'getup': return mix(P(0, -25, 0.05, 10, 12, -8, 14, 6, 25, -6, 24, 80), STAND, clamp(f.sf / 26, 0, 1));
     default: return STAND;
   }
@@ -120,7 +121,7 @@ function drawFighter(g, f) {
   if (f.out || f.dead) return;
   const def = f.def, s = f.mods ? f.mods.size : 1, rival = !!f.isRival;
   // render-side animation bookkeeping
-  const dx = f.x - (f.lastX ?? f.x); f.lastX = f.x; f.dxr = lerp(f.dxr || 0, dx, 0.3);
+  let dx = f.x - (f.lastX ?? f.x); f.lastX = f.x; if (Math.abs(dx) > 30) dx = 0; f.dxr = clamp(lerp(f.dxr || 0, dx, 0.3), -8, 8);
   if (f.state === 'run') f.runPh = (f.runPh || 0) + Math.min(9, Math.abs(dx)) * 0.085 + 0.02;
   if (f.lastFace !== undefined && f.lastFace !== f.face && f.state === 'run') f.turnT = 7; f.lastFace = f.face; if (f.turnT > 0) f.turnT--;
   const target = fighterPose(f);
@@ -128,7 +129,19 @@ function drawFighter(g, f) {
   f.rp = f.rp && f.state !== 'move' ? mix(f.rp, target, blend) : target; f.lastState = f.state;
   const pose = f.rp;
   if (!f.dead) dropShadow(g, f.x, f.y, 16 * s);
+  // squash & stretch (render-side, works for online partners too)
+  if (f._wasAir !== undefined && f._wasAir !== !!f.air) { if (f.air && f.vy < -2) f._ss = { t: 9, sx: 0.86, sy: 1.16 }; else if (!f.air) f._ss = { t: 9, sx: 1.18, sy: 0.84 }; }
+  f._wasAir = !!f.air; let SX = 1, SY = 1;
+  if (f._ss && f._ss.t > 0) { const k = f._ss.t / 9; SX = 1 + (f._ss.sx - 1) * k; SY = 1 + (f._ss.sy - 1) * k; f._ss.t--; }
+  if (f.state === 'squat' || f.state === 'land0') { SX *= 1.08; SY *= 0.92; }
+  // dodge afterimages
+  const dodging = ['roll', 'spot', 'adodge', 'techroll', 'getuproll'].includes(f.state) || (f.state === 'move' && f.move && (f.move.name === 'sspec' && def.id === 1));
+  f._gh = f._gh || []; if (dodging && World.frame % 3 === 0) { f._gh.push({ x: f.x, y: f.y, pose, rot: fighterRot(f), dy: fighterDy(f), life: 12 }); if (f._gh.length > 4) f._gh.shift(); }
+  for (const gh of f._gh) { if (gh.life-- <= 0) continue; g.save(); g.globalAlpha = gh.life / 12 * 0.35; if (gh.dy) g.translate(0, gh.dy * s); if (gh.rot) { const cy = gh.y - 28 * s; g.translate(gh.x, cy); g.rotate(gh.rot * f.face); g.translate(-gh.x, -cy); } drawBody(g, gh.x, gh.y, f.face, gh.pose, artFor(def.id, true), s, { flash: true }); g.restore(); }
+  f._gh = f._gh.filter(gh => gh.life > 0);
+  drawSwingTrails(g, f);
   g.save();
+  if (SX !== 1 || SY !== 1) { g.translate(f.x, f.y); g.scale(SX, SY); g.translate(-f.x, -f.y); }
   if (rival && f.spawnT > 0) { const k = 1 - f.spawnT / 40; g.globalAlpha = k; }
   if (f.intang > 0 && f.state !== 'roll' && f.state !== 'spot' && f.state !== 'adodge' && World.frame % 6 < 3 && f.intang > 20) g.globalAlpha = 0.5;
   if (['roll', 'spot', 'adodge'].includes(f.state) && f.intang > 0) g.globalAlpha = 0.6;
@@ -178,6 +191,7 @@ function drawEnemy(g, e) {
   g.save();
   if (e.dying) g.globalAlpha = Math.max(0, 1 - e.dying / 40);
   if (e.spawnT > 0) { const k = 1 - e.spawnT / 40; g.globalAlpha = k; g.translate(x, y); g.scale(0.4 + 0.6 * k, 0.4 + 0.6 * k); g.translate(-x, -y); }
+  if (!e.boss && e.atk) { const tl = e.atk.tele || 0; let ax = 1, ay = 1; if (tl && e.af < tl) { const k = e.af / tl; ax = 1 + 0.14 * k; ay = 1 - 0.11 * k; } else if (e.af - tl < 5) { const k = 1 - (e.af - tl) / 5; ax = 1 - 0.1 * k; ay = 1 + 0.12 * k; } if (ax !== 1) { g.translate(x, y); g.scale(ax, ay); g.translate(-x, -y); } }
   if (e.hitstun > 0 && !e.boss) { g.translate(x, y - e.h / 2); g.rotate(Math.sin(t * 0.5) * 0.25); g.translate(-x, -(y - e.h / 2)); }
   if (e.elite) { g.shadowColor = { giant: '#ff4a4a', swift: '#ffe14a', volatile: '#ff9a3c', warded: '#7df9ff' }[e.elite]; g.shadowBlur = 16; }
   switch (e.type) {
@@ -529,4 +543,36 @@ function drawKOBlasts(g) {
     g.restore();
   }
   if (World.flashT > 0) { g.fillStyle = `rgba(255,255,255,${World.flashT / 32})`; g.fillRect(0, 0, W, H); World.flashT--; }
+}
+
+// ---- swing smear trails: a fading ribbon that follows the attacking hand / foot / weapon ----
+function drawSwingTrails(g, f) {
+  f._tr = f._tr || {}; const mv = f.state === 'move' ? f.move : null;
+  const nk = mv ? mv.name : ''; const restart = mv && (f._trName !== nk || (f.mf < (f._trMf ?? 0))); f._trName = nk; f._trMf = f.mf || 0;
+  if (restart) f._tr = {};
+  if (mv) {
+    let J = null;
+    mv.hb.forEach((h, i) => {
+      const att = hbAttach(f.def, mv, h); if (!att) return;
+      if (f.mf < h.s - 2 || f.mf > h.e + 3) return;
+      if (!J) J = Fighter.prototype.jointsAt.call(f, f.mft || f.mf);
+      const c = limbCircles(att, J, 10, f.def); const tip = c[0];
+      let base; if (att === 'w') base = c[2]; else base = c[1];
+      const tr = f._tr[i] || (f._tr[i] = []); const last = tr[tr.length - 1];
+      if (!last || Math.hypot(last.x - tip[0], last.y - tip[1]) > 1.5) tr.push({ x: tip[0], y: tip[1], bx: base[0], by: base[1], a: 1, el: h.el });
+      if (tr.length > 9) tr.shift();
+    });
+  }
+  g.save(); g.globalCompositeOperation = 'lighter';
+  for (const k in f._tr) {
+    const tr = f._tr[k]; for (const p of tr) p.a -= 0.09; while (tr.length && tr[0].a <= 0) tr.shift(); if (tr.length < 2) continue;
+    const col = tr[tr.length - 1].el ? (ELC[tr[tr.length - 1].el] || ['#fff'])[0] : f.isRival ? f.def.color : (f.def.weapon === 'none' ? '#fff6dc' : '#dff0ff');
+    for (let i = 1; i < tr.length; i++) {
+      const a = tr[i - 1], b = tr[i]; const al = Math.min(1, Math.min(a.a, b.a) * (i / tr.length) * 1.05);
+      g.fillStyle = rgba(col[0] === '#' ? col : '#ffffff', al);
+      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.lineTo(lerp(b.bx, b.x, 0.3), lerp(b.by, b.y, 0.3)); g.lineTo(lerp(a.bx, a.x, 0.3), lerp(a.by, a.y, 0.3)); g.closePath(); g.fill();
+    }
+    const h = tr[tr.length - 1]; g.fillStyle = rgba('#ffffff', h.a * 0.6); g.beginPath(); g.arc(h.x, h.y, 4, 0, TAU); g.fill();
+  }
+  g.restore();
 }

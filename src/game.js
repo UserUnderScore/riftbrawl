@@ -94,7 +94,7 @@ const Game = {
       if (p.out) { p.out = false; p.dead = false; }
       p.dead = false; p.x = 80 + i * 50; p.y = 600; p.vx = p.vy = p.kx = p.ky = 0; p.state = 'idle'; p.air = 0; p.move = null; p.intang = 60; p.phoenixUsed = false; p.hitstun = 0; p.hammerOut = null; p.jumps = p.maxJumps;
     });
-    World.cam.x = 300; World.cam.y = 420;
+    World.cam.x = 300; World.cam.y = 420; this.bossIntro = null; this.co = null;
     this.arenaI = -1; this.waveI = 0; this.waveDelay = 0; this.bossRef = null; this.stageClearT = 0; this.stageT = 0;
     this.banner = { t: 0, title: stageLabel(idx), sub: kind.startsWith('boss') ? BOSS[kind.split(':')[1]].name : World.stage.B.name, mods };
     this.setScene('play');
@@ -103,7 +103,7 @@ const Game = {
   applyStageState(mods) { World.mod = {}; for (const m of mods) World.mod[m] = 1; if (World.mod.wind) World.mod.wind = pick([-1.6, 1.6]); },
   onEnemyKilled(e) { if (this.run) this.run.kills++; },
   bossDefeated(e) {
-    FX.text(e.x, e.y - 160, 'DEFEATED!', '#ffde3c', 34); World.shake(20); World.slowmo(50); Audio2.play('ko');
+    this.callout('BOSS DEFEATED!', '#ffd23c', 54); World.shake(20); World.slowmo(60); World.zp = 0.12; World.flashT = 10; Audio2.play('ko');
     for (const o of World.enemies) if (o !== e && !o.dead) { o.hurtRaw(9999, true); }
     this.teamStocks++;
     FX.text(e.x, e.y - 120, '+1 STOCK', '#7dff8a', 20);
@@ -164,7 +164,7 @@ const Game = {
         if (left === 0 && (minions === 0 || this.waveI + 1 >= A.waves.length)) {
           this.waveI++; this.dropFood(A);
           if (this.waveI >= A.waves.length) {
-            A.done = true; World.barriers = null; this.arenaI = -1; FX.text(World.cam.x, World.cam.y - 160, 'CLEAR!', '#ffde3c', 40); Audio2.play('boon');
+            A.done = true; World.barriers = null; this.arenaI = -1; this.callout('ARENA CLEAR!', '#ffd23c'); Audio2.play('boon');
             for (const e of World.enemies) if (e.minion && !e.dead) e.hurtRaw(999, true);
           } else this.waveDelay = 60;
         }
@@ -176,23 +176,24 @@ const Game = {
     // goal
     if (st.goal && st.arenas.every(a => a.done) && alive.some(p => Math.abs(p.x - st.goal.x) < 40 && p.y > st.goal.y - 140)) this.stageClear();
   },
+  callout(text, col = '#fff', size = 46) { this.coSeq = (this.coSeq || 0) + 1; this.co = { text, col, size, t: 0, seq: this.coSeq }; },
   dropFood(A) {
     const n = 1 + World.players.length + (rnd() < 0.4 ? 1 : 0);
     for (let i = 0; i < n; i++) { const x = rr(A.l + 80, A.r - 80); spawnItem('food', x, World.cam.y - 300 - i * 40, { kind: rollFood() }); }
-    FX.text(World.cam.x, World.cam.y - 120, 'FOOD!', '#7dff8a', 22);
+    if (this.waveI < A.waves.length) this.callout('WAVE CLEAR  ·  FOOD!', '#7dff8a', 34);
   },
   spawnWave(A, wi) {
     const w = A.waves[wi]; if (!w) return;
     for (const s of w) {
       if (s.boss) {
         const e = new Enemy(s.type, (A.l + A.r) / 2, A.floor - (BOSS[s.type].fly ? 260 : 10), {});
-        e.maxHp *= World.players.length > 1 ? 1.6 : 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
+        e.maxHp *= World.players.length > 1 ? 1.6 : 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; this.bossIntro = { t: 0, type: s.type }; Audio2.play('bossin'); FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
       }
       const x = A.l + 80 + s.side * (A.r - A.l - 160); const y = A.floor - 140 - rr(0, 120);
       const e = spawnEnemy(s.type, x, y, { elite: s.elite, spawn: 1, fid: s.fid }); if (e) { FX.swarm(x, y, e.h); if (!e.isRival) e.cd = 50 + ri(0, 50); }
     }
     Audio2.play('portal');
-    FX.text(World.cam.x, World.cam.y - 200, A.waves.length > 1 ? `WAVE ${wi + 1}/${A.waves.length}` : '', '#ff4fd8', 28);
+    if (A.waves.length > 1) this.callout(`WAVE ${wi + 1}`, '#ff8fe4');
   },
   blastZones() {
     const st = World.stage, c = World.cam, B = World.barriers;
@@ -228,6 +229,7 @@ const Game = {
     const ps = World.players.filter(p => !p.dead && !p.out); if (!ps.length) return;
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9; for (const p of ps) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y - 40); maxY = Math.max(maxY, p.y); }
     if (this.bossRef && !this.bossRef.dead) { const b = this.bossRef; minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); minY = Math.min(minY, b.y - b.h); }
+    if (this.bossIntro && this.bossIntro.t < 130 && this.bossRef) { const b = this.bossRef; c.x = lerp(c.x, b.x, 0.08); c.y = lerp(c.y, b.y - b.h * 0.6, 0.08); c.z = lerp(c.z, 1.25, 0.06); return; }
     let tz = clamp(Math.min(W / (maxX - minX + 460), H / (maxY - minY + 380)), 0.78, 1.32);
     const B = World.barriers;
     if (B) tz = clamp(Math.max(tz, W / (B.r - B.l), this.bossRef && !this.bossRef.dead ? 0 : 1.22), 0.78, 1.4);
@@ -290,6 +292,7 @@ function sceneUpdate() {
       const pp = World.players.some(p => p.input.cur && p.input.cur.pp && p.input !== Net.remote) || KeysPressed['Escape'];
       if (pp) { G.paused = true; G.pauseIdx = 0; Audio2.play('blip'); break; }
       if (World.slowT > 0) { World.slowT--; if (World.slowT % 2 === 0) break; }
+      if (G.bossIntro && G.bossIntro.t < 130) { G.bossIntro.t++; World.frame++; updateParticles(); for (const e of World.enemies) if (e.boss) { e.t++; e.physics(); } break; }
       G.simStep(); if (G.banner) G.banner.t++;
       break;
     }
