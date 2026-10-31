@@ -114,7 +114,7 @@ class Enemy {
     this.t++; tickStatus(this); if (this.flash > 0) this.flash--; if (this.jumpCD > 0) this.jumpCD--; if (this.blinkCD > 0) this.blinkCD--;
     if (this.hitlag > 0) { this.hitlag--; return; }
     if (this.spawnT > 0) { this.spawnT--; if (!this.def.fly) this.physics(); return; }
-    if (this.dummy) { if (this.hitstun > 0) this.hitstun--; this.atk = null; this.vx *= 0.85; this.physics(); return; }
+    if (this.dummy && Game.dummyMode !== 'CPU') { if (this.hitstun > 0) this.hitstun--; this.atk = null; this.vx *= 0.85; this.physics(); return; }
     if (this.asleep) { const T0 = this.target(); if (!T0 || Math.abs(T0.dx) > 760) { this.physics(); return; } this.asleep = false; }
     if (this.ward === 0 && this.elite === 'warded') { this.wardT++; if (this.wardT > 300) { this.ward = 25; this.wardT = 0; } }
     if (this.dying) { this.dying++; this.physics(); if (this.dying > 40) this.remove(); return; }
@@ -151,7 +151,7 @@ class Enemy {
     (this.atk.hb || []).forEach((h, i) => { if (t >= h.s && t <= h.e) out.push({ x: this.x + this.face * h.x * sc, y: this.y + h.y * sc, r: h.r * sc, d: h.d * this.dmgMul, a: h.a, bkb: h.bkb, kbg: h.kbg, key: this.mid * 10 + i, fx: h.fx, ang: h.ang, unblockable: h.unblockable }); });
     return out;
   }
-  hurt() { return { x: this.x - this.w / 2, y: this.y - this.h, w: this.w, h: this.h }; }
+  hurt() { const w = this.w * (this.boss ? 1.1 : 1.22), h = this.h * 1.06; return { x: this.x - w / 2, y: this.y - h, w, h }; }
   takeHit(info) {
     if (this.dead || this.dying || this.spawnT > 0) return null;
     // shieldbearer front guard
@@ -312,7 +312,8 @@ class Rival extends Fighter {
     if (this.pct >= this.limit && !this.dead) this.collapse();
   }
   think() {
-    const o = new InputSource('none').blank(); o.kb = 1; this.input.cur = o; if (this.dummy) return;
+    const o = new InputSource('none').blank(); o.kb = 1; this.input.cur = o;
+    if (this.dummy) { const m = Game.dummyMode || 'STAND'; if (m !== 'CPU') { if (m === 'SHIELD' && !this.air && this.hitstun <= 0 && this.state !== 'down') o.s = 1; if (m === 'JUMP' && (World.frame + this.id * 7) % 48 === 0) { o.jp = 1; o.j = 1; } if (this.air && this.y > World.stage.killY - 520 && this.hitstun <= 0) { const cx = (World.stage.x0 + World.stage.x1) / 2; o.mx = Math.sign(cx - this.x); if (this.vy > 2 && World.frame % 20 === 0) { if (this.jumps > 0) { o.jp = 1; o.j = 1; } else { o.my = -1; o.bp = 1; o.b = 1; } } } return; } }
     const A = this.ai; if (A.cd > 0) A.cd--; if (A.jumpCD > 0) A.jumpCD--;
     if (this.hitlag > 0) return;
     let T = null, bd = 1e9; for (const p of World.players) { if (p.dead || p.out) continue; const d = Math.abs(p.x - this.x) + Math.abs(p.y - this.y); if (d < bd) { bd = d; T = p; } }
