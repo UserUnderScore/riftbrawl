@@ -147,6 +147,7 @@ function bombBoom(it) {
   const T = it.th || {}; const o = T.owner; it.gone = 1; const x = it.x, y = it.y - 10, R = 100;
   FX.explode(x, y, R); FX.add({ k: 'impact', x, y, r: 70, life: 12, max: 12, c: '#ff9ae8', a: rr(0, 1) }); FX.add({ k: 'ring', x, y, r0: 10, r: R * 1.5, life: 20, max: 20, c: '#ff4fd8' });
   World.shake(11); World.flashT = Math.max(World.flashT || 0, 3); Audio2.play('boom'); Audio2.play('bighit', 0.7);
+  for (const c of World.items) if (c.type === 'crate' && !c.gone && Math.hypot(c.x - x, c.y - 20 - y) < R + 20) breakCrate(c);
   for (const e of World.enemies) {
     if (e.dead || e.dying || e.spawnT > 0) continue; const r = e.hurt(); const cx = clamp(x, r.x, r.x + r.w), cy = clamp(y, r.y, r.y + r.h); if (Math.hypot(cx - x, cy - y) > R) continue;
     const dmg = 17 * (o ? o.mods.dmg : 1) * (e.boss ? 1.2 : 1);
@@ -164,5 +165,51 @@ function drawBomb(g, it, x, y) {
   g.fillStyle = '#3b2a1e'; g.fillRect(-3, -16, 6, 5); g.strokeRect(-3, -16, 6, 5);
   g.strokeStyle = '#c9b48a'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, -16); g.quadraticCurveTo(5, -21, 3, -25); g.stroke();
   if (t % 4 < 3) { g.fillStyle = '#fff6a0'; g.beginPath(); g.arc(3 + rr(-1, 1), -26 + rr(-1, 1), 2.5 + pulse * 1.5, 0, TAU); g.fill(); }
+  g.restore();
+}
+
+// ===================== RIFT CRATES: breakable containers =====================
+const CRATE_W = 44, CRATE_H = 40;
+function placeCrates(st) {
+  const cand = [];
+  for (const A of st.arenas) if (!A.boss && Math.random() < 0.6) cand.push([rr(A.l + 90, A.r - 90), A.floor - 200]);
+  const big = st.solids.filter(s => s.w > 260 && s.y < st.killY - 100); for (let i = 0; i < 2 && big.length; i++) { const s = pick(big); cand.push([s.x + rr(60, s.w - 60), s.y - 40]); }
+  for (const [x, y] of cand) { const gy = groundBelow(x, y, 600); if (gy === null) continue; World.items.push({ type: 'crate', x, y: gy, vy: 0, t: 0, id: World.uid++, kind: 0, hp: 14, hitT: 0 }); }
+}
+function updateCrate(it) {
+  it.t++; if (it.hitT > 0) it.hitT--;
+  it.vy = Math.min(10, it.vy + 0.5); const g = groundBelow(it.x, it.y - 4, 24); if (g !== null && it.y + it.vy >= g) { it.y = g; it.vy = 0; } else it.y += it.vy;
+  if (it.y > World.stage.killY) { it.gone = 1; return; }
+  const rx = it.x - CRATE_W / 2, ry = it.y - CRATE_H;
+  for (const p of World.players) {
+    if (p.dead || p.out || p.state !== 'move') continue;
+    for (const hb of p.hitboxes()) {
+      if (it['_k' + p.slot] === p.mid) break; if (!circleRect(hb.x, hb.y, hb.r, rx, ry, CRATE_W, CRATE_H)) continue;
+      it['_k' + p.slot] = p.mid; const d = (hb.h && hb.h.d) || 6; it.hp -= d * p.mods.dmg; it.hitT = 9; it.vy = -Math.min(6, d * 0.4);
+      FX.burst(hb.x, hb.y, '#e0b070', 6); Audio2.play('thud', 0.7); p.hitlag = Math.max(p.hitlag, 3);
+      if (it.hp <= 0) breakCrate(it, p);
+      break;
+    }
+  }
+}
+function breakCrate(it) {
+  if (it.gone) return; it.gone = 1; const x = it.x, y = it.y - 20;
+  for (let i = 0; i < 10; i++) { const a = rr(-Math.PI, 0), s = rr(3, 8); FX.add({ k: 'cube', x: x + rr(-14, 14), y: y + rr(-12, 12), vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: ri(30, 50), max: 50, c: pick(['#b8783a', '#8a5a2b', '#d9a066']), s: rr(5, 10), rot: rr(0, 6), g: 0.35, rise: 1 }); }
+  FX.burst(x, y, '#ffe2a8', 12); FX.add({ k: 'ring', x, y, r0: 6, r: 50, life: 14, max: 14, c: '#ffe2a8' }); Audio2.play('bighit', 0.5); World.shake(5);
+  const r = Math.random();
+  if (r < 0.32) spawnItem('bomb', x, y - 10);
+  const nf = r < 0.32 ? 1 : 1 + (Math.random() < 0.5 ? 1 : 0); for (let i = 0; i < nf; i++) { spawnItem('food', x + rr(-16, 16), y - 10); World.items[World.items.length - 1].vy = -rr(5, 8); }
+}
+function drawCrate(g, it) {
+  const sh = it.hitT > 0 ? Math.sin(it.hitT * 2.5) * it.hitT * 0.5 : 0, x = it.x + sh, y = it.y, w = CRATE_W, h = CRATE_H, dmg = 1 - clamp((it.hp ?? 14) / 14, 0, 1);
+  g.save(); g.translate(x, y);
+  g.fillStyle = 'rgba(0,0,0,0.25)'; g.beginPath(); g.ellipse(0, 0, w * 0.55, 5, 0, 0, TAU); g.fill();
+  const gr = g.createLinearGradient(0, -h, 0, 0); gr.addColorStop(0, '#d9a066'); gr.addColorStop(1, '#a8682e'); g.fillStyle = gr; g.strokeStyle = OL; g.lineWidth = 2.5;
+  g.beginPath(); g.roundRect(-w / 2, -h, w, h, 4); g.fill(); g.stroke();
+  g.strokeStyle = '#7a4a1e'; g.lineWidth = 2; g.beginPath(); g.moveTo(-w / 2 + 4, -h + 4); g.lineTo(w / 2 - 4, -4); g.moveTo(w / 2 - 4, -h + 4); g.lineTo(-w / 2 + 4, -4); g.stroke();
+  g.fillStyle = '#c48848'; g.fillRect(-w / 2 + 2, -h / 2 - 3, w - 4, 6); g.strokeStyle = OL; g.lineWidth = 1.5; g.strokeRect(-w / 2 + 2, -h / 2 - 3, w - 4, 6);
+  const pul = 0.6 + 0.4 * Math.sin(World.frame * 0.08 + (it.id || 0)); g.fillStyle = `rgba(255,90,220,${0.75 * pul})`; g.beginPath(); g.arc(0, -h / 2, 6, 0, TAU); g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.2; g.stroke();
+  if (dmg > 0.2) { g.strokeStyle = '#3a220e'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(-8, -h); g.lineTo(-3, -h + 10); g.lineTo(-9, -h + 18); if (dmg > 0.55) { g.moveTo(w / 2, -12); g.lineTo(w / 2 - 9, -16); g.lineTo(w / 2 - 12, -26); } g.stroke(); }
+  g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(-w / 2 + 3, -h + 3, w - 6, 4);
   g.restore();
 }

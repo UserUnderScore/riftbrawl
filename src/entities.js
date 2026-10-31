@@ -704,7 +704,7 @@ const FX = {
 function updateParticles() {
   for (let i = Particles.length - 1; i >= 0; i--) {
     const p = Particles[i]; p.life--;
-    if (p.k === 'cube') p.rot += 0.12; if (p.vx !== undefined) { p.x += p.vx; p.y += p.vy || 0; if (p.k === 'spark') { p.vx *= 0.92; p.vy = p.vy * 0.92 + 0.15; } }
+    if (p.k === 'cube') p.rot += 0.12; if (p.g) { p.vy += p.g; p.vx *= 0.98; } if (p.vx !== undefined) { p.x += p.vx; p.y += p.vy || 0; if (p.k === 'spark') { p.vx *= 0.92; p.vy = p.vy * 0.92 + 0.15; } }
     if (p.k === 'text') p.y += p.vy;
     if (p.life <= 0) Particles.splice(i, 1);
   }

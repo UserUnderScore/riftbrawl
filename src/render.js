@@ -525,6 +525,7 @@ function drawHeldItems(g) {
 }
 function drawItems(g) {
   for (const it of World.items) {
+    if (it.type === 'crate') { drawCrate(g, it); continue; }
     if (it.type === 'bomb') { if (it.holder || it.hs) continue; if (it.t > 1300 && World.frame % 8 < 4) continue; drawBomb(g, it, it.x, it.y - (it.th ? 0 : 12 + Math.sin(World.frame * 0.1 + it.id) * 2)); continue; }
     const b = Math.sin((it.t || World.frame) * 0.1) * 2, x = it.x, y = it.y - 10 + b;
     if (it.t > 1300 && World.frame % 8 < 4) continue;
