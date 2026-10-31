@@ -119,7 +119,7 @@ const Net = {
       G.mode = 'guest'; G.slots = [{ dev: 'net' }, { dev: src.dev, input: src }]; G.csel[0] = s.cs ? s.cs[0] : 0; G.cready[0] = !!(s.cs && s.cs[1]);
       if (G.gch === undefined) G.gch = 1;
       const d = menuDir(src);
-      if (!G.grdy) { if (d === 'left') { G.gch = (G.gch + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch = (G.gch + 1) % 4; Audio2.play('blip'); } if (menuOK(src)) { G.grdy = true; Audio2.play('select'); } }
+      if (!G.grdy) { if (d === 'left') { G.gch = (G.gch + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch = (G.gch + 1) % 4; Audio2.play('blip'); } if (menuOK(src)) { G.grdy = true; Audio2.play('ready'); } }
       else if (menuBack(src)) G.grdy = false;
       if (G.clickChar !== undefined) { if (!G.grdy) G.gch = G.clickChar; G.clickChar = undefined; }
       G.csel[1] = G.gch; G.cready[1] = !!G.grdy; G.t++;

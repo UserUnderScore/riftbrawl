@@ -59,7 +59,8 @@ function drawControlsPanel(x, y, a = 0.95) {
   ['Move — WASD / Arrows', 'Attack — J / ,', 'Special — K / .', 'Jump — Space / Right Shift', 'Shield — L / /', 'Smash — I / ;', 'Pause — Esc / Backspace', '', 'Shield + direction = roll / dodge'].forEach((t, i) => T(t, col2, y + 124 + i * 28, 16, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false }));
   T('Up + Special = recovery  ·  Grab ledges by falling near them  ·  Launch foes off-screen for a KO!', W / 2, y + 448, 15, '#ffd23c', { stroke: 0 });
 }
-const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Turn the game sound on or off.'];
+const MODE_DESC_X = 0;
+const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Turn all game sound on or off.', 'Turn the soundtrack on or off.'];
 function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
   opts.forEach((o, i) => {
     const sel = i === idx; const w = sel ? 470 : 430, h = 48, x = (x0 ?? W / 2 - 220) - (sel ? 10 : 0), y = y0 + i * 58 - 32;
@@ -206,12 +207,13 @@ function sceneDraw() {
       drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); drawLogo(W / 2, 220, 120);
       T('A CO-OP ROGUELIKE PLATFORM FIGHTER', W / 2, 268, 20, '#ff9ae8', { stroke: 5 });
       if (G.t % 70 < 50) T('PRESS ANY BUTTON', W / 2, 352, 32, '#fff', { stroke: 7 });
+      if (!Audio2.ctx || Audio2.ctx.state !== 'running') T('♪ Click or press a key to turn on music & sound', W / 2, 440, 15, '#ffe9a0', { stroke: 4 });
       T(gamepadBlocked ? 'Controllers unavailable in this view — open the page full-screen to use one' : (getPads().length ? 'Controller detected: ' + shortPadName(getPads()[0].id) : 'Keyboard ready · plug in a controller and press a button'), W / 2, 390, 15, '#cfc6e6', { stroke: 4 });
       if (G.best.time) T('Best clear ' + fmtTime(G.best.time) + (G.best.endless ? '  ·  Endless best ' + G.best.endless : ''), W / 2, 414, 14, '#bfb4d8', { stroke: 3 });
       clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clicked = 1; } }); break;
     case 'mode': {
       drawTitleBG(); drawLogo(320, 118, 72);
-      drawMenu('', MODE_OPTS, G.menuIdx, 210, 70);
+      drawMenu('', MODE_OPTS, G.menuIdx, 196, 70);
       glass(W - 520, 190, 450, 300, '#ffd23c', 22, 0.85);
       T(MODE_OPTS[G.menuIdx], W - 295, 236, 26, '#ffd23c', { stroke: 6 });
       UI.wrap(MODE_DESC[G.menuIdx] || '', W - 470, 276, 360, 17, '#e8e2f5');

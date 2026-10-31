@@ -69,7 +69,7 @@ const UI = {
 const Game = {
   scene: 'title', mode: 'solo', slots: [], menuIdx: 0, teamStocks: 3, run: null, banner: null, pauseIdx: 0, msg: '', t: 0, best: store('sse_best') || { endless: 0, time: 0 },
   boonOpts: {}, boonPick: {}, boonIdx: {}, csel: {}, cready: {}, overStats: null, victoryIdx: 0, remap: null,
-  setScene(s) { this.scene = s; this.menuIdx = 0; this.t = 0; Audio2.play('blip'); },
+  setScene(s) { this.scene = s; this.menuIdx = 0; this.t = 0; },
   // --- run lifecycle ---
   startRun() {
     this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0 };
@@ -228,9 +228,9 @@ const Game = {
     const ps = World.players.filter(p => !p.dead && !p.out); if (!ps.length) return;
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9; for (const p of ps) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y - 40); maxY = Math.max(maxY, p.y); }
     if (this.bossRef && !this.bossRef.dead) { const b = this.bossRef; minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); minY = Math.min(minY, b.y - b.h); }
-    let tz = clamp(Math.min(W / (maxX - minX + 600), H / (maxY - minY + 420)), 0.6, 1.0);
+    let tz = clamp(Math.min(W / (maxX - minX + 460), H / (maxY - minY + 380)), 0.78, 1.32);
     const B = World.barriers;
-    if (B) tz = clamp(Math.max(tz, W / (B.r - B.l)), 0.6, 1.3);
+    if (B) tz = clamp(Math.max(tz, W / (B.r - B.l), this.bossRef && !this.bossRef.dead ? 0 : 1.22), 0.78, 1.4);
     let tx = (minX + maxX) / 2 + (ps.length === 1 ? ps[0].face * 60 : 0), ty = (minY + maxY) / 2 - 85;
     if (B) { const vw = W / tz; tx = clamp(tx, B.l + vw / 2, B.r - vw / 2); }
     const vw2 = W / (2 * tz); tx = clamp(tx, st.x0 + vw2, st.x1 - vw2);
@@ -244,10 +244,10 @@ const Game = {
 // ---- Scenes: update + draw ----
 function localSources() { return Devices.list().map(id => Devices.get(id)); }
 function anyOK() { return localSources().find(s => menuOK(s)); }
-function anyBack() { return localSources().find(s => menuBack(s)); }
+function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SOUND: ON'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SOUND: ON', 'MUSIC: ON'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -256,11 +256,11 @@ function sceneUpdate() {
   switch (G.scene) {
     case 'title': {
       const s = anyOK() || localSources().find(s => s.cur.jp || s.cur.pp);
-      if (s || G.clicked) { G.primary = s ? s.dev : 'kb1'; G.clicked = 0; G.setScene('mode'); Audio2.unlock(); }
+      if (s || G.clicked) { G.primary = s ? s.dev : 'kb1'; G.clicked = 0; Audio2.unlock(); Audio2.play('select'); G.setScene('mode'); }
       break;
     }
     case 'mode': {
-      MODE_OPTS[6] = 'SOUND: ' + (Audio2.muted ? 'OFF' : 'ON');
+      MODE_OPTS[6] = 'SOUND: ' + (Audio2.muted ? 'OFF' : 'ON'); MODE_OPTS[7] = 'MUSIC: ' + (Music.enabled ? 'ON' : 'OFF');
       menuNav(MODE_OPTS.length);
       const ok = anyOK() || G.clickPick !== undefined; if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; G.clickPick = undefined; }
       if (ok) {
@@ -272,6 +272,7 @@ function sceneUpdate() {
         if (i === 4) G.setScene('controls');
         if (i === 5) { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
         if (i === 6) { Audio2.muted = !Audio2.muted; store('sse_muted', Audio2.muted); }
+        if (i === 7) { Music.enabled = !Music.enabled; store('sse_music', Music.enabled); }
       }
       if (anyBack()) G.setScene('title');
       break;
@@ -323,7 +324,7 @@ function updateCharSel() {
     if (!G.cready[i]) {
       if (d === 'left') { G.csel[i] = (G.csel[i] + 3) % 4; Audio2.play('blip'); }
       if (d === 'right') { G.csel[i] = (G.csel[i] + 1) % 4; Audio2.play('blip'); }
-      if (menuOK(s)) { G.cready[i] = true; Audio2.play('select'); }
+      if (menuOK(s)) { G.cready[i] = true; Audio2.play('ready'); }
       if (menuBack(s) && G.t > 10) { if (i === 0) { Net.leave(); G.setScene('mode'); return; } else { G.slots.splice(i, 1); } }
     } else if (menuBack(s)) G.cready[i] = false;
   });
@@ -574,5 +575,6 @@ function loop(now) {
     acc -= 1000 / 60; steps++;
   }
   sceneDraw();
+  musicTick();
   requestAnimationFrame(loop);
 }

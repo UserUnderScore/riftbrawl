@@ -446,7 +446,7 @@ function updateProj(p) {
   }
   if (D.solid && !D.ground && solidAt(p.x, p.y)) {
     p.life = 0; FX.burst(p.x, p.y, '#ffffff', 5);
-    if (p.type === 'egg') spawnEnemy('flit', p.x, p.y - 20, { minion: 1 });
+    if (p.type === 'egg') spawnEnemy('hopper', p.x, p.y - 20, { minion: 1 });
   }
   if (p.type === 'egg' && p.life <= 0 && !p.hatched) { p.hatched = 1; }
   if (p.type === 'orb' || p.type === 'hex' || p.type === 'shard') { if (p.t % 3 === 0) FX.trail(p.x, p.y, p.type === 'orb' ? '#9dff8a' : p.type === 'hex' ? '#c77dff' : '#ff6bd6', p.r * 0.6); }
@@ -557,7 +557,7 @@ const FX = {
   },
   explode(x, y, r) { this.add({ k: 'ring', x, y, r0: 6, r: r * 1.3, life: 18, max: 18, c: '#ffd27a' }); this.burst(x, y - 10, '#ff9a3c', 18); this.burst(x, y - 10, '#555', 8); },
   text(x, y, t, c = '#fff', s = 16) { this.add({ k: 'text', x, y, vy: -1, t: String(t), life: 50, max: 50, c, s }); },
-  ko(x, y, c) { this.add({ k: 'kob', x, y, life: 64, max: 64, c }); this.burst(x, y, c, 30); World.flashT = 9; World.zp = 0.08; },
+  ko(x, y, c) { this.add({ k: 'kob', x, y, life: 64, max: 64, c }); this.burst(x, y, c, 30); World.flashT = 7; World.zp = 0.07; },
   after(x, y, face, c) { this.add({ k: 'after', x, y, face, life: 12, max: 12, c }); },
   trail(x, y, c, s) { this.add({ k: 'dust', x, y, vx: 0, vy: 0, life: 14, max: 14, c, s }); },
   zap(x1, y1, x2, y2) { this.add({ k: 'zap', x: x1, y: y1, x2, y2, life: 10, max: 10, c: '#bfe3ff' }); },

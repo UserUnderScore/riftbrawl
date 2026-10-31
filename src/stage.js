@@ -17,7 +17,7 @@ const MODIFIERS = {
   meteor: { name: 'Meteor Shower', desc: 'Rocks fall from the sky during fights.' },
 };
 // [type, weight, first stage index it appears]
-const ENEMY_WEIGHTS = [['shade', 5, 0], ['rival', 3.5, 1], ['lancer', 3, 0], ['shieldbearer', 3, 2], ['sniper', 2, 3], ['warlock', 1.8, 4], ['brute', 1.6, 3], ['spitter', 1.4, 0], ['bomber', 1.4, 0], ['hopper', 1.2, 1], ['flit', 0.5, 0]];
+const ENEMY_WEIGHTS = [['shade', 5, 0], ['rival', 3.5, 1], ['lancer', 3, 0], ['shieldbearer', 3, 2], ['sniper', 2, 3], ['warlock', 1.8, 4], ['brute', 1.6, 3], ['spitter', 1.4, 0], ['bomber', 1.4, 0], ['hopper', 1.2, 1]];
 function weightedPick(R, idx, opts = {}) {
   const list = ENEMY_WEIGHTS.filter(([t, w, s]) => idx >= s && !(opts.exclude || []).includes(t));
   const tot = list.reduce((a, b) => a + b[1], 0); let r = R.f() * tot;
@@ -65,7 +65,7 @@ function genStage(seed, idx, kind, opts = {}) {
     let flits = 0, rivals = 0;
     for (let i = 0; i < n; i++) {
       let t = weightedPick(R, opts.endless ? 12 : idx);
-      if (t === 'flit' && flits >= 1) t = 'shade'; if (t === 'rival' && rivals >= 1 + Math.floor(idx / 4) + (nP > 1 ? 1 : 0)) t = 'lancer';
+ if (t === 'rival' && rivals >= 1 + Math.floor(idx / 4) + (nP > 1 ? 1 : 0)) t = 'lancer';
       if (t === 'flit') flits++; if (t === 'rival') rivals++;
       w.push({ type: t, fid: R.i(0, 3), elite: t !== 'rival' && R.chance(eliteP) ? R.pick(ELITES) : null, side: R.f() });
     }

@@ -77,16 +77,16 @@ class Enemy {
   constructor(type, x, y, o = {}) {
     const d = this.def = ENEMY[type] || BOSS[type]; this.type = type; this.id = World.uid++; this.team = 1;
     this.x = x; this.y = y; this.vx = 0; this.vy = 0; this.kx = 0; this.ky = 0; this.face = -1; this.air = 1; this.t = 0;
-    this.scale = 1; this.w = d.w; this.h = d.h; this.maxHp = d.hp * World.diff.hp; this.hp = this.maxHp; this.pct = 0; this.weight = d.weight;
+    this.scale = d.boss ? 1 : 1.3; this.w = d.w * this.scale; this.h = d.h * this.scale; this.maxHp = d.hp * World.diff.hp; this.hp = this.maxHp; this.pct = 0; this.weight = d.weight;
     this.hitstun = 0; this.hitlag = 0; this.atk = null; this.af = 0; this.cd = 60 + ri(0, 60); this.hitSet = new Set(); this.mid = 0; this.dead = false; this.dying = 0; this.flash = 0;
     this.spawnT = o.spawn ? 40 : 0;
     this.elite = o.elite || null; this.minion = o.minion; this.spd = 1; this.dmgMul = 1; this.ward = 0; this.wardT = 0; this.boss = !!d.boss; this.jumpCD = 0;
     if (this.elite) {
-      if (this.elite === 'giant') { this.scale = 1.35; this.maxHp *= 1.8; this.dmgMul = 1.3; this.weight *= 1.3; }
+      if (this.elite === 'giant') { this.scale *= 1.35; this.maxHp *= 1.8; this.dmgMul = 1.3; this.weight *= 1.3; }
       if (this.elite === 'swift') { this.spd = 1.5; this.maxHp *= 1.2; }
       if (this.elite === 'volatile') { this.maxHp *= 1.2; }
       if (this.elite === 'warded') { this.ward = 25; }
-      this.hp = this.maxHp; this.w *= this.scale; this.h *= this.scale;
+      this.hp = this.maxHp; this.w = d.w * this.scale; this.h = d.h * this.scale;
     }
     if (d.init) d.init(this);
   }
@@ -235,7 +235,7 @@ const BOSS = {
     atks: {
       volley: { d: 70, tele: 30, go: (e, t, T) => { e.vx *= 0.9; e.vy *= 0.9; if (T && (t === 30 || t === 45)) { const a0 = Math.atan2(T.dy + 30, T.dx); for (let i = -2; i <= 2; i++) { const a = a0 + i * 0.18; spawnProj('stinger', e, e.x, e.y - 40, Math.cos(a) * 7, Math.sin(a) * 7, { team: 1, dmg: 6 * World.diff.dmg }); } Audio2.play('shoot'); } } },
       dive: { d: 100, tele: 36, hb: [A(36, 70, 0, -40, 55, 13, 60, 55, 70)], go: (e, t, T) => { if (t === 36 && T) { const m = Math.hypot(T.dx, T.dy) || 1; e.dvx = T.dx / m * 12; e.dvy = T.dy / m * 12; Audio2.play('swing'); } if (t >= 36 && t < 70) { e.vx = e.dvx; e.vy = e.dvy; if (solidAt(e.x, e.y + 4)) { e.dvy = -Math.abs(e.dvy) * 0.5; World.shake(6); } } else { e.vx *= 0.9; e.vy = e.vy * 0.9 - (t > 70 ? 0.3 : 0); } } },
-      eggs: { d: 70, tele: 30, go: (e, t) => { if (t === 30 && World.enemies.filter(x => x.type === 'flit' && !x.dead).length < 4) for (let i = 0; i < 3; i++) spawnProj('egg', e, e.x + (i - 1) * 30, e.y - 10, (i - 1) * 2.5, -3, { team: 1 }); } },
+      eggs: { d: 70, tele: 30, go: (e, t) => { if (t === 30 && World.enemies.filter(x => x.type === 'hopper' && !x.dead).length < 4) for (let i = 0; i < 3; i++) spawnProj('egg', e, e.x + (i - 1) * 30, e.y - 10, (i - 1) * 2.5, -3, { team: 1 }); } },
       rain: { d: 110, tele: 30, go: (e, t) => { const B = World.barriers; if (B && t >= 30 && t % 6 === 0) spawnProj('stinger', e, rr(B.l + 20, B.r - 20), World.cam.y - 420, 0, 7, { team: 1, dmg: 6 * World.diff.dmg }); } },
     },
     ai(e, T) { bossStep(e, T); } },
@@ -250,7 +250,7 @@ const BOSS = {
       aimed: { d: 80, tele: 20, go: (e, t) => { if (t >= 20 && t <= 60 && t % 10 === 0) { for (const p of World.players) { if (p.dead || p.out) continue; const dx = p.x - e.x, dy = p.y - 30 - (e.y - 50), m = Math.hypot(dx, dy) || 1; spawnProj('shard', e, e.x, e.y - 50, dx / m * 9, dy / m * 9, { team: 1, dmg: 8 * World.diff.dmg }); } Audio2.play('shoot'); } } },
       pillars: { d: 100, tele: 10, go: (e, t) => { if (t === 10) { const xs = []; for (const p of World.players) if (!p.dead && !p.out) xs.push(p.x); const B = World.barriers; const ph = BOSS.crown.phase(e); for (let i = 0; i < ph; i++) if (B) xs.push(rr(B.l + 40, B.r - 40)); for (const x of xs) spawnProj('pillar', e, x, World.stage.arenaFloor || e.y + 200, 0, 0, { team: 1, dmg: 14 * World.diff.dmg }); } } },
       quake: { d: 70, tele: 30, go: (e, t) => { if (t === 30) { const gy = World.stage.arenaFloor; const B = World.barriers; if (B && gy) { spawnProj('eshock', e, B.l + 20, gy - 10, 7, 0, { life: 140 }); spawnProj('eshock', e, B.r - 20, gy - 10, -7, 0, { life: 140 }); } World.shake(10); Audio2.play('boom'); } } },
-      summon: { d: 60, tele: 30, go: (e, t) => { if (t === 30) { const B = World.barriers; for (let i = 0; i < 2; i++) { const ty = pick(['shade', 'bomber', 'flit', 'hopper', 'lancer']); const x = B ? rr(B.l + 60, B.r - 60) : e.x; spawnEnemy(ty, x, (World.stage.arenaFloor || e.y) - 200, { minion: 1 }); FX.portal(x, (World.stage.arenaFloor || e.y) - 220); } Audio2.play('portal'); } } },
+      summon: { d: 60, tele: 30, go: (e, t) => { if (t === 30) { const B = World.barriers; for (let i = 0; i < 2; i++) { const ty = pick(['shade', 'bomber', 'rival', 'hopper', 'lancer']); const x = B ? rr(B.l + 60, B.r - 60) : e.x; spawnEnemy(ty, x, (World.stage.arenaFloor || e.y) - 200, { minion: 1 }); FX.portal(x, (World.stage.arenaFloor || e.y) - 220); } Audio2.play('portal'); } } },
     },
     ai(e, T) { bossStep(e, T); } },
 };

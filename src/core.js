@@ -163,8 +163,19 @@ const Audio2 = {
     const s = this.ctx.createBufferSource(); s.buffer = buf; const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
     const g = this.ctx.createGain(); g.gain.value = vol; s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
   },
+  sweep(f0, f1, dur, vol, q = 2) {
+    if (!this.ctx || this.muted) return; const t = this.ctx.currentTime; const n = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate); const d = buf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const s = this.ctx.createBufferSource(); s.buffer = buf; const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + dur * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+  },
+  chime(freqs, gap, vol, dur = 0.35) { freqs.forEach((f, i) => setTimeout(() => { this.tone(f, dur, 'sine', vol); this.tone(f * 2.01, dur * 0.6, 'sine', vol * 0.35); }, i * gap)); },
   play(name, k = 1) {
     switch (name) {
+      case 'cursor': this.tone(2093, 0.045, 'sine', 0.11, 1.12); this.tone(1046, 0.03, 'triangle', 0.05); break;
+      case 'back': this.tone(988, 0.09, 'triangle', 0.12, 0.55); this.tone(659, 0.11, 'sine', 0.08, 0.6); break;
+      case 'ready': this.sweep(500, 5000, 0.22, 0.22); this.tone(110, 0.25, 'sine', 0.3, 0.45); this.chime([1047, 1319, 1568, 2093], 35, 0.09, 0.5); break;
+      case 'confirm': this.sweep(400, 4500, 0.16, 0.2); this.chime([1568, 2349], 40, 0.1, 0.4); this.tone(140, 0.14, 'sine', 0.22, 0.5); break;
       case 'hit': this.noise(0.08 + k * 0.04, 0.25 + k * 0.1, 900 + k * 900); this.tone(180 - k * 30, 0.1, 'square', 0.12, 0.5); break;
       case 'bighit': this.noise(0.25, 0.45, 2500); this.tone(110, 0.3, 'sawtooth', 0.2, 0.3); break;
       case 'swing': this.noise(0.06, 0.08, 3000); break;
@@ -172,13 +183,13 @@ const Audio2 = {
       case 'land': this.noise(0.05, 0.08, 500); break;
       case 'shield': this.tone(600, 0.08, 'triangle', 0.15, 1.2); break;
       case 'ko': this.noise(0.6, 0.5, 4000); this.tone(800, 0.6, 'sawtooth', 0.2, 0.1); break;
-      case 'blip': this.tone(660, 0.05, 'square', 0.08); break;
-      case 'select': this.tone(520, 0.06, 'square', 0.1); setTimeout(() => this.tone(780, 0.08, 'square', 0.1), 60); break;
+      case 'blip': this.play('cursor'); break;
+      case 'select': this.play('confirm'); break;
       case 'shoot': this.tone(900, 0.1, 'triangle', 0.1, 0.4); break;
       case 'boom': this.noise(0.4, 0.5, 700); this.tone(70, 0.4, 'sine', 0.3, 0.4); break;
       case 'portal': this.tone(200, 0.4, 'sine', 0.12, 3); break;
       case 'clink': this.tone(1400, 0.06, 'square', 0.1, 0.7); break;
-      case 'boon': [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.12, 'triangle', 0.12), i * 70)); break;
+      case 'boon': this.sweep(800, 6000, 0.3, 0.16); this.chime([784, 988, 1175, 1568, 1976], 45, 0.08, 0.6); break;
       case 'lock': this.tone(150, 0.3, 'sawtooth', 0.15, 0.6); break;
       case 'heal': this.tone(500, 0.2, 'sine', 0.15, 2); break;
       case 'charge': this.tone(200 + k * 400, 0.04, 'sine', 0.05); break;

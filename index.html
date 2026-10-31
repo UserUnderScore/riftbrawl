@@ -187,8 +187,19 @@ const Audio2 = {
     const s = this.ctx.createBufferSource(); s.buffer = buf; const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = freq;
     const g = this.ctx.createGain(); g.gain.value = vol; s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
   },
+  sweep(f0, f1, dur, vol, q = 2) {
+    if (!this.ctx || this.muted) return; const t = this.ctx.currentTime; const n = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate); const d = buf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const s = this.ctx.createBufferSource(); s.buffer = buf; const f = this.ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vol, t + dur * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(f); f.connect(g); g.connect(this.master); s.start(t);
+  },
+  chime(freqs, gap, vol, dur = 0.35) { freqs.forEach((f, i) => setTimeout(() => { this.tone(f, dur, 'sine', vol); this.tone(f * 2.01, dur * 0.6, 'sine', vol * 0.35); }, i * gap)); },
   play(name, k = 1) {
     switch (name) {
+      case 'cursor': this.tone(2093, 0.045, 'sine', 0.11, 1.12); this.tone(1046, 0.03, 'triangle', 0.05); break;
+      case 'back': this.tone(988, 0.09, 'triangle', 0.12, 0.55); this.tone(659, 0.11, 'sine', 0.08, 0.6); break;
+      case 'ready': this.sweep(500, 5000, 0.22, 0.22); this.tone(110, 0.25, 'sine', 0.3, 0.45); this.chime([1047, 1319, 1568, 2093], 35, 0.09, 0.5); break;
+      case 'confirm': this.sweep(400, 4500, 0.16, 0.2); this.chime([1568, 2349], 40, 0.1, 0.4); this.tone(140, 0.14, 'sine', 0.22, 0.5); break;
       case 'hit': this.noise(0.08 + k * 0.04, 0.25 + k * 0.1, 900 + k * 900); this.tone(180 - k * 30, 0.1, 'square', 0.12, 0.5); break;
       case 'bighit': this.noise(0.25, 0.45, 2500); this.tone(110, 0.3, 'sawtooth', 0.2, 0.3); break;
       case 'swing': this.noise(0.06, 0.08, 3000); break;
@@ -196,13 +207,13 @@ const Audio2 = {
       case 'land': this.noise(0.05, 0.08, 500); break;
       case 'shield': this.tone(600, 0.08, 'triangle', 0.15, 1.2); break;
       case 'ko': this.noise(0.6, 0.5, 4000); this.tone(800, 0.6, 'sawtooth', 0.2, 0.1); break;
-      case 'blip': this.tone(660, 0.05, 'square', 0.08); break;
-      case 'select': this.tone(520, 0.06, 'square', 0.1); setTimeout(() => this.tone(780, 0.08, 'square', 0.1), 60); break;
+      case 'blip': this.play('cursor'); break;
+      case 'select': this.play('confirm'); break;
       case 'shoot': this.tone(900, 0.1, 'triangle', 0.1, 0.4); break;
       case 'boom': this.noise(0.4, 0.5, 700); this.tone(70, 0.4, 'sine', 0.3, 0.4); break;
       case 'portal': this.tone(200, 0.4, 'sine', 0.12, 3); break;
       case 'clink': this.tone(1400, 0.06, 'square', 0.1, 0.7); break;
-      case 'boon': [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, 0.12, 'triangle', 0.12), i * 70)); break;
+      case 'boon': this.sweep(800, 6000, 0.3, 0.16); this.chime([784, 988, 1175, 1568, 1976], 45, 0.08, 0.6); break;
       case 'lock': this.tone(150, 0.3, 'sawtooth', 0.15, 0.6); break;
       case 'heal': this.tone(500, 0.2, 'sine', 0.15, 2); break;
       case 'charge': this.tone(200 + k * 400, 0.04, 'sine', 0.05); break;
@@ -822,7 +833,7 @@ function updateProj(p) {
   }
   if (D.solid && !D.ground && solidAt(p.x, p.y)) {
     p.life = 0; FX.burst(p.x, p.y, '#ffffff', 5);
-    if (p.type === 'egg') spawnEnemy('flit', p.x, p.y - 20, { minion: 1 });
+    if (p.type === 'egg') spawnEnemy('hopper', p.x, p.y - 20, { minion: 1 });
   }
   if (p.type === 'egg' && p.life <= 0 && !p.hatched) { p.hatched = 1; }
   if (p.type === 'orb' || p.type === 'hex' || p.type === 'shard') { if (p.t % 3 === 0) FX.trail(p.x, p.y, p.type === 'orb' ? '#9dff8a' : p.type === 'hex' ? '#c77dff' : '#ff6bd6', p.r * 0.6); }
@@ -933,7 +944,7 @@ const FX = {
   },
   explode(x, y, r) { this.add({ k: 'ring', x, y, r0: 6, r: r * 1.3, life: 18, max: 18, c: '#ffd27a' }); this.burst(x, y - 10, '#ff9a3c', 18); this.burst(x, y - 10, '#555', 8); },
   text(x, y, t, c = '#fff', s = 16) { this.add({ k: 'text', x, y, vy: -1, t: String(t), life: 50, max: 50, c, s }); },
-  ko(x, y, c) { this.add({ k: 'kob', x, y, life: 64, max: 64, c }); this.burst(x, y, c, 30); World.flashT = 9; World.zp = 0.08; },
+  ko(x, y, c) { this.add({ k: 'kob', x, y, life: 64, max: 64, c }); this.burst(x, y, c, 30); World.flashT = 7; World.zp = 0.07; },
   after(x, y, face, c) { this.add({ k: 'after', x, y, face, life: 12, max: 12, c }); },
   trail(x, y, c, s) { this.add({ k: 'dust', x, y, vx: 0, vy: 0, life: 14, max: 14, c, s }); },
   zap(x1, y1, x2, y2) { this.add({ k: 'zap', x: x1, y: y1, x2, y2, life: 10, max: 10, c: '#bfe3ff' }); },
@@ -1029,16 +1040,16 @@ class Enemy {
   constructor(type, x, y, o = {}) {
     const d = this.def = ENEMY[type] || BOSS[type]; this.type = type; this.id = World.uid++; this.team = 1;
     this.x = x; this.y = y; this.vx = 0; this.vy = 0; this.kx = 0; this.ky = 0; this.face = -1; this.air = 1; this.t = 0;
-    this.scale = 1; this.w = d.w; this.h = d.h; this.maxHp = d.hp * World.diff.hp; this.hp = this.maxHp; this.pct = 0; this.weight = d.weight;
+    this.scale = d.boss ? 1 : 1.3; this.w = d.w * this.scale; this.h = d.h * this.scale; this.maxHp = d.hp * World.diff.hp; this.hp = this.maxHp; this.pct = 0; this.weight = d.weight;
     this.hitstun = 0; this.hitlag = 0; this.atk = null; this.af = 0; this.cd = 60 + ri(0, 60); this.hitSet = new Set(); this.mid = 0; this.dead = false; this.dying = 0; this.flash = 0;
     this.spawnT = o.spawn ? 40 : 0;
     this.elite = o.elite || null; this.minion = o.minion; this.spd = 1; this.dmgMul = 1; this.ward = 0; this.wardT = 0; this.boss = !!d.boss; this.jumpCD = 0;
     if (this.elite) {
-      if (this.elite === 'giant') { this.scale = 1.35; this.maxHp *= 1.8; this.dmgMul = 1.3; this.weight *= 1.3; }
+      if (this.elite === 'giant') { this.scale *= 1.35; this.maxHp *= 1.8; this.dmgMul = 1.3; this.weight *= 1.3; }
       if (this.elite === 'swift') { this.spd = 1.5; this.maxHp *= 1.2; }
       if (this.elite === 'volatile') { this.maxHp *= 1.2; }
       if (this.elite === 'warded') { this.ward = 25; }
-      this.hp = this.maxHp; this.w *= this.scale; this.h *= this.scale;
+      this.hp = this.maxHp; this.w = d.w * this.scale; this.h = d.h * this.scale;
     }
     if (d.init) d.init(this);
   }
@@ -1187,7 +1198,7 @@ const BOSS = {
     atks: {
       volley: { d: 70, tele: 30, go: (e, t, T) => { e.vx *= 0.9; e.vy *= 0.9; if (T && (t === 30 || t === 45)) { const a0 = Math.atan2(T.dy + 30, T.dx); for (let i = -2; i <= 2; i++) { const a = a0 + i * 0.18; spawnProj('stinger', e, e.x, e.y - 40, Math.cos(a) * 7, Math.sin(a) * 7, { team: 1, dmg: 6 * World.diff.dmg }); } Audio2.play('shoot'); } } },
       dive: { d: 100, tele: 36, hb: [A(36, 70, 0, -40, 55, 13, 60, 55, 70)], go: (e, t, T) => { if (t === 36 && T) { const m = Math.hypot(T.dx, T.dy) || 1; e.dvx = T.dx / m * 12; e.dvy = T.dy / m * 12; Audio2.play('swing'); } if (t >= 36 && t < 70) { e.vx = e.dvx; e.vy = e.dvy; if (solidAt(e.x, e.y + 4)) { e.dvy = -Math.abs(e.dvy) * 0.5; World.shake(6); } } else { e.vx *= 0.9; e.vy = e.vy * 0.9 - (t > 70 ? 0.3 : 0); } } },
-      eggs: { d: 70, tele: 30, go: (e, t) => { if (t === 30 && World.enemies.filter(x => x.type === 'flit' && !x.dead).length < 4) for (let i = 0; i < 3; i++) spawnProj('egg', e, e.x + (i - 1) * 30, e.y - 10, (i - 1) * 2.5, -3, { team: 1 }); } },
+      eggs: { d: 70, tele: 30, go: (e, t) => { if (t === 30 && World.enemies.filter(x => x.type === 'hopper' && !x.dead).length < 4) for (let i = 0; i < 3; i++) spawnProj('egg', e, e.x + (i - 1) * 30, e.y - 10, (i - 1) * 2.5, -3, { team: 1 }); } },
       rain: { d: 110, tele: 30, go: (e, t) => { const B = World.barriers; if (B && t >= 30 && t % 6 === 0) spawnProj('stinger', e, rr(B.l + 20, B.r - 20), World.cam.y - 420, 0, 7, { team: 1, dmg: 6 * World.diff.dmg }); } },
     },
     ai(e, T) { bossStep(e, T); } },
@@ -1202,7 +1213,7 @@ const BOSS = {
       aimed: { d: 80, tele: 20, go: (e, t) => { if (t >= 20 && t <= 60 && t % 10 === 0) { for (const p of World.players) { if (p.dead || p.out) continue; const dx = p.x - e.x, dy = p.y - 30 - (e.y - 50), m = Math.hypot(dx, dy) || 1; spawnProj('shard', e, e.x, e.y - 50, dx / m * 9, dy / m * 9, { team: 1, dmg: 8 * World.diff.dmg }); } Audio2.play('shoot'); } } },
       pillars: { d: 100, tele: 10, go: (e, t) => { if (t === 10) { const xs = []; for (const p of World.players) if (!p.dead && !p.out) xs.push(p.x); const B = World.barriers; const ph = BOSS.crown.phase(e); for (let i = 0; i < ph; i++) if (B) xs.push(rr(B.l + 40, B.r - 40)); for (const x of xs) spawnProj('pillar', e, x, World.stage.arenaFloor || e.y + 200, 0, 0, { team: 1, dmg: 14 * World.diff.dmg }); } } },
       quake: { d: 70, tele: 30, go: (e, t) => { if (t === 30) { const gy = World.stage.arenaFloor; const B = World.barriers; if (B && gy) { spawnProj('eshock', e, B.l + 20, gy - 10, 7, 0, { life: 140 }); spawnProj('eshock', e, B.r - 20, gy - 10, -7, 0, { life: 140 }); } World.shake(10); Audio2.play('boom'); } } },
-      summon: { d: 60, tele: 30, go: (e, t) => { if (t === 30) { const B = World.barriers; for (let i = 0; i < 2; i++) { const ty = pick(['shade', 'bomber', 'flit', 'hopper', 'lancer']); const x = B ? rr(B.l + 60, B.r - 60) : e.x; spawnEnemy(ty, x, (World.stage.arenaFloor || e.y) - 200, { minion: 1 }); FX.portal(x, (World.stage.arenaFloor || e.y) - 220); } Audio2.play('portal'); } } },
+      summon: { d: 60, tele: 30, go: (e, t) => { if (t === 30) { const B = World.barriers; for (let i = 0; i < 2; i++) { const ty = pick(['shade', 'bomber', 'rival', 'hopper', 'lancer']); const x = B ? rr(B.l + 60, B.r - 60) : e.x; spawnEnemy(ty, x, (World.stage.arenaFloor || e.y) - 200, { minion: 1 }); FX.portal(x, (World.stage.arenaFloor || e.y) - 220); } Audio2.play('portal'); } } },
     },
     ai(e, T) { bossStep(e, T); } },
 };
@@ -1358,7 +1369,7 @@ const MODIFIERS = {
   meteor: { name: 'Meteor Shower', desc: 'Rocks fall from the sky during fights.' },
 };
 // [type, weight, first stage index it appears]
-const ENEMY_WEIGHTS = [['shade', 5, 0], ['rival', 3.5, 1], ['lancer', 3, 0], ['shieldbearer', 3, 2], ['sniper', 2, 3], ['warlock', 1.8, 4], ['brute', 1.6, 3], ['spitter', 1.4, 0], ['bomber', 1.4, 0], ['hopper', 1.2, 1], ['flit', 0.5, 0]];
+const ENEMY_WEIGHTS = [['shade', 5, 0], ['rival', 3.5, 1], ['lancer', 3, 0], ['shieldbearer', 3, 2], ['sniper', 2, 3], ['warlock', 1.8, 4], ['brute', 1.6, 3], ['spitter', 1.4, 0], ['bomber', 1.4, 0], ['hopper', 1.2, 1]];
 function weightedPick(R, idx, opts = {}) {
   const list = ENEMY_WEIGHTS.filter(([t, w, s]) => idx >= s && !(opts.exclude || []).includes(t));
   const tot = list.reduce((a, b) => a + b[1], 0); let r = R.f() * tot;
@@ -1406,7 +1417,7 @@ function genStage(seed, idx, kind, opts = {}) {
     let flits = 0, rivals = 0;
     for (let i = 0; i < n; i++) {
       let t = weightedPick(R, opts.endless ? 12 : idx);
-      if (t === 'flit' && flits >= 1) t = 'shade'; if (t === 'rival' && rivals >= 1 + Math.floor(idx / 4) + (nP > 1 ? 1 : 0)) t = 'lancer';
+ if (t === 'rival' && rivals >= 1 + Math.floor(idx / 4) + (nP > 1 ? 1 : 0)) t = 'lancer';
       if (t === 'flit') flits++; if (t === 'rival') rivals++;
       w.push({ type: t, fid: R.i(0, 3), elite: t !== 'rival' && R.chance(eliteP) ? R.pick(ELITES) : null, side: R.f() });
     }
@@ -2145,7 +2156,232 @@ function drawKOBlasts(g) {
     g.fillStyle = rgba('#ffffff', a); for (let i = 0; i < 12; i++) { const an = i / 12 * TAU + k * 2; const r = 40 + k * 140; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(an - 0.06) * r, Math.sin(an - 0.06) * r); g.lineTo(Math.cos(an + 0.06) * r, Math.sin(an + 0.06) * r); g.fill(); }
     g.restore();
   }
-  if (World.flashT > 0) { g.fillStyle = `rgba(255,255,255,${World.flashT / 18})`; g.fillRect(0, 0, W, H); World.flashT--; }
+  if (World.flashT > 0) { g.fillStyle = `rgba(255,255,255,${World.flashT / 32})`; g.fillRect(0, 0, W, H); World.flashT--; }
+}
+
+// ===== MUSIC: a small synth orchestra + sequencer. All compositions are original. =====
+const NOTE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+function midi(n) { const m = /^([A-G])([#b]?)(-?\d)$/.exec(n); if (!m) return null; return 12 * (+m[3] + 1) + NOTE[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0); }
+const hz = m => 440 * Math.pow(2, (m - 69) / 12);
+// "G4:2 C5:6 R:4 ..." durations in 16th steps -> [[step, midi, len, vel]]
+function mel(str, start = 0, vel = 1) { const out = []; let t = start; for (const tok of str.split(/\s+/)) { if (!tok || tok === '|') continue; const [n, d] = tok.split(':'); const len = +d || 4; if (n !== 'R') { const ns = n.split('+'); for (const x of ns) out.push([t, midi(x), len, vel]); } t += len; } return out; }
+const QUAL = { '': [0, 4, 7], m: [0, 3, 7], 7: [0, 4, 7, 10], m7: [0, 3, 7, 10], maj7: [0, 4, 7, 11], dim: [0, 3, 6], sus: [0, 5, 7], 5: [0, 7, 12] };
+function chordTones(sym) { const m = /^([A-G][#b]?)(m7|maj7|m|7|dim|sus|5)?$/.exec(sym); const root = midi(m[1] + '3'); return { root, tones: (QUAL[m[2] || ''] || QUAL['']).map(i => root + i) }; }
+// chord chart: one string per bar, may contain 2 chords "F G"
+function chart(bars) { const out = []; bars.forEach((b, i) => { const cs = b.trim().split(/\s+/); cs.forEach((c, k) => out.push({ step: i * 16 + k * (16 / cs.length), len: 16 / cs.length, ...chordTones(c) })); }); return out; }
+
+const Music = {
+  ctx: null, out: null, rev: null, cur: null, curKey: '', step: 0, nextT: 0, timer: null, vol: store('sse_musicvol') ?? 0.5, enabled: store('sse_music') ?? true, songs: {},
+  init() {
+    if (this.out || !Audio2.ctx) return !!this.out; const c = this.ctx = Audio2.ctx;
+    this.out = c.createGain(); this.out.gain.value = 0;
+    const comp = c.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.2;
+    this.bus = c.createGain(); this.bus.gain.value = 1; this.bus.connect(comp); comp.connect(this.out); this.out.connect(c.destination);
+    // reverb send
+    this.rev = c.createConvolver(); const len = Math.floor(c.sampleRate * 2.4), ir = c.createBuffer(2, len, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) { const d = ir.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+    this.rev.buffer = ir; this.revIn = c.createGain(); this.revIn.gain.value = 0.32; this.revIn.connect(this.rev); this.rev.connect(this.bus);
+    this.noiseBuf = c.createBuffer(1, c.sampleRate, c.sampleRate); const nd = this.noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    this.timer = setInterval(() => this.pump(), 25);
+    return true;
+  },
+  // ---------- instruments ----------
+  env(g, t, a, d, s, r, dur, peak) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + a); g.gain.linearRampToValueAtTime(peak * s, t + a + d); g.gain.setValueAtTime(peak * s, t + Math.max(a + d, dur)); g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(a + d, dur) + r); return t + Math.max(a + d, dur) + r; },
+  voice(type, freqs, t, dur, vel, o = {}) {
+    const c = this.ctx, g = c.createGain(); let end;
+    const f = c.createBiquadFilter(); f.type = o.ft || 'lowpass'; f.Q.value = o.q ?? 0.8;
+    const oscs = [];
+    for (const [fr, wt, det] of freqs) { const os = c.createOscillator(); os.type = wt; os.frequency.value = fr; os.detune.value = det || 0; os.connect(f); oscs.push(os);
+      if (o.vib) { const l = c.createOscillator(), lg = c.createGain(); l.frequency.value = o.vib; lg.gain.value = o.vibAmt || 6; l.connect(lg); lg.connect(os.detune); l.start(t + (o.vibDelay || 0.15)); l.stop(t + dur + 1.2); } }
+    f.connect(g); g.connect(this.bus); if (o.rev !== 0) { const sg = c.createGain(); sg.gain.value = o.rev ?? 0.6; g.connect(sg); sg.connect(this.revIn); }
+    if (o.fenv) { const [f0, f1, f2, ft] = o.fenv; f.frequency.setValueAtTime(f0, t); f.frequency.linearRampToValueAtTime(f1, t + ft); f.frequency.linearRampToValueAtTime(f2, t + ft + 0.3); } else f.frequency.value = o.cut || 3000;
+    end = this.env(g, t, o.a ?? 0.01, o.d ?? 0.1, o.s ?? 0.7, o.r ?? 0.2, dur, vel);
+    for (const os of oscs) { os.start(t); os.stop(end + 0.05); }
+  },
+  noise(t, dur, vel, ftype, freq, q = 1, rev = 0.3) { const c = this.ctx, s = c.createBufferSource(); s.buffer = this.noiseBuf; const f = c.createBiquadFilter(); f.type = ftype; f.frequency.value = freq; f.Q.value = q; const g = c.createGain(); g.gain.setValueAtTime(vel, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(f); f.connect(g); g.connect(this.bus); if (rev) { const sg = c.createGain(); sg.gain.value = rev; g.connect(sg); sg.connect(this.revIn); } s.start(t); s.stop(t + dur + 0.05); },
+  play(inst, m, t, dur, vel) {
+    const F = hz(m);
+    switch (inst) {
+      case 'brass': this.voice(inst, [[F, 'sawtooth', -6], [F, 'sawtooth', 7], [F / 2, 'square', 0]], t, dur, 0.13 * vel, { fenv: [500, 3200, 1600, 0.06], a: 0.03, d: 0.15, s: 0.75, r: 0.18, vib: 5.2, vibAmt: 7, vibDelay: 0.25, q: 1.2 }); break;
+      case 'horn': this.voice(inst, [[F, 'sawtooth', -4], [F, 'triangle', 4]], t, dur, 0.12 * vel, { fenv: [400, 1600, 1000, 0.08], a: 0.05, d: 0.2, s: 0.8, r: 0.3, rev: 0.8 }); break;
+      case 'strings': this.voice(inst, [[F, 'sawtooth', -9], [F, 'sawtooth', 0], [F, 'sawtooth', 9]], t, dur, 0.055 * vel, { cut: 2400, a: 0.18, d: 0.2, s: 0.85, r: 0.45, vib: 5.5, vibAmt: 5, rev: 0.9 }); break;
+      case 'stacc': this.voice(inst, [[F, 'sawtooth', -7], [F, 'sawtooth', 7]], t, Math.min(dur, 0.09), 0.07 * vel, { cut: 3200, a: 0.005, d: 0.06, s: 0.3, r: 0.08, rev: 0.5 }); break;
+      case 'pluck': this.voice(inst, [[F, 'triangle', 0], [F * 2, 'sine', 0]], t, 0.05, 0.12 * vel, { cut: 5000, a: 0.002, d: 0.18, s: 0.0, r: 0.15, rev: 0.6 }); break;
+      case 'bell': this.voice(inst, [[F, 'sine', 0], [F * 2.76, 'sine', 0], [F * 5.4, 'sine', 0]], t, 0.05, 0.07 * vel, { cut: 9000, a: 0.002, d: 0.6, s: 0, r: 0.6, rev: 1 }); break;
+      case 'lead': this.voice(inst, [[F, 'square', -5], [F, 'sawtooth', 5]], t, dur, 0.06 * vel, { fenv: [900, 3600, 2200, 0.04], a: 0.01, d: 0.12, s: 0.7, r: 0.12, vib: 6, vibAmt: 9, vibDelay: 0.18, rev: 0.6 }); break;
+      case 'buzz': this.voice(inst, [[F, 'sawtooth', -12], [F * 1.005, 'sawtooth', 12]], t, dur, 0.07 * vel, { fenv: [1200, 4200, 2500, 0.03], a: 0.005, d: 0.08, s: 0.6, r: 0.08, vib: 11, vibAmt: 18, vibDelay: 0.02, q: 3 }); break;
+      case 'bass': this.voice(inst, [[F, 'sawtooth', 0], [F / 2, 'sine', 0]], t, dur, 0.16 * vel, { fenv: [300, 900, 500, 0.03], a: 0.005, d: 0.12, s: 0.6, r: 0.08, rev: 0.1 }); break;
+      case 'organ': this.voice(inst, [[F, 'sine', 0], [F * 2, 'sine', 0], [F * 3, 'sine', 0], [F * 4, 'triangle', 0]], t, dur, 0.05 * vel, { cut: 4000, a: 0.03, d: 0.1, s: 0.9, r: 0.3, rev: 1 }); break;
+      case 'choir': for (const fm of [800, 1150]) this.voice(inst, [[F, 'sawtooth', -10], [F, 'sawtooth', 10], [F * 2, 'triangle', 0]], t, dur, 0.06 * vel, { ft: 'bandpass', cut: fm, q: 2.5, a: 0.35, d: 0.2, s: 0.9, r: 0.6, vib: 4.5, vibAmt: 8, rev: 1.2 }); break;
+      case 'kick': { const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12); g.gain.setValueAtTime(0.55 * vel, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3); o.connect(g); g.connect(this.bus); o.start(t); o.stop(t + 0.32); break; }
+      case 'snare': this.noise(t, 0.16, 0.22 * vel, 'bandpass', 1900, 0.8, 0.4); this.voice(inst, [[190, 'triangle', 0]], t, 0.02, 0.12 * vel, { a: 0.001, d: 0.07, s: 0, r: 0.05, rev: 0.2 }); break;
+      case 'roll': this.noise(t, 0.07, 0.09 * vel, 'bandpass', 2400, 0.9, 0.5); break;
+      case 'hat': this.noise(t, 0.04, 0.07 * vel, 'highpass', 8000, 0.7, 0.1); break;
+      case 'ohat': this.noise(t, 0.22, 0.06 * vel, 'highpass', 7000, 0.7, 0.2); break;
+      case 'crash': this.noise(t, 1.8, 0.14 * vel, 'highpass', 5000, 0.5, 0.8); break;
+      case 'timp': { const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(F * 1.08, t); o.frequency.exponentialRampToValueAtTime(F, t + 0.08); g.gain.setValueAtTime(0.4 * vel, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1); o.connect(g); g.connect(this.bus); const sg = c.createGain(); sg.gain.value = 0.7; g.connect(sg); sg.connect(this.revIn); o.start(t); o.stop(t + 1.2); this.noise(t, 0.08, 0.08 * vel, 'lowpass', 600, 0.7, 0.4); break; }
+      case 'swell': this.noise(t, dur, 0.001, 'highpass', 4000); { const c = this.ctx, s = c.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true; const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 4000; const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12 * vel, t + dur); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05); s.connect(f); f.connect(g); g.connect(this.bus); s.start(t); s.stop(t + dur + 0.1); } break;
+    }
+  },
+  // ---------- transport ----------
+  want(key) {
+    if (!this.enabled) key = '';
+    if (key === this.curKey) return; this.curKey = key;
+    if (!this.init()) { this.curKey = ''; return; }
+    const c = this.ctx, now = c.currentTime;
+    this.out.gain.cancelScheduledValues(now); this.out.gain.setValueAtTime(this.out.gain.value, now); this.out.gain.linearRampToValueAtTime(0, now + 0.5);
+    this.cur = null;
+    clearTimeout(this.swapT);
+    this.swapT = setTimeout(() => {
+      if (!key) return; const song = this.songs[key] || (this.songs[key] = buildSong(key)); if (!song) return;
+      this.cur = song; this.step = 0; this.nextT = this.ctx.currentTime + 0.1;
+      this.out.gain.cancelScheduledValues(this.ctx.currentTime); this.out.gain.setValueAtTime(0, this.ctx.currentTime); this.out.gain.linearRampToValueAtTime(this.vol, this.ctx.currentTime + 0.4);
+    }, 520);
+  },
+  duck(on) { if (!this.out) return; const c = this.ctx; const v = on ? this.vol * 0.45 : this.vol; if (Math.abs(this._duck - v) < 0.001) return; this._duck = v; if (!this.cur) return; this.out.gain.cancelScheduledValues(c.currentTime); this.out.gain.setValueAtTime(this.out.gain.value, c.currentTime); this.out.gain.linearRampToValueAtTime(v, c.currentTime + 0.3); },
+  pump() {
+    const s = this.cur; if (!s || !this.ctx || this.ctx.state !== 'running') { if (this.ctx && s) this.nextT = Math.max(this.nextT, this.ctx.currentTime + 0.05); return; }
+    const spb = 60 / s.bpm / 4; // seconds per 16th
+    while (this.nextT < this.ctx.currentTime + 0.15) {
+      const evs = s.byStep[this.step]; if (evs) for (const [inst, m, len, vel] of evs) this.play(inst, m, this.nextT + (s.swing && this.step % 2 ? spb * s.swing : 0), len * spb, vel);
+      this.nextT += spb; this.step = (this.step + 1) % s.steps;
+    }
+  },
+};
+function twice(bars, tracks, lift = []) { const out = []; for (const [inst, evs] of tracks) { out.push([inst, evs.concat(evs.map(([s, m, l, v]) => [s + bars * 16, m, l, v]))]); } for (const [inst, evs] of lift) out.push([inst, evs.map(([s, m, l, v]) => [s + bars * 16, m, l, v])]); return out; }
+function compile(bpm, bars, tracks, o = {}) {
+  const steps = bars * 16, byStep = new Array(steps);
+  for (const [inst, evs] of tracks) for (const [st, m, len, vel] of evs) { if (st >= steps || m === null) continue; (byStep[st] || (byStep[st] = [])).push([inst, m, len, vel ?? 1]); }
+  return { bpm, steps, byStep, bars, swing: o.swing || 0 };
+}
+// ----- shared arrangement helpers -----
+function padTrack(ch, oct = 0, vel = 0.9) { const out = []; for (const c of ch) for (const m of c.tones.slice(0, 3)) out.push([c.step, m + 12 + oct * 12, c.len - 0.5, vel]); return out; }
+function bassTrack(ch, pat, oct = -1, vel = 1) { const out = []; for (const c of ch) { for (const [o, k, l] of pat) { if (o >= c.len) continue; out.push([c.step + o, c.root + 12 * oct + (k === 5 ? 7 : k === 8 ? 12 : k === 3 ? (c.tones[1] - c.root) : 0), l, vel]); } } return out; }
+function arpTrack(ch, rate = 2, oct = 1, shape = [0, 1, 2, 1], vel = 0.7) { const out = []; for (const c of ch) { const tones = [...c.tones.slice(0, 3), c.tones[0] + 12]; for (let i = 0; i < c.len; i += rate) out.push([c.step + i, tones[shape[(i / rate) % shape.length] % tones.length] + 12 * oct, rate, vel]); } return out; }
+function drumTrack(bars, pats, fills = []) { const out = []; for (let b = 0; b < bars; b++) { const p = (fills.includes(b) && pats.fill) || pats.main; for (const [inst, steps, vel] of p) for (const st of steps) out.push([inst, b * 16 + st, vel ?? 1]); } return out; }
+function splitDrums(evs) { const by = {}; for (const [inst, st, vel] of evs) (by[inst] || (by[inst] = [])).push([st, 60, 1, vel]); return Object.entries(by); }
+const DR = {
+  march: { main: [['snare', [4, 12], 0.9], ['roll', [6, 7, 14, 15], 0.6], ['kick', [0, 8], 1], ['hat', [0, 2, 4, 6, 8, 10, 12, 14], 0.6]], fill: [['snare', [0, 4, 8, 10, 12, 13, 14, 15], 1], ['kick', [0, 8], 1]] },
+  rock: { main: [['kick', [0, 6, 8], 1], ['snare', [4, 12], 1], ['hat', [0, 2, 4, 6, 8, 10, 12, 14], 0.7]], fill: [['kick', [0, 8], 1], ['snare', [4, 8, 10, 12, 13, 14, 15], 1]] },
+  four: { main: [['kick', [0, 4, 8, 12], 1], ['snare', [4, 12], 0.8], ['ohat', [2, 6, 10, 14], 0.7], ['hat', [1, 3, 5, 7, 9, 11, 13, 15], 0.4]], fill: [['kick', [0, 4, 8, 12], 1], ['snare', [8, 10, 12, 13, 14, 15], 1]] },
+  half: { main: [['kick', [0, 10], 1], ['snare', [8], 1], ['hat', [0, 4, 8, 12], 0.6]], fill: [['kick', [0], 1], ['snare', [8, 12, 14], 1]] },
+  drive: { main: [['kick', [0, 3, 8, 11], 1], ['snare', [4, 12], 1], ['hat', [0, 2, 4, 6, 8, 10, 12, 14], 0.8], ['roll', [15], 0.6]], fill: [['kick', [0, 2, 4, 6], 1], ['snare', [8, 9, 10, 11, 12, 13, 14, 15], 1]] },
+  blast: { main: [['kick', [0, 2, 4, 6, 8, 10, 12, 14], 0.9], ['snare', [4, 12], 1], ['hat', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], 0.4]], fill: [['kick', [0, 4, 8, 12], 1], ['snare', [0, 2, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15], 1]] },
+};
+
+// ----- TITLE THEME: "Riftbrawl" (heroic fanfare, C major) -----
+function songTitle() {
+  const ch = chart(['C', 'G', 'Am', 'F G', 'C', 'Em', 'F G', 'C', 'Am', 'Em', 'F', 'G', 'C', 'E', 'F G', 'C']);
+  const melody = mel(`G4:2 G4:2 C5:6 D5:2 E5:4 | D5:4 C5:2 D5:2 G4:8 | A4:6 B4:2 C5:4 E5:4 | F5:6 E5:2 D5:8 |
+    E5:4 G5:4 A5:8 | G5:4 F5:2 E5:2 D5:8 | C5:4 D5:4 E5:4 G5:4 | C6:16 |
+    A4:6 C5:2 E5:4 A5:4 | G5:6 E5:2 D5:8 | F5:6 E5:2 D5:4 C5:4 | D5:16 |
+    E5:4 F5:4 G5:4 A5:4 | B5:8 G#5:8 | C6:6 B5:2 A5:4 G5:4 | C6:12 R:4`);
+  const counter = mel(`R:16 R:16 R:16 R:16 | C4:8 E4:8 | B3:8 G3:8 | A3:8 B3:8 | C4:16 |
+    E4:16 | B3:16 | A3:16 | B3:16 | C4:16 | B3:8 G#3:8 | A3:8 B3:8 | C4:16`);
+  const timp = []; for (let b = 0; b < 16; b++) { timp.push([b * 16, ch.find(c => c.step <= b * 16 + 0.1 && c.step + c.len > b * 16).root - 12, 4, 1]); if (b % 2) timp.push([b * 16 + 8, 43, 4, 0.8]); }
+  timp.push([7 * 16 + 12, 43, 1, 0.7], [7 * 16 + 13, 43, 1, 0.8], [7 * 16 + 14, 43, 1, 0.9], [7 * 16 + 15, 43, 1, 1]);
+  const dr = splitDrums(drumTrack(16, DR.march, [7, 15]));
+  return compile(112, 16, [['brass', melody], ['strings', mel('R:1').concat(melody.map(([s, m, l, v]) => [s, m - 12, l, 0.6]))], ['horn', counter], ['strings', padTrack(ch, 0, 0.8)], ['stacc', arpTrack(ch.filter(c => c.step >= 128), 2, 1, [0, 1, 2, 3], 0.6)], ['bass', bassTrack(ch, [[0, 0, 3], [4, 5, 3], [8, 0, 3], [12, 8, 3]])], ['timp', timp], ['crash', [[0, 60, 1, 1], [128, 60, 1, 1]]], ['swell', [[7 * 16 + 8, 60, 8, 1]]], ...dr]);
+}
+// ----- BOSS: The Gatekeeper (martial, D minor, 150) -----
+function songGatekeeper() {
+  const ch = chart(['Dm', 'Dm', 'Bb', 'C', 'Dm', 'Dm', 'Gm', 'A', 'Bb', 'C', 'Dm', 'A', 'Gm', 'Bb', 'A', 'A']);
+  const ost = []; for (let b = 0; b < 16; b++) { const c = ch.find(x => x.step <= b * 16 && x.step + x.len > b * 16); const r = c.root; [0, 0, 12, 0, 7, 0, 12, 10].forEach((k, i) => ost.push([b * 16 + i * 2, r + k, 2, i % 2 ? 0.7 : 1])); }
+  const melody = mel(`D5:4 R:2 A4:2 D5:2 E5:2 F5:4 | E5:4 C5:4 A4:8 | D5:6 F5:2 Bb5:4 A5:4 | G5:4 E5:4 C5:8 |
+    D5:2 D5:2 F5:4 A5:4 G5:2 F5:2 | E5:4 F5:4 D5:8 | G5:6 F5:2 E5:4 D5:4 | C#5:8 E5:8 |
+    F5:4 F5:2 G5:2 A5:8 | G5:4 G5:2 A5:2 Bb5:8 | A5:4 F5:4 D5:4 F5:4 | E5:8 C#5:8 |
+    D5:4 Bb4:4 G4:4 Bb4:4 | D5:4 F5:4 Bb5:8 | A5:6 G5:2 F5:4 E5:4 | C#5:4 E5:4 A5:8`);
+  const timp = []; for (let b = 0; b < 16; b++) timp.push([b * 16, 38, 4, 1], [b * 16 + 6, 38, 2, 0.7], [b * 16 + 8, 45, 4, 0.9]);
+  return compile(150, 32, twice(16, [['brass', melody], ['horn', melody.map(([s, m, l]) => [s, m - 12, l, 0.7])], ['stacc', ost.map(([s, m, l, v]) => [s, m + 12, l, v])], ['bass', ost], ['strings', padTrack(ch, 0, 0.7)], ['timp', timp], ['crash', [[0, 60, 1, 1], [128, 60, 1, 1]]], ...splitDrums(drumTrack(16, DR.march, [7, 15])), ['kick', [0, 64, 128, 192].map(s => [s, 60, 1, 1])]], [['strings', melody.map(([s, m, l]) => [s, m + 12, l, 0.7])], ['roll', [...Array(64)].map((_, i) => [i * 4 + 2, 60, 1, 0.5])]]));
+}
+// ----- BOSS: Hive Matriarch (frantic, E phrygian, 168) -----
+function songMatriarch() {
+  const ch = chart(['Em', 'F', 'Em', 'Dm', 'Em', 'F', 'G', 'F', 'Am', 'F', 'Em', 'F', 'Am', 'Bb', 'F', 'E']);
+  const arp = []; for (const c of ch) { const t = [c.tones[0] + 24, c.tones[1] + 24, c.tones[2] + 24, c.tones[0] + 36]; for (let i = 0; i < 16; i++) arp.push([c.step + i, t[[0, 1, 2, 3, 2, 1, 0, 1][i % 8]], 1, i % 4 ? 0.55 : 0.85]); }
+  const melody = mel(`E5:2 F5:2 E5:2 B4:2 E5:4 G5:4 | F5:2 E5:2 F5:4 C6:8 | B5:2 A5:2 G5:2 F5:2 E5:4 D5:4 | E5:12 R:4 |
+    E5:2 F5:2 G5:2 A5:2 B5:4 A5:4 | C6:4 B5:2 A5:2 F5:8 | G5:4 A5:4 B5:4 D6:4 | C6:8 A5:8 |
+    A5:2 C6:2 E6:4 D6:2 C6:2 B5:4 | A5:4 F5:4 C6:8 | B5:2 G5:2 E5:4 G5:2 B5:2 E6:4 | F6:8 E6:8 |
+    E6:4 D6:2 C6:2 A5:8 | Bb5:4 A5:2 G5:2 F5:8 | A5:4 G5:4 F5:4 E5:4 | G#5:8 B5:8`);
+  return compile(168, 32, twice(16, [['buzz', melody], ['brass', melody.map(([s, m, l]) => [s, m - 12, l, 0.5])], ['pluck', arp], ['bass', bassTrack(ch, [[0, 0, 2], [2, 0, 2], [4, 8, 2], [6, 0, 2], [8, 0, 2], [10, 5, 2], [12, 0, 2], [14, 8, 2]])], ['strings', padTrack(ch, -1, 0.6)], ['crash', [[0, 60, 1, 1], [128, 60, 1, 1]]], ...splitDrums(drumTrack(16, DR.drive, [3, 7, 11, 15]))], [['brass', melody.map(([s, m, l]) => [s, m, l, 0.8])], ...splitDrums(drumTrack(16, DR.blast, [15]))]));
+}
+// ----- BOSS: The Hollow Crown (final, C harmonic minor, 140, choir + organ) -----
+function songCrown() {
+  const ch = chart(['Cm', 'Ab', 'Fm', 'G', 'Cm', 'Ab', 'Db', 'G', 'Fm', 'Cm', 'Ab', 'G', 'Cm', 'Bb', 'Ab', 'G']);
+  const choir = []; for (const c of ch) for (const m of c.tones.slice(0, 3)) choir.push([c.step, m + 12, c.len - 0.5, 1]);
+  const org = arpTrack(ch, 2, 1, [0, 2, 1, 2, 3, 2, 1, 2], 0.6);
+  const melody = mel(`C5:6 D5:2 Eb5:4 G5:4 | Ab5:8 G5:4 Eb5:4 | F5:6 Eb5:2 D5:4 C5:4 | B4:8 D5:8 |
+    C5:4 Eb5:4 G5:4 C6:4 | Ab5:6 G5:2 F5:8 | Db6:6 C6:2 Ab5:4 F5:4 | G5:8 B5:8 |
+    Ab5:6 G5:2 F5:4 Ab5:4 | G5:8 Eb5:8 | C6:4 Bb5:4 Ab5:4 Eb5:4 | F5:4 G5:4 B5:8 |
+    C6:6 D6:2 Eb6:8 | D6:4 C6:4 Bb5:8 | Ab5:4 C6:4 F6:4 Eb6:4 | D6:8 B5:8`);
+  const timp = []; for (let b = 0; b < 16; b++) timp.push([b * 16, 36, 4, 1], [b * 16 + 10, 36, 2, 0.8], [b * 16 + 12, 43, 4, 0.9]);
+  return compile(140, 32, twice(16, [['choir', choir], ['organ', org], ['brass', melody], ['horn', melody.map(([s, m, l]) => [s, m - 12, l, 0.8])], ['bass', bassTrack(ch, [[0, 0, 3], [3, 0, 1], [6, 0, 2], [8, 5, 3], [11, 0, 1], [14, 8, 2]])], ['timp', timp], ['crash', [0, 64, 128, 192].map(s => [s, 60, 1, 1])], ...splitDrums(drumTrack(16, DR.half, [7, 15])), ['snare', [...Array(16)].map((_, i) => [12 * 16 + 8 + i % 8, 60, 1, 0.4 + i * 0.03]).slice(0, 8)]], [['strings', melody.map(([s, m, l]) => [s, m + 12, l, 0.8])], ...splitDrums(drumTrack(16, DR.drive, [7, 15]))]));
+}
+// ----- AREA THEMES: composed per biome from a seed (each ~90 s, looping) -----
+const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10], dorian: [0, 2, 3, 5, 7, 9, 10], mixo: [0, 2, 4, 5, 7, 9, 10], lydian: [0, 2, 4, 6, 7, 9, 11] };
+const AREA = {
+  ruins: { key: 'D', mode: 'dorian', bpm: 120, lead: 'horn', lead2: 'brass', drums: 'rock', bassPat: 'gallop', arp: 'stacc', progs: [['i', 'VII', 'IV', 'i'], ['VI', 'VII', 'i', 'v'], ['iv', 'i', 'VII', 'VII']] },
+  garden: { key: 'F', mode: 'major', bpm: 128, lead: 'brass', lead2: 'lead', drums: 'four', bassPat: 'bounce', arp: 'pluck', progs: [['I', 'V', 'vi', 'IV'], ['IV', 'V', 'iii', 'vi'], ['ii', 'V', 'I', 'I']] },
+  foundry: { key: 'G', mode: 'mixo', bpm: 136, lead: 'lead', lead2: 'brass', drums: 'drive', bassPat: 'drive', arp: 'stacc', progs: [['I', 'VII', 'IV', 'I'], ['IV', 'VII', 'I', 'V'], ['vi', 'IV', 'VII', 'V']] },
+  crystal: { key: 'B', mode: 'minor', bpm: 112, lead: 'bell', lead2: 'strings', drums: 'half', bassPat: 'long', arp: 'pluck', progs: [['i', 'VI', 'III', 'VII'], ['iv', 'i', 'VI', 'V'], ['VI', 'VII', 'i', 'i']] },
+  frost: { key: 'E', mode: 'lydian', bpm: 124, lead: 'strings', lead2: 'bell', drums: 'rock', bassPat: 'bounce', arp: 'pluck', progs: [['I', 'II', 'vi', 'V'], ['IV', 'I', 'II', 'V'], ['vi', 'iii', 'II', 'II']] },
+  void: { key: 'C', mode: 'minor', bpm: 132, lead: 'buzz', lead2: 'choir', drums: 'drive', bassPat: 'drive', arp: 'stacc', progs: [['i', 'VI', 'iv', 'V'], ['i', 'VII', 'VI', 'V'], ['iv', 'VI', 'V', 'V']] },
+};
+const ROMAN = { i: 0, ii: 1, iii: 2, iv: 3, v: 4, vi: 5, vii: 6 };
+function romanChord(rn, key, mode) {
+  const sc = SCALES[mode]; const deg = ROMAN[rn.toLowerCase()]; const root = midi(key + '3') + sc[deg];
+  const minor = rn === rn.toLowerCase(); const fifth = 7; const third = minor ? 3 : 4; return { root, tones: [root, root + third, root + fifth] };
+}
+function songArea(biome) {
+  const P = AREA[biome] || AREA.garden; const R = SRng([...biome].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0);
+  const bars = Math.round(90 * P.bpm / 240 / 4) * 4; // ~90 s, multiple of 4
+  // section plan (in bars)
+  const plan = [['intro', 4], ['A', 8], ['A2', 8], ['B', 8], ['C', 8]]; let used = 36; while (used + 8 <= bars - 4) { plan.push([used % 16 ? 'A' : 'B', 8]); used += 8; } plan.push(['turn', bars - used]);
+  const progOf = { intro: 0, A: 0, A2: 0, B: 1, C: 2, turn: 2 };
+  const ch = []; let bar = 0;
+  for (const [sec, n] of plan) { const pr = P.progs[progOf[sec]]; for (let i = 0; i < n; i++) { const c = romanChord(pr[i % 4], P.key, P.mode); ch.push({ step: (bar + i) * 16, len: 16, ...c, sec }); } bar += n; }
+  // melody motif: 2-bar rhythm + contour, reused with variations, snapped to each bar's chord/scale
+  const rhythms = [[4, 2, 2, 4, 4], [2, 2, 4, 2, 2, 4], [6, 2, 4, 4], [3, 3, 2, 4, 4], [4, 4, 2, 2, 4]];
+  const motifR = [R.pick(rhythms), R.pick(rhythms)]; const contour = [...Array(12)].map(() => R.i(-2, 3));
+  const sc = SCALES[P.mode], keyRoot = midi(P.key + '5') - 12;
+  const scaleNotes = []; for (let o = -1; o < 3; o++) for (const d of sc) scaleNotes.push(keyRoot + o * 12 + d);
+  const snap = (m, tones, strong) => { let best = m, bd = 99; for (const n of scaleNotes) { const ok = !strong || tones.some(t => (n - t) % 12 === 0); const d = Math.abs(n - m) + (ok ? 0 : 50); if (d < bd) { bd = d; best = n; } } return best; };
+  const lead = [], lead2 = [];
+  for (const c of ch) {
+    const b = c.step / 16, secBar = b; if (c.sec === 'intro' || c.sec === 'turn') continue;
+    const rhythm = motifR[b % 2]; let t = 0, k = 0; let pitch = c.tones[0] + 24 + (c.sec === 'A2' ? 12 : 0) + (c.sec === 'C' ? -12 : 0);
+    if (c.sec === 'C' && b % 2) continue; // sparse bridge
+    const target = c.sec === 'B' ? lead2 : lead;
+    for (const d of rhythm) { pitch += contour[(k + b * 3) % contour.length] * 2; pitch = clamp(pitch, keyRoot + 7, keyRoot + 26); const n = snap(pitch, c.tones, t % 4 === 0); target.push([c.step + t, n, d, t === 0 ? 1 : 0.85]); t += d; k++; if (t >= 16) break; }
+  }
+  const bpat = { gallop: [[0, 0, 2], [3, 0, 1], [4, 0, 2], [6, 5, 2], [8, 0, 2], [11, 0, 1], [12, 8, 2], [14, 5, 2]], bounce: [[0, 0, 3], [4, 5, 2], [6, 8, 2], [8, 0, 3], [12, 5, 2], [14, 3, 2]], drive: [[0, 0, 2], [2, 0, 2], [4, 0, 2], [6, 0, 2], [8, 0, 2], [10, 0, 2], [12, 5, 2], [14, 8, 2]], long: [[0, 0, 8], [8, 5, 6], [14, 8, 2]] }[P.bassPat];
+  const fills = []; let acc = 0; for (const [, n] of plan) { acc += n; fills.push(acc - 1); }
+  const drumBars = []; acc = 0; const dr = []; for (const [sec, n] of plan) { const d = drumTrack(n, sec === 'intro' ? DR.half : sec === 'C' ? DR.half : DR[P.drums], [n - 1]); for (const [inst, st, v] of d) dr.push([inst, st + acc * 16, v]); acc += n; }
+  const crashes = []; acc = 0; for (const [, n] of plan) { crashes.push([acc * 16, 60, 1, 1]); acc += n; }
+  const arp = arpTrack(ch.filter(c => c.sec !== 'intro'), P.arp === 'pluck' ? 2 : 2, 1, [0, 1, 2, 3, 2, 1, 2, 1], 0.55);
+  return compile(P.bpm, bars, [[P.lead, lead], [P.lead2, lead2], ['strings', padTrack(ch, 0, 0.7)], [P.arp, arp], ['bass', bassTrack(ch.filter(c => c.sec !== 'intro'), bpat)], ['crash', crashes], ...splitDrums(dr)]);
+}
+function buildSong(key) {
+  try {
+    if (key === 'title') return songTitle();
+    if (key === 'boss:gatekeeper') return songGatekeeper();
+    if (key === 'boss:matriarch') return songMatriarch();
+    if (key === 'boss:crown') return songCrown();
+    if (key.startsWith('area:')) return songArea(key.slice(5));
+  } catch (e) { console.error('music', e); }
+  return null;
+}
+// decide what should be playing each frame
+function musicTick() {
+  if (!Audio2.ctx || Audio2.ctx.state !== 'running') return;
+  const sc = Net.isGuest ? Net.guestScene : Game.scene;
+  let key = 'title';
+  if (['play', 'boon', 'victory'].includes(sc) && World.stage) {
+    const b = Game.bossRef; key = b && !b.dead && !b.dying ? 'boss:' + b.type : 'area:' + World.stage.biome;
+    if (sc === 'victory') key = 'title';
+  }
+  if (Audio2.muted) key = '';
+  Music.want(key);
+  Music.duck(sc === 'boon' || Game.paused);
 }
 
 // ===== PeerJS transport (used when running outside Claude, e.g. GitHub Pages) =====
@@ -2327,7 +2563,7 @@ const Net = {
       G.mode = 'guest'; G.slots = [{ dev: 'net' }, { dev: src.dev, input: src }]; G.csel[0] = s.cs ? s.cs[0] : 0; G.cready[0] = !!(s.cs && s.cs[1]);
       if (G.gch === undefined) G.gch = 1;
       const d = menuDir(src);
-      if (!G.grdy) { if (d === 'left') { G.gch = (G.gch + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch = (G.gch + 1) % 4; Audio2.play('blip'); } if (menuOK(src)) { G.grdy = true; Audio2.play('select'); } }
+      if (!G.grdy) { if (d === 'left') { G.gch = (G.gch + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch = (G.gch + 1) % 4; Audio2.play('blip'); } if (menuOK(src)) { G.grdy = true; Audio2.play('ready'); } }
       else if (menuBack(src)) G.grdy = false;
       if (G.clickChar !== undefined) { if (!G.grdy) G.gch = G.clickChar; G.clickChar = undefined; }
       G.csel[1] = G.gch; G.cready[1] = !!G.grdy; G.t++;
@@ -2481,7 +2717,7 @@ const UI = {
 const Game = {
   scene: 'title', mode: 'solo', slots: [], menuIdx: 0, teamStocks: 3, run: null, banner: null, pauseIdx: 0, msg: '', t: 0, best: store('sse_best') || { endless: 0, time: 0 },
   boonOpts: {}, boonPick: {}, boonIdx: {}, csel: {}, cready: {}, overStats: null, victoryIdx: 0, remap: null,
-  setScene(s) { this.scene = s; this.menuIdx = 0; this.t = 0; Audio2.play('blip'); },
+  setScene(s) { this.scene = s; this.menuIdx = 0; this.t = 0; },
   // --- run lifecycle ---
   startRun() {
     this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0 };
@@ -2640,9 +2876,9 @@ const Game = {
     const ps = World.players.filter(p => !p.dead && !p.out); if (!ps.length) return;
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9; for (const p of ps) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y - 40); maxY = Math.max(maxY, p.y); }
     if (this.bossRef && !this.bossRef.dead) { const b = this.bossRef; minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); minY = Math.min(minY, b.y - b.h); }
-    let tz = clamp(Math.min(W / (maxX - minX + 600), H / (maxY - minY + 420)), 0.6, 1.0);
+    let tz = clamp(Math.min(W / (maxX - minX + 460), H / (maxY - minY + 380)), 0.78, 1.32);
     const B = World.barriers;
-    if (B) tz = clamp(Math.max(tz, W / (B.r - B.l)), 0.6, 1.3);
+    if (B) tz = clamp(Math.max(tz, W / (B.r - B.l), this.bossRef && !this.bossRef.dead ? 0 : 1.22), 0.78, 1.4);
     let tx = (minX + maxX) / 2 + (ps.length === 1 ? ps[0].face * 60 : 0), ty = (minY + maxY) / 2 - 85;
     if (B) { const vw = W / tz; tx = clamp(tx, B.l + vw / 2, B.r - vw / 2); }
     const vw2 = W / (2 * tz); tx = clamp(tx, st.x0 + vw2, st.x1 - vw2);
@@ -2656,10 +2892,10 @@ const Game = {
 // ---- Scenes: update + draw ----
 function localSources() { return Devices.list().map(id => Devices.get(id)); }
 function anyOK() { return localSources().find(s => menuOK(s)); }
-function anyBack() { return localSources().find(s => menuBack(s)); }
+function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SOUND: ON'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SOUND: ON', 'MUSIC: ON'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -2668,11 +2904,11 @@ function sceneUpdate() {
   switch (G.scene) {
     case 'title': {
       const s = anyOK() || localSources().find(s => s.cur.jp || s.cur.pp);
-      if (s || G.clicked) { G.primary = s ? s.dev : 'kb1'; G.clicked = 0; G.setScene('mode'); Audio2.unlock(); }
+      if (s || G.clicked) { G.primary = s ? s.dev : 'kb1'; G.clicked = 0; Audio2.unlock(); Audio2.play('select'); G.setScene('mode'); }
       break;
     }
     case 'mode': {
-      MODE_OPTS[6] = 'SOUND: ' + (Audio2.muted ? 'OFF' : 'ON');
+      MODE_OPTS[6] = 'SOUND: ' + (Audio2.muted ? 'OFF' : 'ON'); MODE_OPTS[7] = 'MUSIC: ' + (Music.enabled ? 'ON' : 'OFF');
       menuNav(MODE_OPTS.length);
       const ok = anyOK() || G.clickPick !== undefined; if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; G.clickPick = undefined; }
       if (ok) {
@@ -2684,6 +2920,7 @@ function sceneUpdate() {
         if (i === 4) G.setScene('controls');
         if (i === 5) { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
         if (i === 6) { Audio2.muted = !Audio2.muted; store('sse_muted', Audio2.muted); }
+        if (i === 7) { Music.enabled = !Music.enabled; store('sse_music', Music.enabled); }
       }
       if (anyBack()) G.setScene('title');
       break;
@@ -2735,7 +2972,7 @@ function updateCharSel() {
     if (!G.cready[i]) {
       if (d === 'left') { G.csel[i] = (G.csel[i] + 3) % 4; Audio2.play('blip'); }
       if (d === 'right') { G.csel[i] = (G.csel[i] + 1) % 4; Audio2.play('blip'); }
-      if (menuOK(s)) { G.cready[i] = true; Audio2.play('select'); }
+      if (menuOK(s)) { G.cready[i] = true; Audio2.play('ready'); }
       if (menuBack(s) && G.t > 10) { if (i === 0) { Net.leave(); G.setScene('mode'); return; } else { G.slots.splice(i, 1); } }
     } else if (menuBack(s)) G.cready[i] = false;
   });
@@ -2986,6 +3223,7 @@ function loop(now) {
     acc -= 1000 / 60; steps++;
   }
   sceneDraw();
+  musicTick();
   requestAnimationFrame(loop);
 }
 
@@ -3050,7 +3288,8 @@ function drawControlsPanel(x, y, a = 0.95) {
   ['Move — WASD / Arrows', 'Attack — J / ,', 'Special — K / .', 'Jump — Space / Right Shift', 'Shield — L / /', 'Smash — I / ;', 'Pause — Esc / Backspace', '', 'Shield + direction = roll / dodge'].forEach((t, i) => T(t, col2, y + 124 + i * 28, 16, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false }));
   T('Up + Special = recovery  ·  Grab ledges by falling near them  ·  Launch foes off-screen for a KO!', W / 2, y + 448, 15, '#ffd23c', { stroke: 0 });
 }
-const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Turn the game sound on or off.'];
+const MODE_DESC_X = 0;
+const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Turn all game sound on or off.', 'Turn the soundtrack on or off.'];
 function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
   opts.forEach((o, i) => {
     const sel = i === idx; const w = sel ? 470 : 430, h = 48, x = (x0 ?? W / 2 - 220) - (sel ? 10 : 0), y = y0 + i * 58 - 32;
@@ -3197,12 +3436,13 @@ function sceneDraw() {
       drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); drawLogo(W / 2, 220, 120);
       T('A CO-OP ROGUELIKE PLATFORM FIGHTER', W / 2, 268, 20, '#ff9ae8', { stroke: 5 });
       if (G.t % 70 < 50) T('PRESS ANY BUTTON', W / 2, 352, 32, '#fff', { stroke: 7 });
+      if (!Audio2.ctx || Audio2.ctx.state !== 'running') T('♪ Click or press a key to turn on music & sound', W / 2, 440, 15, '#ffe9a0', { stroke: 4 });
       T(gamepadBlocked ? 'Controllers unavailable in this view — open the page full-screen to use one' : (getPads().length ? 'Controller detected: ' + shortPadName(getPads()[0].id) : 'Keyboard ready · plug in a controller and press a button'), W / 2, 390, 15, '#cfc6e6', { stroke: 4 });
       if (G.best.time) T('Best clear ' + fmtTime(G.best.time) + (G.best.endless ? '  ·  Endless best ' + G.best.endless : ''), W / 2, 414, 14, '#bfb4d8', { stroke: 3 });
       clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clicked = 1; } }); break;
     case 'mode': {
       drawTitleBG(); drawLogo(320, 118, 72);
-      drawMenu('', MODE_OPTS, G.menuIdx, 210, 70);
+      drawMenu('', MODE_OPTS, G.menuIdx, 196, 70);
       glass(W - 520, 190, 450, 300, '#ffd23c', 22, 0.85);
       T(MODE_OPTS[G.menuIdx], W - 295, 236, 26, '#ffd23c', { stroke: 6 });
       UI.wrap(MODE_DESC[G.menuIdx] || '', W - 470, 276, 360, 17, '#e8e2f5');
