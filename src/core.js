@@ -149,7 +149,7 @@ class RemoteInput {
 
 // ===== AUDIO (synth) =====
 const Audio2 = {
-  ctx: null, vol: 0.5, muted: store('sse_muted') || false,
+  ctx: null, vol: store('sse_sfxvol') ?? (store('sse_muted') ? 0 : 0.5), muted: false,
   unlock() { if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => { }); return; } try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.master = this.ctx.createGain(); this.master.gain.value = this.vol; this.master.connect(this.ctx.destination); } catch (e) { } },
   tone(freq, dur, type = 'square', vol = 0.2, slide = 0) {
     if (!this.ctx || this.muted) return; const t = this.ctx.currentTime;

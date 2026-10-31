@@ -173,7 +173,7 @@ class RemoteInput {
 
 // ===== AUDIO (synth) =====
 const Audio2 = {
-  ctx: null, vol: 0.5, muted: store('sse_muted') || false,
+  ctx: null, vol: store('sse_sfxvol') ?? (store('sse_muted') ? 0 : 0.5), muted: false,
   unlock() { if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => { }); return; } try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.master = this.ctx.createGain(); this.master.gain.value = this.vol; this.master.connect(this.ctx.destination); } catch (e) { } },
   tone(freq, dur, type = 'square', vol = 0.2, slide = 0) {
     if (!this.ctx || this.muted) return; const t = this.ctx.currentTime;
@@ -2171,7 +2171,7 @@ function chordTones(sym) { const m = /^([A-G][#b]?)(m7|maj7|m|7|dim|sus|5)?$/.ex
 function chart(bars) { const out = []; bars.forEach((b, i) => { const cs = b.trim().split(/\s+/); cs.forEach((c, k) => out.push({ step: i * 16 + k * (16 / cs.length), len: 16 / cs.length, ...chordTones(c) })); }); return out; }
 
 const Music = {
-  ctx: null, out: null, rev: null, cur: null, curKey: '', step: 0, nextT: 0, timer: null, vol: store('sse_musicvol') ?? 0.5, enabled: store('sse_music') ?? true, songs: {},
+  ctx: null, out: null, rev: null, cur: null, curKey: '', step: 0, nextT: 0, timer: null, vol: store('sse_musicvol') ?? (store('sse_music') === false ? 0 : 0.5), enabled: true, songs: {},
   init() {
     if (this.out || !Audio2.ctx) return !!this.out; const c = this.ctx = Audio2.ctx;
     this.out = c.createGain(); this.out.gain.value = 0;
@@ -2379,10 +2379,25 @@ function musicTick() {
     const b = Game.bossRef; key = b && !b.dead && !b.dying ? 'boss:' + b.type : 'area:' + World.stage.biome;
     if (sc === 'victory') key = 'title';
   }
-  if (Audio2.muted) key = '';
+  if (Music.vol <= 0) key = '';
   Music.want(key);
   Music.duck(sc === 'boon' || Game.paused);
 }
+
+// ---- volume controls (0..1 in 10% steps), saved per browser ----
+function setSfxVol(v) { v = clamp(Math.round(v * 10) / 10, 0, 1); Audio2.vol = v; if (Audio2.master) Audio2.master.gain.value = v; store('sse_sfxvol', v); }
+function setMusicVol(v) {
+  v = clamp(Math.round(v * 10) / 10, 0, 1); Music.vol = v; store('sse_musicvol', v);
+  if (Music.out && Music.cur && Music.ctx) { const c = Music.ctx, tgt = Music._duck !== undefined && Music._duck < Music.vol ? v * 0.45 : v; Music._duck = undefined; Music.out.gain.cancelScheduledValues(c.currentTime); Music.out.gain.setValueAtTime(Music.out.gain.value, c.currentTime); Music.out.gain.linearRampToValueAtTime(tgt, c.currentTime + 0.15); }
+}
+const VOL_ROWS = { 'SFX VOLUME': () => Audio2.vol, 'MUSIC VOLUME': () => Music.vol };
+// returns true if the highlighted row is a volume slider and was adjusted
+function volAdjust(label, dir) {
+  if (!VOL_ROWS[label] || !dir) return false;
+  if (label === 'SFX VOLUME') { setSfxVol(Audio2.vol + dir * 0.1); Audio2.play('cursor'); } else { setMusicVol(Music.vol + dir * 0.1); Audio2.play('cursor'); }
+  return true;
+}
+function volSet(label, v) { if (label === 'SFX VOLUME') { setSfxVol(v); Audio2.play('cursor'); } else { setMusicVol(v); } }
 
 // ===== PeerJS transport (used when running outside Claude, e.g. GitHub Pages) =====
 // Mimics the small subset of the Claude `room` API that Net uses: join(name,{host}) -> {presence, peers, onPeers, leave}
@@ -2582,7 +2597,7 @@ const Net = {
     } else if (s.sc !== 'boon') { G.boonIdx = {}; G.boonPick = {}; }
     if (s.sc === 'play') {
       if (src.cur.pp) { G.localPause = !G.localPause; G.pauseIdx = 0; }
-      if (G.localPause) { const d = menuDir(src); if (d === 'up' || d === 'down') G.pauseIdx = 1 - G.pauseIdx; if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (G.pauseIdx === 0) G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
+      if (G.localPause) { const GP = GUEST_PAUSE; const d = menuDir(src); if (d === 'up') G.pauseIdx = (G.pauseIdx + GP.length - 1) % GP.length; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % GP.length; volAdjust(GP[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } const lab = GP[G.pauseIdx]; if (VOL_ROWS[lab]) { G.clickPick = undefined; if (menuOK(src)) volAdjust(lab, 1); } else if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
       // smooth entities toward targets
       for (const p of World.players) if (p.tx !== undefined) { p.x = lerp(p.x, p.tx, 0.55); p.y = lerp(p.y, p.ty, 0.55); }
       for (const e of World.enemies) if (e.tx !== undefined) { e.x = lerp(e.x, e.tx, 0.5); e.y = lerp(e.y, e.ty, 0.5); }
@@ -2645,6 +2660,8 @@ const Net = {
     }
   },
 };
+
+const GUEST_PAUSE = ['RESUME', 'SFX VOLUME', 'MUSIC VOLUME', 'LEAVE GAME'];
 
 // ===== GAME: scenes, run flow, boons, camera, HUD, menus =====
 const BOONS = [
@@ -2895,7 +2912,7 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SOUND: ON', 'MUSIC: ON'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -2908,8 +2925,7 @@ function sceneUpdate() {
       break;
     }
     case 'mode': {
-      MODE_OPTS[6] = 'SOUND: ' + (Audio2.muted ? 'OFF' : 'ON'); MODE_OPTS[7] = 'MUSIC: ' + (Music.enabled ? 'ON' : 'OFF');
-      menuNav(MODE_OPTS.length);
+      { const d = menuNav(MODE_OPTS.length); volAdjust(MODE_OPTS[G.menuIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); }
       const ok = anyOK() || G.clickPick !== undefined; if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; G.clickPick = undefined; }
       if (ok) {
         Audio2.play('select'); const i = G.menuIdx; const prim = ok.dev || G.primary || 'kb1';
@@ -2919,8 +2935,8 @@ function sceneUpdate() {
         if (i === 3) { G.mode = 'guest'; G.primary = prim; G.setScene('join'); showJoinBox(true); }
         if (i === 4) G.setScene('controls');
         if (i === 5) { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
-        if (i === 6) { Audio2.muted = !Audio2.muted; store('sse_muted', Audio2.muted); }
-        if (i === 7) { Music.enabled = !Music.enabled; store('sse_music', Music.enabled); }
+        if (i === 6) { setSfxVol(Audio2.vol >= 1 ? 0 : Audio2.vol + 0.1); }
+        if (i === 7) { setMusicVol(Music.vol >= 1 ? 0 : Music.vol + 0.1); }
       }
       if (anyBack()) G.setScene('title');
       break;
@@ -2983,10 +2999,14 @@ function updateCharSel() {
   const all = G.slots.length && G.slots.every((_, i) => G.cready[i]) && (G.mode !== 'local' || G.slots.length >= 1);
   if (all && G.t > 20) { if (G.mode === 'local' && G.slots.length < 2 && !G.soloOK) { } G.startRun(); }
 }
+const PAUSE_OPTS = ['RESUME', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT RUN'];
 function updatePause() {
-  const G = Game; const n = 3; const d = anyDir(); if (d === 'up') G.pauseIdx = (G.pauseIdx + n - 1) % n; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % n;
+  const G = Game; const n = PAUSE_OPTS.length; const d = anyDir(); if (d === 'up') { G.pauseIdx = (G.pauseIdx + n - 1) % n; Audio2.play('cursor'); } if (d === 'down') { G.pauseIdx = (G.pauseIdx + 1) % n; Audio2.play('cursor'); }
+  volAdjust(PAUSE_OPTS[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0);
   if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; }
-  if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (G.pauseIdx === 0) G.paused = false; if (G.pauseIdx === 1) { G.paused = false; G.showControls = 240; } if (G.pauseIdx === 2) { G.paused = false; Net.leave(); G.setScene('title'); } }
+  const lab = PAUSE_OPTS[G.pauseIdx];
+  if (VOL_ROWS[lab]) { if (G.clickPick !== undefined) G.clickPick = undefined; if (anyOK()) volAdjust(lab, 1); }
+  else if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.paused = false; if (lab === 'SHOW CONTROLS') { G.paused = false; G.showControls = 240; } if (lab === 'QUIT RUN') { G.paused = false; Net.leave(); G.setScene('title'); } }
   else if (anyBack() || KeysPressed['Escape'] || localSources().some(s => s.cur.pp)) G.paused = false;
 }
 function updateBoon() {
@@ -3206,7 +3226,7 @@ document.getElementById('joinbtn').addEventListener('click', () => { const code 
 cv.addEventListener('click', ev => {
   Audio2.unlock();
   const r = cv.getBoundingClientRect(); const x = (ev.clientX - r.left) / r.width * W, y = (ev.clientY - r.top) / r.height * H;
-  const regs = (Game.clicks || []).slice().reverse(); for (const c of regs) if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) { c.fn(); break; }
+  const regs = (Game.clicks || []).slice().reverse(); for (const c of regs) if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) { c.fn(x, y); break; }
 });
 
 // ---- main loop ----
@@ -3289,13 +3309,22 @@ function drawControlsPanel(x, y, a = 0.95) {
   T('Up + Special = recovery  ·  Grab ledges by falling near them  ·  Launch foes off-screen for a KO!', W / 2, y + 448, 15, '#ffd23c', { stroke: 0 });
 }
 const MODE_DESC_X = 0;
-const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Turn all game sound on or off.', 'Turn the soundtrack on or off.'];
+const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
 function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
   opts.forEach((o, i) => {
     const sel = i === idx; const w = sel ? 470 : 430, h = 48, x = (x0 ?? W / 2 - 220) - (sel ? 10 : 0), y = y0 + i * 58 - 32;
     if (sel) { slant(x + 6, y + 6, w, h); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill(); }
     slant(x, y, w, h); const g = ctx.createLinearGradient(x, 0, x + w, 0); if (sel) { g.addColorStop(0, '#ff4fd8'); g.addColorStop(1, '#8a3cff'); } else { g.addColorStop(0, 'rgba(40,28,70,0.92)'); g.addColorStop(1, 'rgba(24,16,44,0.92)'); } ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.15)'; ctx.stroke();
     T(o, x + 34, y + 33, sel ? 24 : 21, sel ? '#fff' : '#d8d0ea', { align: 'left', stroke: sel ? 5 : 0, shadow: sel });
+    if (VOL_ROWS[o]) {
+      const v = VOL_ROWS[o](), bx = x + w - 200, by = y + 15, bw = 130;
+      for (let k = 0; k < 10; k++) { const on = k < Math.round(v * 10); ctx.fillStyle = on ? (sel ? '#fff' : '#ffd23c') : 'rgba(0,0,0,0.45)'; slant(bx + k * 13, by, 11, 18, 3); ctx.fill(); }
+      T(Math.round(v * 100) + '%', x + w - 30, y + 32, 16, '#fff', { align: 'right', stroke: 4, shadow: false });
+      if (sel) { T('◀', bx - 16, y + 31, 14, '#fff', { stroke: 3, shadow: false }); }
+      clickRegions().push({ x: bx - 6, y, w: bw + 12, h, fn: (cx) => { Game.menuIdx = i; Game.pauseIdx = i; volSet(o, clamp((cx - bx) / bw, 0, 1) + 0.05); } });
+      clickRegions().push({ x, y, w: bx - x - 8, h, fn: () => { Game.menuIdx = i; Game.pauseIdx = i; } });
+      return;
+    }
     if (sel) { ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.moveTo(x + w - 40, y + 14); ctx.lineTo(x + w - 26, y + 24); ctx.lineTo(x + w - 40, y + 34); ctx.fill(); }
     clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } });
   });
@@ -3349,7 +3378,7 @@ function drawHUD() {
   else if (World.stage.arenas.every(a => a.done)) { if (World.frame % 60 < 44) T('EXIT OPEN ➜', W / 2, 46, 26, '#e6c8ff', { stroke: 6 }); }
   else if (World.frame % 90 < 64 && G.stageT < 600) T('GO! ➜', W / 2, 50, 34, '#ffd23c', { stroke: 7 });
   // stage intro banner
-  const bn = G.banner; if (bn && bn.t < 210) {
+  const bn = G.banner; if (bn && bn.t < 210 && !G.paused && !G.localPause) {
     const k = bn.t < 16 ? 1 - Math.pow(1 - bn.t / 16, 3) : bn.t > 180 ? 1 - (bn.t - 180) / 30 : 1; const off = (1 - k) * -W;
     ctx.save(); ctx.globalAlpha = clamp(k * 1.2, 0, 1); ctx.translate(off, 0);
     slant(-20, H / 2 - 92, W + 40, 150, 40); const bg = ctx.createLinearGradient(0, H / 2 - 92, 0, H / 2 + 58); bg.addColorStop(0, 'rgba(40,20,80,0.92)'); bg.addColorStop(1, 'rgba(14,8,30,0.92)'); ctx.fillStyle = bg; ctx.fill();
@@ -3424,8 +3453,9 @@ function drawBoon() {
 }
 function drawPause(local) {
   ctx.fillStyle = 'rgba(10,6,20,0.7)'; ctx.fillRect(0, 0, W, H);
-  T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, 210, 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
-  if (!Net.isGuest) drawMenu('', ['RESUME', 'SHOW CONTROLS', 'QUIT RUN'], Game.pauseIdx, 330); else if (local) drawMenu('', ['RESUME', 'LEAVE GAME'], Game.pauseIdx, 330);
+  T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, 190, 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
+  if (!Net.isGuest) drawMenu('', PAUSE_OPTS, Game.pauseIdx, 300); else if (local) drawMenu('', GUEST_PAUSE, Game.pauseIdx, 300);
+  T('◀ ▶ adjust volume', W / 2, 585, 15, '#cfc6e6', { stroke: 4 });
 }
 function sceneDraw() {
   const G = Game; Game.clicks = [];

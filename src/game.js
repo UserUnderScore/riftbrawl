@@ -247,7 +247,7 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SOUND: ON', 'MUSIC: ON'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -260,8 +260,7 @@ function sceneUpdate() {
       break;
     }
     case 'mode': {
-      MODE_OPTS[6] = 'SOUND: ' + (Audio2.muted ? 'OFF' : 'ON'); MODE_OPTS[7] = 'MUSIC: ' + (Music.enabled ? 'ON' : 'OFF');
-      menuNav(MODE_OPTS.length);
+      { const d = menuNav(MODE_OPTS.length); volAdjust(MODE_OPTS[G.menuIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); }
       const ok = anyOK() || G.clickPick !== undefined; if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; G.clickPick = undefined; }
       if (ok) {
         Audio2.play('select'); const i = G.menuIdx; const prim = ok.dev || G.primary || 'kb1';
@@ -271,8 +270,8 @@ function sceneUpdate() {
         if (i === 3) { G.mode = 'guest'; G.primary = prim; G.setScene('join'); showJoinBox(true); }
         if (i === 4) G.setScene('controls');
         if (i === 5) { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
-        if (i === 6) { Audio2.muted = !Audio2.muted; store('sse_muted', Audio2.muted); }
-        if (i === 7) { Music.enabled = !Music.enabled; store('sse_music', Music.enabled); }
+        if (i === 6) { setSfxVol(Audio2.vol >= 1 ? 0 : Audio2.vol + 0.1); }
+        if (i === 7) { setMusicVol(Music.vol >= 1 ? 0 : Music.vol + 0.1); }
       }
       if (anyBack()) G.setScene('title');
       break;
@@ -335,10 +334,14 @@ function updateCharSel() {
   const all = G.slots.length && G.slots.every((_, i) => G.cready[i]) && (G.mode !== 'local' || G.slots.length >= 1);
   if (all && G.t > 20) { if (G.mode === 'local' && G.slots.length < 2 && !G.soloOK) { } G.startRun(); }
 }
+const PAUSE_OPTS = ['RESUME', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT RUN'];
 function updatePause() {
-  const G = Game; const n = 3; const d = anyDir(); if (d === 'up') G.pauseIdx = (G.pauseIdx + n - 1) % n; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % n;
+  const G = Game; const n = PAUSE_OPTS.length; const d = anyDir(); if (d === 'up') { G.pauseIdx = (G.pauseIdx + n - 1) % n; Audio2.play('cursor'); } if (d === 'down') { G.pauseIdx = (G.pauseIdx + 1) % n; Audio2.play('cursor'); }
+  volAdjust(PAUSE_OPTS[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0);
   if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; }
-  if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (G.pauseIdx === 0) G.paused = false; if (G.pauseIdx === 1) { G.paused = false; G.showControls = 240; } if (G.pauseIdx === 2) { G.paused = false; Net.leave(); G.setScene('title'); } }
+  const lab = PAUSE_OPTS[G.pauseIdx];
+  if (VOL_ROWS[lab]) { if (G.clickPick !== undefined) G.clickPick = undefined; if (anyOK()) volAdjust(lab, 1); }
+  else if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.paused = false; if (lab === 'SHOW CONTROLS') { G.paused = false; G.showControls = 240; } if (lab === 'QUIT RUN') { G.paused = false; Net.leave(); G.setScene('title'); } }
   else if (anyBack() || KeysPressed['Escape'] || localSources().some(s => s.cur.pp)) G.paused = false;
 }
 function updateBoon() {
@@ -558,7 +561,7 @@ document.getElementById('joinbtn').addEventListener('click', () => { const code 
 cv.addEventListener('click', ev => {
   Audio2.unlock();
   const r = cv.getBoundingClientRect(); const x = (ev.clientX - r.left) / r.width * W, y = (ev.clientY - r.top) / r.height * H;
-  const regs = (Game.clicks || []).slice().reverse(); for (const c of regs) if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) { c.fn(); break; }
+  const regs = (Game.clicks || []).slice().reverse(); for (const c of regs) if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h) { c.fn(x, y); break; }
 });
 
 // ---- main loop ----

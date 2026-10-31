@@ -10,7 +10,7 @@ function chordTones(sym) { const m = /^([A-G][#b]?)(m7|maj7|m|7|dim|sus|5)?$/.ex
 function chart(bars) { const out = []; bars.forEach((b, i) => { const cs = b.trim().split(/\s+/); cs.forEach((c, k) => out.push({ step: i * 16 + k * (16 / cs.length), len: 16 / cs.length, ...chordTones(c) })); }); return out; }
 
 const Music = {
-  ctx: null, out: null, rev: null, cur: null, curKey: '', step: 0, nextT: 0, timer: null, vol: store('sse_musicvol') ?? 0.5, enabled: store('sse_music') ?? true, songs: {},
+  ctx: null, out: null, rev: null, cur: null, curKey: '', step: 0, nextT: 0, timer: null, vol: store('sse_musicvol') ?? (store('sse_music') === false ? 0 : 0.5), enabled: true, songs: {},
   init() {
     if (this.out || !Audio2.ctx) return !!this.out; const c = this.ctx = Audio2.ctx;
     this.out = c.createGain(); this.out.gain.value = 0;
@@ -218,7 +218,22 @@ function musicTick() {
     const b = Game.bossRef; key = b && !b.dead && !b.dying ? 'boss:' + b.type : 'area:' + World.stage.biome;
     if (sc === 'victory') key = 'title';
   }
-  if (Audio2.muted) key = '';
+  if (Music.vol <= 0) key = '';
   Music.want(key);
   Music.duck(sc === 'boon' || Game.paused);
 }
+
+// ---- volume controls (0..1 in 10% steps), saved per browser ----
+function setSfxVol(v) { v = clamp(Math.round(v * 10) / 10, 0, 1); Audio2.vol = v; if (Audio2.master) Audio2.master.gain.value = v; store('sse_sfxvol', v); }
+function setMusicVol(v) {
+  v = clamp(Math.round(v * 10) / 10, 0, 1); Music.vol = v; store('sse_musicvol', v);
+  if (Music.out && Music.cur && Music.ctx) { const c = Music.ctx, tgt = Music._duck !== undefined && Music._duck < Music.vol ? v * 0.45 : v; Music._duck = undefined; Music.out.gain.cancelScheduledValues(c.currentTime); Music.out.gain.setValueAtTime(Music.out.gain.value, c.currentTime); Music.out.gain.linearRampToValueAtTime(tgt, c.currentTime + 0.15); }
+}
+const VOL_ROWS = { 'SFX VOLUME': () => Audio2.vol, 'MUSIC VOLUME': () => Music.vol };
+// returns true if the highlighted row is a volume slider and was adjusted
+function volAdjust(label, dir) {
+  if (!VOL_ROWS[label] || !dir) return false;
+  if (label === 'SFX VOLUME') { setSfxVol(Audio2.vol + dir * 0.1); Audio2.play('cursor'); } else { setMusicVol(Music.vol + dir * 0.1); Audio2.play('cursor'); }
+  return true;
+}
+function volSet(label, v) { if (label === 'SFX VOLUME') { setSfxVol(v); Audio2.play('cursor'); } else { setMusicVol(v); } }

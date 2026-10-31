@@ -138,7 +138,7 @@ const Net = {
     } else if (s.sc !== 'boon') { G.boonIdx = {}; G.boonPick = {}; }
     if (s.sc === 'play') {
       if (src.cur.pp) { G.localPause = !G.localPause; G.pauseIdx = 0; }
-      if (G.localPause) { const d = menuDir(src); if (d === 'up' || d === 'down') G.pauseIdx = 1 - G.pauseIdx; if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (G.pauseIdx === 0) G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
+      if (G.localPause) { const GP = GUEST_PAUSE; const d = menuDir(src); if (d === 'up') G.pauseIdx = (G.pauseIdx + GP.length - 1) % GP.length; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % GP.length; volAdjust(GP[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } const lab = GP[G.pauseIdx]; if (VOL_ROWS[lab]) { G.clickPick = undefined; if (menuOK(src)) volAdjust(lab, 1); } else if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
       // smooth entities toward targets
       for (const p of World.players) if (p.tx !== undefined) { p.x = lerp(p.x, p.tx, 0.55); p.y = lerp(p.y, p.ty, 0.55); }
       for (const e of World.enemies) if (e.tx !== undefined) { e.x = lerp(e.x, e.tx, 0.5); e.y = lerp(e.y, e.ty, 0.5); }
@@ -201,3 +201,5 @@ const Net = {
     }
   },
 };
+
+const GUEST_PAUSE = ['RESUME', 'SFX VOLUME', 'MUSIC VOLUME', 'LEAVE GAME'];

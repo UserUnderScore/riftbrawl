@@ -60,13 +60,22 @@ function drawControlsPanel(x, y, a = 0.95) {
   T('Up + Special = recovery  ·  Grab ledges by falling near them  ·  Launch foes off-screen for a KO!', W / 2, y + 448, 15, '#ffd23c', { stroke: 0 });
 }
 const MODE_DESC_X = 0;
-const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Turn all game sound on or off.', 'Turn the soundtrack on or off.'];
+const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
 function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
   opts.forEach((o, i) => {
     const sel = i === idx; const w = sel ? 470 : 430, h = 48, x = (x0 ?? W / 2 - 220) - (sel ? 10 : 0), y = y0 + i * 58 - 32;
     if (sel) { slant(x + 6, y + 6, w, h); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill(); }
     slant(x, y, w, h); const g = ctx.createLinearGradient(x, 0, x + w, 0); if (sel) { g.addColorStop(0, '#ff4fd8'); g.addColorStop(1, '#8a3cff'); } else { g.addColorStop(0, 'rgba(40,28,70,0.92)'); g.addColorStop(1, 'rgba(24,16,44,0.92)'); } ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.15)'; ctx.stroke();
     T(o, x + 34, y + 33, sel ? 24 : 21, sel ? '#fff' : '#d8d0ea', { align: 'left', stroke: sel ? 5 : 0, shadow: sel });
+    if (VOL_ROWS[o]) {
+      const v = VOL_ROWS[o](), bx = x + w - 200, by = y + 15, bw = 130;
+      for (let k = 0; k < 10; k++) { const on = k < Math.round(v * 10); ctx.fillStyle = on ? (sel ? '#fff' : '#ffd23c') : 'rgba(0,0,0,0.45)'; slant(bx + k * 13, by, 11, 18, 3); ctx.fill(); }
+      T(Math.round(v * 100) + '%', x + w - 30, y + 32, 16, '#fff', { align: 'right', stroke: 4, shadow: false });
+      if (sel) { T('◀', bx - 16, y + 31, 14, '#fff', { stroke: 3, shadow: false }); }
+      clickRegions().push({ x: bx - 6, y, w: bw + 12, h, fn: (cx) => { Game.menuIdx = i; Game.pauseIdx = i; volSet(o, clamp((cx - bx) / bw, 0, 1) + 0.05); } });
+      clickRegions().push({ x, y, w: bx - x - 8, h, fn: () => { Game.menuIdx = i; Game.pauseIdx = i; } });
+      return;
+    }
     if (sel) { ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.moveTo(x + w - 40, y + 14); ctx.lineTo(x + w - 26, y + 24); ctx.lineTo(x + w - 40, y + 34); ctx.fill(); }
     clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } });
   });
@@ -120,7 +129,7 @@ function drawHUD() {
   else if (World.stage.arenas.every(a => a.done)) { if (World.frame % 60 < 44) T('EXIT OPEN ➜', W / 2, 46, 26, '#e6c8ff', { stroke: 6 }); }
   else if (World.frame % 90 < 64 && G.stageT < 600) T('GO! ➜', W / 2, 50, 34, '#ffd23c', { stroke: 7 });
   // stage intro banner
-  const bn = G.banner; if (bn && bn.t < 210) {
+  const bn = G.banner; if (bn && bn.t < 210 && !G.paused && !G.localPause) {
     const k = bn.t < 16 ? 1 - Math.pow(1 - bn.t / 16, 3) : bn.t > 180 ? 1 - (bn.t - 180) / 30 : 1; const off = (1 - k) * -W;
     ctx.save(); ctx.globalAlpha = clamp(k * 1.2, 0, 1); ctx.translate(off, 0);
     slant(-20, H / 2 - 92, W + 40, 150, 40); const bg = ctx.createLinearGradient(0, H / 2 - 92, 0, H / 2 + 58); bg.addColorStop(0, 'rgba(40,20,80,0.92)'); bg.addColorStop(1, 'rgba(14,8,30,0.92)'); ctx.fillStyle = bg; ctx.fill();
@@ -195,8 +204,9 @@ function drawBoon() {
 }
 function drawPause(local) {
   ctx.fillStyle = 'rgba(10,6,20,0.7)'; ctx.fillRect(0, 0, W, H);
-  T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, 210, 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
-  if (!Net.isGuest) drawMenu('', ['RESUME', 'SHOW CONTROLS', 'QUIT RUN'], Game.pauseIdx, 330); else if (local) drawMenu('', ['RESUME', 'LEAVE GAME'], Game.pauseIdx, 330);
+  T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, 190, 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
+  if (!Net.isGuest) drawMenu('', PAUSE_OPTS, Game.pauseIdx, 300); else if (local) drawMenu('', GUEST_PAUSE, Game.pauseIdx, 300);
+  T('◀ ▶ adjust volume', W / 2, 585, 15, '#cfc6e6', { stroke: 4 });
 }
 function sceneDraw() {
   const G = Game; Game.clicks = [];
