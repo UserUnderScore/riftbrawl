@@ -110,9 +110,11 @@ class Enemy {
   attack(name) { this.atk = this.def.atks[name]; this.atkName = name; this.af = 0; this.hitSet.clear(); this.mid++; }
   update() {
     if (this.dead) return;
+    if (this.grabbedBy) { const G0 = this.grabbedBy; if (G0.held !== this || G0.dead) this.grabbedBy = null; else { this.t++; this.flash = 0; return; } }
     this.t++; tickStatus(this); if (this.flash > 0) this.flash--; if (this.jumpCD > 0) this.jumpCD--; if (this.blinkCD > 0) this.blinkCD--;
     if (this.hitlag > 0) { this.hitlag--; return; }
     if (this.spawnT > 0) { this.spawnT--; if (!this.def.fly) this.physics(); return; }
+    if (this.dummy) { if (this.hitstun > 0) this.hitstun--; this.atk = null; this.vx *= 0.85; this.physics(); return; }
     if (this.asleep) { const T0 = this.target(); if (!T0 || Math.abs(T0.dx) > 760) { this.physics(); return; } this.asleep = false; }
     if (this.ward === 0 && this.elite === 'warded') { this.wardT++; if (this.wardT > 300) { this.ward = 25; this.wardT = 0; } }
     if (this.dying) { this.dying++; this.physics(); if (this.dying > 40) this.remove(); return; }
@@ -153,7 +155,7 @@ class Enemy {
   takeHit(info) {
     if (this.dead || this.dying || this.spawnT > 0) return null;
     // shieldbearer front guard
-    if (this.def.shield && !this.stunGuard) {
+    if (this.def.shield && !this.stunGuard && !info.unblockable) {
       const fromFront = sign((info.ax ?? info.x) - this.x) === this.face; const above = info.y < this.y - this.h * 0.95;
       if (fromFront && !above) {
         if (info.dmg >= 15) { this.stunGuard = 1; this.hitstun = 70; FX.text(this.x, this.y - this.h - 10, 'GUARD BREAK', '#3cd5ff', 14); Audio2.play('bighit'); setTimeout(() => this.stunGuard = 0, 1400); }
@@ -162,7 +164,7 @@ class Enemy {
     }
     let dmg = info.dmg;
     if (this.ward > 0) { const ab = Math.min(this.ward, dmg); this.ward -= ab; dmg -= ab; this.wardT = 0; FX.burst(info.x, info.y, '#7df9ff', 6); if (this.ward <= 0) { FX.text(this.x, this.y - this.h, 'WARD BROKEN', '#7df9ff', 13); } if (dmg <= 0) { Audio2.play('clink'); return 'hit'; } }
-    this.hp -= dmg; this.flash = 6; this.pct += dmg * (this.boss ? 0 : 100 / Math.max(20, this.maxHp / World.diff.hp));
+    if (this.dummy) { this.pct += dmg; this.flash = 6; } else { this.hp -= dmg; this.flash = 6; this.pct += dmg * (this.boss ? 0 : 100 / Math.max(20, this.maxHp / World.diff.hp)); }
     FX.text(info.x, info.y - 10, Math.round(dmg), '#fff', 12 + Math.min(10, dmg / 2));
     if (this.boss) { this.hitlag = 3; FX.hit(info.x, info.y, 20, info.fx); Audio2.play('hit', 0.3); if (this.def.onHurt) this.def.onHurt(this); if (this.hp <= 0) this.die(info); return 'hit'; }
     let kb = calcKB(this.pct, dmg, this.weight, info.bkb, info.kbg);
@@ -299,7 +301,9 @@ class Rival extends Fighter {
   set maxHp(v) { }
   update() {
     if (this.dead) return;
+    if (this.grabbedBy && this.grabbedBy.held !== this) { this.grabbedBy = null; this.state = 'air'; this.air = 1; }
     if (this.pct >= this.limit) { this.collapse(); return; }
+    if (this.state === 'grabbed') { this.sf++; return; }
     if (this.spawnT > 0) { this.spawnT--; this.physics(); return; }
     if (this.asleep) { const p = World.players.find(q => !q.dead && !q.out && Math.abs(q.x - this.x) < 760); if (!p) { this.physics(); return; } this.asleep = false; }
     if (this.flash > 0) this.flash--;
@@ -308,7 +312,7 @@ class Rival extends Fighter {
     if (this.pct >= this.limit && !this.dead) this.collapse();
   }
   think() {
-    const o = new InputSource('none').blank(); o.kb = 1; this.input.cur = o;
+    const o = new InputSource('none').blank(); o.kb = 1; this.input.cur = o; if (this.dummy) return;
     const A = this.ai; if (A.cd > 0) A.cd--; if (A.jumpCD > 0) A.jumpCD--;
     if (this.hitlag > 0) return;
     let T = null, bd = 1e9; for (const p of World.players) { if (p.dead || p.out) continue; const d = Math.abs(p.x - this.x) + Math.abs(p.y - this.y); if (d < bd) { bd = d; T = p; } }
@@ -369,7 +373,7 @@ class Rival extends Fighter {
   }
   hitboxes() {
     if (this.dead || this.spawnT > 0) return [];
-    return super.hitboxes().filter(b => !b.h.orb).map(b => {
+    return super.hitboxes().filter(b => !b.h.orb && !b.h.grab).map(b => {
       const h = b.h; let d = h.d * this.mods.dmg * (this.move && this.move.smash ? 1 + 0.45 * this.chg : 1); if (h.chg) d += h.chg * this.chg;
       return { x: b.x, y: b.y, r: b.r, d, a: h.a, bkb: h.bkb + (h.chgKb || 0) * this.chg, kbg: h.kbg, key: b.key, fx: h.fx || h.el, el: h.el };
     });

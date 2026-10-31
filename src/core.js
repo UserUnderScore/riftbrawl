@@ -182,6 +182,7 @@ const Audio2 = {
       case 'jump': this.tone(300, 0.08, 'square', 0.07, 1.8); break;
       case 'land': this.noise(0.05, 0.08, 500); break;
       case 'bossin': this.tone(55, 1.4, 'sawtooth', 0.22, 0.5); this.noise(1.2, 0.3, 500); setTimeout(() => { this.noise(0.5, 0.45, 2200); this.tone(82, 0.8, 'square', 0.15, 0.5); }, 900); break;
+      case 'grab': this.noise(0.05, 0.15, 900); this.tone(260, 0.08, 'square', 0.08, 0.7); break;
       case 'thud': this.noise(0.12, 0.22, 380); this.tone(90, 0.16, 'sine', 0.25, 0.5); break;
       case 'tech': this.sweep(1500, 6500, 0.12, 0.18, 3); this.tone(1760, 0.12, 'triangle', 0.1, 1.3); break;
       case 'parry': this.tone(2637, 0.4, 'sine', 0.16, 0.98); this.tone(3951, 0.3, 'sine', 0.08); this.sweep(3000, 9000, 0.15, 0.18, 4); break;

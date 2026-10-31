@@ -72,6 +72,13 @@ function genStage(seed, idx, kind, opts = {}) {
     return w; };
   const nP = opts.players || 1;
   const wsize = () => Math.round((3 + Math.floor(idx * 0.35) + R.i(0, 1)) * (nP > 1 ? 1.35 : 1) * (opts.endless ? 1.15 : 1));
+  if (kind === 'training') {
+    st.solids.length = 0; solid(0, 600, 1100, 140); solid(1340, 260, 70, 420); plat(140, 460, 230); plat(730, 460, 230); plat(435, 330, 230);
+    st.x0 = -700; st.x1 = 1900; st.killY = 1150; st.goal = null; st.spawns = []; st.events = []; st.training = 1;
+    for (const s of st.solids) { if (!solidAtList(st.solids, s.x - 3, s.y + 30)) st.ledges.push({ x: s.x, y: s.y, dir: -1 }); if (!solidAtList(st.solids, s.x + s.w + 3, s.y + 30)) st.ledges.push({ x: s.x + s.w, y: s.y, dir: 1 }); }
+    for (let dx = -900; dx < 2300; dx += R.r(120, 260)) st.deco.push({ x: dx, s: R.r(0.6, 1.4), layer: R.pick([0, 1, 1]), v: R.f() });
+    return st;
+  }
   if (kind === 'normal') {
     travel(R.i(1, 2));
     // event room

@@ -78,8 +78,18 @@ const Game = {
     World.players = this.slots.map((s, i) => new Fighter(FIGHTERS[this.csel[i]], i, s.input));
     World.players.forEach((p, i) => applyMeta(p, this.slots[i] && this.slots[i].dev === 'net' ? gmu : this.meta));
     this.teamStocks = (World.players.length > 1 ? 4 : 3) + (this.meta.vigor || 0);
+    if (this.mode === 'training') return this.loadTraining();
     this.loadStage(0, 'road');
   },
+  loadTraining() {
+    const R = this.run; R.training = true; R.idx = 0; R.path = 'road'; World.stage = genStage(R.seed, 0, 'training', { players: 1 }); World.stage.B = BIOMES.garden; World.stage.biome = 'garden'; this.applyStageState([]);
+    World.diff = { hp: 1, dmg: 1 }; World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0; this.teamStocks = 99;
+    World.players.forEach((p, i) => { p.x = 200 + i * 60; p.y = 600; p.state = 'idle'; p.air = 0; p.dead = false; p.out = false; p.intang = 30; p.meter = 100; });
+    for (const [t, x] of [['shade', 620], ['rival0', 820], ['lancer', 960]]) this.spawnDummy(t, x);
+    World.cam.x = 550; World.cam.y = 420; this.arenaI = -1; this.bossRef = null; this.bossIntro = null; this.co = null; this.stageT = 0;
+    this.banner = { t: 0, title: 'TRAINING', sub: 'Practice freely: dummies respawn, lives are infinite', mods: [] }; this.setScene('play');
+  },
+  spawnDummy(t, x) { const e = spawnEnemy(t, x, 560); if (!e) return; e.dummy = 1; e.dummyType = t; e.dummyX = x; e.maxHp = 9999; e.hp = 9999; e.asleep = false; e.cd = 1e9; if (e.isRival) { e.limit = 999; } },
   loadStage(idx, path = 'road') {
     const R = this.run; R.idx = idx; R.stageSeed = (R.seed + idx * 7919) >>> 0; R.path = path;
     const kind = stageKind(idx), rr0 = SRng(R.stageSeed ^ 0xabc);
@@ -136,7 +146,8 @@ const Game = {
     if (World.players.every(p => p.out)) this.gameOver();
   },
   stageLogic() {
-    const st = World.stage; const alive = World.players.filter(p => !p.dead && !p.out);
+    const st = World.stage;
+    if (st.training) { this.teamStocks = 99; for (const t of ['shade', 'rival0', 'lancer']) if (!World.enemies.some(e => e.dummyType === t && !e.dead)) { this.dmyT = this.dmyT || {}; this.dmyT[t] = (this.dmyT[t] || 0) + 1; if (this.dmyT[t] > 60) { this.dmyT[t] = 0; this.spawnDummy(t, { shade: 620, rival0: 820, lancer: 960 }[t]); FX.swarm({ shade: 620, rival0: 820, lancer: 960 }[t], 560, 50); } } return; } const alive = World.players.filter(p => !p.dead && !p.out);
     // events
     for (const ev of st.events) {
       if (ev.used) continue;
@@ -258,7 +269,7 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'TRAINING', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -275,6 +286,7 @@ function sceneUpdate() {
       const ok = anyOK() || G.clickPick !== undefined; if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; G.clickPick = undefined; }
       if (ok) {
         Audio2.play('select'); const i = G.menuIdx; const prim = ok.dev || G.primary || 'kb1';
+        if (MODE_OPTS[i] === 'TRAINING') { G.mode = 'training'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 0) { G.mode = 'solo'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 1) { G.mode = 'local'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 2) { G.mode = 'host'; G.slots = [{ input: Devices.get(prim), dev: prim }]; Net.host(); G.setScene('lobby'); }

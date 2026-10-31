@@ -80,6 +80,8 @@ function fighterPose(f) {
     case 'walltech': return P(-4, -26, -0.15, 15, -8, 15, 6, 10, 18, 2, 24, -40);
     case 'ceiltech': return P(0, -26, 0, 6, -27, -6, -27, 6, 24, -6, 22, -90);
     case 'down': return P(0, -25, 0.05, 10, 12, -8, 14, 6, 25, -6, 24, 80);
+    case 'grabhold': return P(4, -24, 0.25, 22, 0, 18, 4, 10, 25, -10, 25, 0);
+    case 'grabbed': return POSE.hurt;
     case 'climb': return mix(POSE.ledge, P(0, -15, 0.5, 14, 14, -6, 12, 12, 14, -10, 16, 40), clamp(f.sf / 12, 0, 1));
     case 'getup': return mix(P(0, -25, 0.05, 10, 12, -8, 14, 6, 25, -6, 24, 80), STAND, clamp(f.sf / 26, 0, 1));
     default: return STAND;
@@ -315,7 +317,8 @@ function drawEnemy(g, e) {
   if (e.shockT > 0 && World.frame % 3 === 0) { g.strokeStyle = '#f4ff7a'; g.lineWidth = 2; g.beginPath(); g.moveTo(x + rr(-15, 15), y - rr(0, e.h)); for (let i = 0; i < 3; i++) g.lineTo(x + rr(-15, 15), y - rr(0, e.h)); g.stroke(); }
   if (e.ward > 0) { g.strokeStyle = 'rgba(125,249,255,0.7)'; g.lineWidth = 2; g.beginPath(); g.arc(x, y - e.h / 2, Math.max(e.w, e.h) * 0.7, 0, TAU); g.stroke(); }
   if (e.type === 'sniper' && e.aim != null && e.atk) { const locked = e.af >= 60; g.strokeStyle = locked ? 'rgba(255,40,40,0.9)' : 'rgba(255,80,80,0.35)'; g.lineWidth = locked ? 2.5 : 1.5; g.beginPath(); g.moveTo(x, y - 34); g.lineTo(x + Math.cos(e.aim) * 900, y - 34 + Math.sin(e.aim) * 900); g.stroke(); }
-  if (!e.boss && e.hp < e.maxHp && !e.dying) { const w = Math.max(30, e.w); g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(x - w / 2, y - e.h - 14, w, 5); g.fillStyle = '#ff4fd8'; g.fillRect(x - w / 2, y - e.h - 14, w * Math.max(0, e.hp / e.maxHp), 5); }
+  if (e.dummy) { const pc = Math.floor(e.pct) + '%'; g.font = `italic 900 14px ${FONT}`; g.textAlign = 'center'; g.lineWidth = 4; g.strokeStyle = OL; g.strokeText(pc, x, y - e.h - 12); g.fillStyle = pctColor(e.pct); g.fillText(pc, x, y - e.h - 12); }
+  else if (!e.boss && e.hp < e.maxHp && !e.dying) { const w = Math.max(30, e.w); g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(x - w / 2, y - e.h - 14, w, 5); g.fillStyle = '#ff4fd8'; g.fillRect(x - w / 2, y - e.h - 14, w * Math.max(0, e.hp / e.maxHp), 5); }
   if (tele && !e.boss && e.type !== 'bomber') { g.fillStyle = '#ffde3c'; g.strokeStyle = OL; g.lineWidth = 3; g.font = '900 20px Rubik,system-ui,sans-serif'; g.textAlign = 'center'; g.strokeText('!', x, y - e.h - 20); g.fillText('!', x, y - e.h - 20); }
 }
 function drawRang(g, x, y, rot, col) { g.save(); g.translate(x, y); g.rotate(rot); g.fillStyle = col; g.strokeStyle = OL; g.lineWidth = 2.5; g.beginPath(); g.moveTo(-12, 6); g.lineTo(0, -6); g.lineTo(12, 6); g.lineTo(8, 9); g.lineTo(0, 1); g.lineTo(-8, 9); g.closePath(); g.fill(); g.stroke(); g.restore(); }
