@@ -130,6 +130,7 @@ class Fighter {
     // orbit orb boon
     if (this.mods.orb) this.orbA += 0.08;
     if (this.team === 0 && raw.s && raw.bp && this.meter >= 100 && (this.actionable() || this.state === 'shield')) { startBurst(this); return; }
+    if (this.team === 0 && !this.isRival) itemInput(this, inp, raw);
     const smashDir = this.smashInput(raw) || inp._sd;
 
     switch (this.state) {
@@ -462,6 +463,7 @@ class Fighter {
     return 'parry';
   }
   launch(kb, info) {
+    if (this.item) dropItem(this, true);
     if (this.held) this.releaseHeld(); if (this.grabbedBy) { const g0 = this.grabbedBy; if (g0.held === this) g0.held = null; this.grabbedBy = null; }
     let ang = deg(info.ang);
     // DI: shift launch angle by stick perpendicular component
@@ -479,7 +481,7 @@ class Fighter {
   ko(type) {
     if (this.dead || this.out) return;
     if (this.mods.phoenix && !this.phoenixUsed) { this.phoenixUsed = true; FX.text(this.x, this.y - 60, 'PHOENIX!', '#ff9a3c', 20); FX.burst(this.x, this.y, '#ff9a3c', 30); this.respawn(true); return; }
-    if (this.held) this.releaseHeld();
+    if (this.held) this.releaseHeld(); if (this.item) dropItem(this);
     FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); World.shake(12);
     this.dead = true; this.respawnT = 100; this.kx = this.ky = this.vx = this.vy = 0;
     Game.teamStocks--; if (Game.teamStocks < 0) { this.out = true; Game.teamStocks = 0; }

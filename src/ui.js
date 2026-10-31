@@ -49,7 +49,7 @@ function drawTitleBG() {
 function drawTitleFighters(y, s, spread) {
   FIGHTERS.forEach((F, i) => { const x = W / 2 - spread * 1.5 + i * spread; const pose = menuIdlePose(i, World.frame); drawFighterArt(i, x, y, i < 2 ? 1 : -1, s, pose); });
 }
-const TIPS = ['Press SHIELD just before you hit the ground while tumbling to TECH and recover instantly.', 'Hold a direction while teching to tech-roll away.', 'Release SHIELD right as an attack lands to PARRY and stagger the attacker.', 'SHIELD + ATTACK grabs. Then press a direction to throw, or ATTACK to pummel.', 'Your damage % makes you fly farther. Eat food to bring it down.', 'Fill your meter, then press SHIELD + SPECIAL for a screen-clearing RIFT BURST.', 'Missed a tech? From the ground: ATTACK for a getup attack, or a direction to roll.', 'Jump while touching a wall and pushing away from it to WALL JUMP.', 'Inputs are buffered for 9 frames: press your next move a little early.', 'Land an aerial just after its hit ends (or before it starts) for no landing lag.', 'Repeating the same move makes it weaker. Mix it up!', 'Duo boons appear when you own both of their prerequisite boons.', 'Rift Shards from every run buy permanent upgrades in the RIFT FORGE.', 'Ledge: SHIELD rolls onto stage, ATTACK climbs with a strike, JUMP leaps off.', 'Knock enemies through the purple barriers for an instant KO.'];
+const TIPS = ['Press SHIELD just before you hit the ground while tumbling to TECH and recover instantly.', 'Hold a direction while teching to tech-roll away.', 'Release SHIELD right as an attack lands to PARRY and stagger the attacker.', 'SHIELD + ATTACK grabs. Then press a direction to throw, or ATTACK to pummel.', 'Your damage % makes you fly farther. Eat food to bring it down.', 'Fill your meter, then press SHIELD + SPECIAL for a screen-clearing RIFT BURST.', 'Missed a tech? From the ground: ATTACK for a getup attack, or a direction to roll.', 'Jump while touching a wall and pushing away from it to WALL JUMP.', 'Inputs are buffered for 9 frames: press your next move a little early.', 'Land an aerial just after its hit ends (or before it starts) for no landing lag.', 'Repeating the same move makes it weaker. Mix it up!', 'Duo boons appear when you own both of their prerequisite boons.', 'Rift Shards from every run buy permanent upgrades in the RIFT FORGE.', 'Ledge: SHIELD rolls onto stage, ATTACK climbs with a strike, JUMP leaps off.', 'Knock enemies through the purple barriers for an instant KO.', 'Rift Bombs: ATTACK to pick one up, ATTACK again to throw. Hold up or down to aim.', 'In Training, pause to show hitboxes, launch lines and change dummy behaviour.'];
 function drawRunInfo() {
   const ps = World.players; if (!ps || !ps.length || !Game.run) return; const x = W / 2 + 40, w = W / 2 - 80; const rowsOf = p => Math.max(1, Math.ceil(Math.min(12, new Set(p.boons).size) / 2)); const hgt = 70 + ps.reduce((a, p) => a + 40 + rowsOf(p) * 22, 0); glass(x, 250, w, Math.min(400, hgt), '#ffd23c', 18, 0.9); let yy = 316;
   T(Game.run.training ? 'TRAINING' : stageLabel(Game.run.idx) + '  ·  ' + fmtTime(Game.run.time) + '  ·  KO ' + Game.run.kills, x + w / 2, 284, 18, '#ffd23c', { stroke: 4 });
@@ -61,14 +61,14 @@ function drawRunInfo() {
   });
 }
 function drawControlsPanel(x, y, a = 0.95) {
-  glass(x - 40, y - 30, W - (x - 40) * 2, 395, '#ff4fd8', 20, a);
+  glass(x - 40, y - 30, W - (x - 40) * 2, 415, '#ff4fd8', 20, a);
   T('CONTROLS', W / 2, y + 14, 34);
   const col1 = x - 10, col2 = W / 2 - 60, col3 = W / 2 + 230;
   const sec = (title, cx, items) => { T(title, cx, y + 58, 17, '#ff8fe4', { align: 'left' }); items.forEach((t, i) => T(t, cx, y + 88 + i * 25, 14.5, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false })); };
   sec('SWITCH PRO / GAMEPAD', col1, ['Left stick — move / aim', 'A (right) — attack', 'B (bottom) — special', 'X / Y — jump', 'L / R / ZL / ZR — shield', 'Flick stick + A — smash', 'Right stick — smash / aerial', 'Flick up — jump', '+ — pause']);
   sec('KEYBOARD  P1 / P2', col2, ['Move — WASD / Arrows', 'Attack — J / ,', 'Special — K / .', 'Jump — Space / R-Shift', 'Shield — L / /', 'Smash — I / ;', 'Pause — Esc / Backspace', '', 'Shield + direction — roll / dodge']);
-  sec('TECHNIQUES', col3, ['Grab — SHIELD + ATTACK', 'Throw — grab + direction', 'Tech — SHIELD as you land', 'Tech roll — + direction', 'Parry — release SHIELD on hit', 'Wall jump — JUMP away from wall', 'Rift Burst — SHIELD + SPECIAL', 'Getup — ATTACK / dir / JUMP', 'Recovery — UP + SPECIAL']);
-  T('Launch foes off-screen or through the purple barriers for a KO.  Food lowers your damage %.', W / 2, y + 330, 15, '#ffd23c', { stroke: 4 });
+  sec('TECHNIQUES', col3, ['Grab — SHIELD + ATTACK', 'Throw — grab + direction', 'Tech — SHIELD as you land', 'Tech roll — + direction', 'Parry — release SHIELD on hit', 'Wall jump — JUMP away from wall', 'Rift Burst — SHIELD + SPECIAL', 'Getup — ATTACK / dir / JUMP', 'Recovery — UP + SPECIAL', 'Rift Bomb — ATTACK: pick up / throw']);
+  T('Launch foes off-screen or through the purple barriers for a KO.  Food lowers your damage %.', W / 2, y + 352, 15, '#ffd23c', { stroke: 4 });
 }
 function drawControlsPanelOld(x, y, a = 0.95) {
   glass(x, y, W - x * 2, 470, '#ff4fd8', 20, a);

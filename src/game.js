@@ -147,7 +147,7 @@ const Game = {
   },
   stageLogic() {
     const st = World.stage;
-    if (st.training) { this.teamStocks = 99; for (const t of ['shade', 'rival0', 'lancer']) if (!World.enemies.some(e => e.dummyType === t && !e.dead)) { this.dmyT = this.dmyT || {}; this.dmyT[t] = (this.dmyT[t] || 0) + 1; if (this.dmyT[t] > 60) { this.dmyT[t] = 0; this.spawnDummy(t, { shade: 620, rival0: 820, lancer: 960 }[t]); FX.swarm({ shade: 620, rival0: 820, lancer: 960 }[t], 560, 50); } } return; } const alive = World.players.filter(p => !p.dead && !p.out);
+    if (st.training) { this.teamStocks = 99; for (const t of ['shade', 'rival0', 'lancer']) if (!World.enemies.some(e => e.dummyType === t && !e.dead)) { this.dmyT = this.dmyT || {}; this.dmyT[t] = (this.dmyT[t] || 0) + 1; if (this.dmyT[t] > 60) { this.dmyT[t] = 0; this.spawnDummy(t, { shade: 620, rival0: 820, lancer: 960 }[t]); FX.swarm({ shade: 620, rival0: 820, lancer: 960 }[t], 560, 50); } } if (!World.items.some(i => i.type === 'bomb')) { this.bombT = (this.bombT || 0) + 1; if (this.bombT > 150) { this.bombT = 0; spawnItem('bomb', 440, 420); } } return; } const alive = World.players.filter(p => !p.dead && !p.out);
     // events
     for (const ev of st.events) {
       if (ev.used) continue;
@@ -194,6 +194,7 @@ const Game = {
   dropFood(A) {
     const n = 1 + World.players.length + (rnd() < 0.4 ? 1 : 0);
     for (let i = 0; i < n; i++) { const x = rr(A.l + 80, A.r - 80); spawnItem('food', x, World.cam.y - 300 - i * 40, { kind: rollFood() }); }
+    if (rnd() < 0.45) spawnItem('bomb', rr(A.l + 100, A.r - 100), World.cam.y - 340);
     if (this.waveI < A.waves.length) this.callout('WAVE CLEAR  ·  FOOD!', '#7dff8a', 34);
   },
   spawnWave(A, wi) {
@@ -433,6 +434,7 @@ function drawWorld() {
   for (const e of World.enemies) drawEnemy(ctx, e);
   for (const p of World.projs) drawProj(ctx, p);
   for (const p of World.players) drawFighter(ctx, p);
+  drawHeldItems(ctx);
   drawParticles(ctx);
   if (Game.showHB && st.training) drawHitboxDebug(ctx);
   ctx.restore();

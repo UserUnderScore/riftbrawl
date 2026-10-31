@@ -129,7 +129,9 @@ function drawFighter(g, f) {
   if (f.state === 'idle' && !f.air && Math.abs(f.dxr) > 2.2 && World.frame % 3 === 0) FX.add({ k: 'dust', x: f.x + sign(f.dxr) * 10 + rr(-4, 4), y: f.y - 2, vx: sign(f.dxr) * rr(0.5, 1.5), vy: rr(-1, -0.3), life: 18, max: 18, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) });
   if (f.state === 'run' && f.lastState && f.lastState !== 'run' && !f.air) { for (let i = 0; i < 4; i++) FX.add({ k: 'dust', x: f.x - f.face * (8 + i * 5), y: f.y - 2, vx: -f.face * rr(1, 2.5), vy: rr(-1.4, -0.3), life: 20, max: 20, c: 'rgba(255,255,255,0.6)', s: rr(4, 7) }); }
   if (f.lastFace !== undefined && f.lastFace !== f.face && f.state === 'run') { f.turnT = 7; for (let i = 0; i < 3; i++) FX.add({ k: 'dust', x: f.x + f.face * 6, y: f.y - 2, vx: f.face * rr(0.5, 2), vy: rr(-1.2, -0.3), life: 16, max: 16, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) }); } f.lastFace = f.face; if (f.turnT > 0) f.turnT--;
-  const target = fighterPose(f);
+  const target = fighterPose(f).slice(); const holding = World.items.some(it => it.type === 'bomb' && (it.holder === f || (it.hs && it.hs === (f.slot + 1) && !f.isRival)));
+  if (holding && ['idle', 'run', 'air', 'crouch', 'land', 'land0', 'squat', 'shield', 'shielddrop'].includes(f.state)) { target[3] = 13; target[4] = -2; target[5] = 9; target[6] = 2; }
+  f._holding = holding;
   const blend = f.state === 'move' || f.state === 'hitstun' ? 1 : (f.state !== f.lastState ? 0.45 : 0.6);
   f.rp = f.rp && f.state !== 'move' ? mix(f.rp, target, blend) : target; f.lastState = f.state;
   const pose = f.rp;
@@ -162,7 +164,7 @@ function drawFighter(g, f) {
   const expr = f.state === 'hitstun' || f.state === 'shieldbreak' ? 'hurt' : f.state === 'move' ? 'fight' : 'normal';
   if (rival || (f.state === 'move' && f.chgT > 0)) { const c = rival ? def.color : '#ffe27a'; const k = rival ? 0.28 : 0.35 + 0.25 * Math.sin(World.frame * 0.5); g.save(); g.globalCompositeOperation = 'lighter'; const gg = g.createRadialGradient(f.x, f.y - 30 * s, 4, f.x, f.y - 30 * s, 46 * s); gg.addColorStop(0, rgba(c, k)); gg.addColorStop(1, rgba(c, 0)); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 30 * s, 46 * s, 0, TAU); g.fill(); g.restore(); }
   const wpn = def.weapon !== 'none' && !(def.id === 3 && f.hammerOut) ? (J) => drawWeaponHD(g, def.weapon, J.h1[0], J.h1[1], f.face, pose[11], s, { glow: rival ? def.color : '#9dff8a' }) : null;
-  const J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0 });
+  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0 });
   if (f.state === 'move' && f.move.name === 'nspec' && def.id === 2 && f.chgT > 0) { g.save(); g.globalCompositeOperation = 'lighter'; const r = 8 + f.chg * 14; const gg = g.createRadialGradient(J.h1[0] + f.face * 12, J.h1[1], 1, J.h1[0] + f.face * 12, J.h1[1], r * 1.6); gg.addColorStop(0, 'rgba(230,255,220,0.95)'); gg.addColorStop(0.5, 'rgba(120,255,120,0.6)'); gg.addColorStop(1, 'rgba(120,255,120,0)'); g.fillStyle = gg; g.beginPath(); g.arc(J.h1[0] + f.face * 12, J.h1[1], r * 1.6, 0, TAU); g.fill(); g.restore(); }
   g.restore();
   if (f.frozenT > 0) { g.fillStyle = 'rgba(190,240,255,0.35)'; g.strokeStyle = 'rgba(230,250,255,0.8)'; g.lineWidth = 2; g.fillRect(f.x - 16, f.y - 62, 32, 62); g.strokeRect(f.x - 16, f.y - 62, 32, 62); }
@@ -518,8 +520,12 @@ function drawAmbient(g, st) {
   }
   const vg = g.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,5,20,0.38)'); g.fillStyle = vg; g.fillRect(0, 0, W, H);
 }
+function drawHeldItems(g) {
+  for (const it of World.items) { if (it.type !== 'bomb' || !(it.holder || it.hs)) continue; const P = it.holder || World.players.find(p => p.slot + 1 === it.hs); const J = P && P._J; if (J && J.h1 && !(P.state === 'move')) drawBomb(g, it, J.h1[0] + P.face * 4, J.h1[1] - 4); else drawBomb(g, it, it.x, it.y); }
+}
 function drawItems(g) {
   for (const it of World.items) {
+    if (it.type === 'bomb') { if (it.holder || it.hs) continue; if (it.t > 1300 && World.frame % 8 < 4) continue; drawBomb(g, it, it.x, it.y - (it.th ? 0 : 12 + Math.sin(World.frame * 0.1 + it.id) * 2)); continue; }
     const b = Math.sin((it.t || World.frame) * 0.1) * 2, x = it.x, y = it.y - 10 + b;
     if (it.t > 1300 && World.frame % 8 < 4) continue;
     if (it.type === 'chest') { g.fillStyle = '#8a5a2b'; g.fillRect(x - 14, y - 10, 28, 20); g.fillStyle = '#ffd24a'; g.fillRect(x - 14, y - 4, 28, 4); continue; }

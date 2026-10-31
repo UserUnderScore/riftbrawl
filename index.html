@@ -279,6 +279,9 @@ function baseMoves() {
     bthrow: { d: 36, kf: [[0, P(2, -25, 0.2, 18, 2, 14, 4, 8, 25, -8, 25, 0)], [8, P(0, -26, -0.1, 0, -22, -4, -20, 8, 25, -8, 25, -90)], [14, P(-6, -24, -0.5, -26, 0, -20, 4, 10, 25, -16, 25, 180)], [36, STAND]], hb: [], thr: { at: 14, d: 10, a: 140, bkb: 62, kbg: 74, path: [[18, -30], [0, -64], [-40, -34]] } },
     uthrow: { d: 32, kf: [[0, P(2, -25, 0.2, 18, 2, 14, 4, 8, 25, -8, 25, 0)], [6, P(0, -18, 0.3, 10, 10, 6, 12, 12, 16, -12, 16, 60)], [11, P(0, -30, -0.05, 4, -28, -4, -28, 4, 28, -4, 28, -90)], [32, STAND]], hb: [], thr: { at: 11, d: 7, a: 88, bkb: 72, kbg: 58, path: [[18, -30], [10, -24], [2, -82]] } },
     dthrow: { d: 32, kf: [[0, P(2, -25, 0.2, 18, 2, 14, 4, 8, 25, -8, 25, 0)], [6, P(0, -28, -0.1, 14, -24, 10, -24, 8, 25, -8, 25, -90)], [11, P(2, -14, 0.7, 24, 18, 18, 18, 12, 14, -12, 14, 90)], [32, STAND]], hb: [], thr: { at: 11, d: 6, a: 72, bkb: 42, kbg: 32, path: [[18, -30], [14, -70], [26, -4]] } },
+    itoss: { d: 22, kf: [[0, P(-2, -25, -0.2, -10, -20, -6, -8, 6, 25, -8, 25, -100)], [5, P(-4, -25, -0.3, -14, -22, -10, -6, 4, 25, -12, 25, -140)], [9, P(6, -24, 0.4, 24, -2, 10, 6, 14, 25, -14, 25, 20)], [22, STAND]], hb: [], go: (f, t) => itemToss(f, t, 'f') },
+    itossU: { d: 22, kf: [[0, P(0, -23, 0.1, 10, 6, -8, 8, 8, 23, -8, 23, 60)], [5, P(0, -21, 0.2, 12, 10, -10, 8, 9, 21, -9, 21, 60)], [9, P(0, -27, -0.15, 4, -26, -6, -10, 7, 27, -7, 27, -80)], [22, STAND]], hb: [], go: (f, t) => itemToss(f, t, 'u') },
+    itossD: { d: 20, kf: [[0, P(0, -26, -0.1, 4, -20, -6, -10, 7, 25, -7, 25, -60)], [5, P(0, -26, -0.15, 6, -24, -8, -12, 7, 25, -7, 25, -80)], [9, P(0, -22, 0.35, 10, 14, -6, 8, 8, 22, -8, 22, 80)], [20, STAND]], hb: [], go: (f, t) => itemToss(f, t, 'd') },
     getupatk: { d: 36, kf: [[0, P(0, -12, 1.2, 10, 8, -8, 8, 12, 10, -12, 10, 90)], [8, P(0, -14, 0.5, 14, 10, -14, 10, 24, 6, -24, 6, 0)], [16, P(0, -14, 0.5, 14, 10, -14, 10, -24, 6, 24, 6, 180)], [36, STAND]], hb: [HB(9, 12, 30, -8, 16, 7, 30, 55, 40), HB(13, 16, -30, -8, 16, 7, 150, 55, 40)] },
     dair: { d: 38, air: 1, lag: 16, kf: [[0, POSE.jump], [8, P(0, -30, 0.0, 10, -12, -10, -12, 2, 4, -4, 8, -90)], [12, P(0, -30, 0.0, 10, -6, -10, -6, 2, 34, -2, 32, 90)], [22, P(0, -30, 0.0, 10, -6, -10, -6, 2, 34, -2, 32, 90)], [38, POSE.jump]], hb: [HB(12, 16, 0, 6, 15, 12, -80, 22, 85, { spike: 1 })] },
   };
@@ -529,6 +532,7 @@ class Fighter {
     // orbit orb boon
     if (this.mods.orb) this.orbA += 0.08;
     if (this.team === 0 && raw.s && raw.bp && this.meter >= 100 && (this.actionable() || this.state === 'shield')) { startBurst(this); return; }
+    if (this.team === 0 && !this.isRival) itemInput(this, inp, raw);
     const smashDir = this.smashInput(raw) || inp._sd;
 
     switch (this.state) {
@@ -861,6 +865,7 @@ class Fighter {
     return 'parry';
   }
   launch(kb, info) {
+    if (this.item) dropItem(this, true);
     if (this.held) this.releaseHeld(); if (this.grabbedBy) { const g0 = this.grabbedBy; if (g0.held === this) g0.held = null; this.grabbedBy = null; }
     let ang = deg(info.ang);
     // DI: shift launch angle by stick perpendicular component
@@ -878,7 +883,7 @@ class Fighter {
   ko(type) {
     if (this.dead || this.out) return;
     if (this.mods.phoenix && !this.phoenixUsed) { this.phoenixUsed = true; FX.text(this.x, this.y - 60, 'PHOENIX!', '#ff9a3c', 20); FX.burst(this.x, this.y, '#ff9a3c', 30); this.respawn(true); return; }
-    if (this.held) this.releaseHeld();
+    if (this.held) this.releaseHeld(); if (this.item) dropItem(this);
     FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); World.shake(12);
     this.dead = true; this.respawnT = 100; this.kx = this.ky = this.vx = this.vy = 0;
     Game.teamStocks--; if (Game.teamStocks < 0) { this.out = true; Game.teamStocks = 0; }
@@ -1373,9 +1378,10 @@ const FOODS = [
   { n: 'pizza', heal: 14, w: 3 }, { n: 'feast', heal: 30, w: 1 }, { n: 'heart', heal: 60, w: 0.35 },
 ];
 function rollFood() { const tot = FOODS.reduce((a, f) => a + f.w, 0); let r = rnd() * tot; for (let i = 0; i < FOODS.length; i++) { r -= FOODS[i].w; if (r <= 0) return i; } return 0; }
-function spawnItem(type, x, y, o = {}) { World.items.push({ type, x, y, vy: -4, t: 0, id: World.uid++, kind: o.kind ?? (type === 'food' ? rollFood() : 0) }); }
+function spawnItem(type, x, y, o = {}) { if (type === 'bomb' && World.items.filter(i => i.type === 'bomb').length >= 4) return; World.items.push({ type, x, y, vy: -4, t: 0, id: World.uid++, kind: o.kind ?? (type === 'food' ? rollFood() : 0) }); }
 function updateItems() {
   for (const it of World.items) {
+    if (it.type === 'bomb') { updateBomb(it); continue; }
     it.t++; it.vy = Math.min(8, it.vy + 0.4); const g = groundBelow(it.x, it.y - 4, 20); if (g !== null && it.y + it.vy >= g) { it.y = g; it.vy = 0; } else it.y += it.vy;
     for (const p of World.players) {
       if (p.dead || p.out) continue;
@@ -1947,7 +1953,9 @@ function drawFighter(g, f) {
   if (f.state === 'idle' && !f.air && Math.abs(f.dxr) > 2.2 && World.frame % 3 === 0) FX.add({ k: 'dust', x: f.x + sign(f.dxr) * 10 + rr(-4, 4), y: f.y - 2, vx: sign(f.dxr) * rr(0.5, 1.5), vy: rr(-1, -0.3), life: 18, max: 18, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) });
   if (f.state === 'run' && f.lastState && f.lastState !== 'run' && !f.air) { for (let i = 0; i < 4; i++) FX.add({ k: 'dust', x: f.x - f.face * (8 + i * 5), y: f.y - 2, vx: -f.face * rr(1, 2.5), vy: rr(-1.4, -0.3), life: 20, max: 20, c: 'rgba(255,255,255,0.6)', s: rr(4, 7) }); }
   if (f.lastFace !== undefined && f.lastFace !== f.face && f.state === 'run') { f.turnT = 7; for (let i = 0; i < 3; i++) FX.add({ k: 'dust', x: f.x + f.face * 6, y: f.y - 2, vx: f.face * rr(0.5, 2), vy: rr(-1.2, -0.3), life: 16, max: 16, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) }); } f.lastFace = f.face; if (f.turnT > 0) f.turnT--;
-  const target = fighterPose(f);
+  const target = fighterPose(f).slice(); const holding = World.items.some(it => it.type === 'bomb' && (it.holder === f || (it.hs && it.hs === (f.slot + 1) && !f.isRival)));
+  if (holding && ['idle', 'run', 'air', 'crouch', 'land', 'land0', 'squat', 'shield', 'shielddrop'].includes(f.state)) { target[3] = 13; target[4] = -2; target[5] = 9; target[6] = 2; }
+  f._holding = holding;
   const blend = f.state === 'move' || f.state === 'hitstun' ? 1 : (f.state !== f.lastState ? 0.45 : 0.6);
   f.rp = f.rp && f.state !== 'move' ? mix(f.rp, target, blend) : target; f.lastState = f.state;
   const pose = f.rp;
@@ -1980,7 +1988,7 @@ function drawFighter(g, f) {
   const expr = f.state === 'hitstun' || f.state === 'shieldbreak' ? 'hurt' : f.state === 'move' ? 'fight' : 'normal';
   if (rival || (f.state === 'move' && f.chgT > 0)) { const c = rival ? def.color : '#ffe27a'; const k = rival ? 0.28 : 0.35 + 0.25 * Math.sin(World.frame * 0.5); g.save(); g.globalCompositeOperation = 'lighter'; const gg = g.createRadialGradient(f.x, f.y - 30 * s, 4, f.x, f.y - 30 * s, 46 * s); gg.addColorStop(0, rgba(c, k)); gg.addColorStop(1, rgba(c, 0)); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 30 * s, 46 * s, 0, TAU); g.fill(); g.restore(); }
   const wpn = def.weapon !== 'none' && !(def.id === 3 && f.hammerOut) ? (J) => drawWeaponHD(g, def.weapon, J.h1[0], J.h1[1], f.face, pose[11], s, { glow: rival ? def.color : '#9dff8a' }) : null;
-  const J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0 });
+  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0 });
   if (f.state === 'move' && f.move.name === 'nspec' && def.id === 2 && f.chgT > 0) { g.save(); g.globalCompositeOperation = 'lighter'; const r = 8 + f.chg * 14; const gg = g.createRadialGradient(J.h1[0] + f.face * 12, J.h1[1], 1, J.h1[0] + f.face * 12, J.h1[1], r * 1.6); gg.addColorStop(0, 'rgba(230,255,220,0.95)'); gg.addColorStop(0.5, 'rgba(120,255,120,0.6)'); gg.addColorStop(1, 'rgba(120,255,120,0)'); g.fillStyle = gg; g.beginPath(); g.arc(J.h1[0] + f.face * 12, J.h1[1], r * 1.6, 0, TAU); g.fill(); g.restore(); }
   g.restore();
   if (f.frozenT > 0) { g.fillStyle = 'rgba(190,240,255,0.35)'; g.strokeStyle = 'rgba(230,250,255,0.8)'; g.lineWidth = 2; g.fillRect(f.x - 16, f.y - 62, 32, 62); g.strokeRect(f.x - 16, f.y - 62, 32, 62); }
@@ -2336,8 +2344,12 @@ function drawAmbient(g, st) {
   }
   const vg = g.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(10,5,20,0.38)'); g.fillStyle = vg; g.fillRect(0, 0, W, H);
 }
+function drawHeldItems(g) {
+  for (const it of World.items) { if (it.type !== 'bomb' || !(it.holder || it.hs)) continue; const P = it.holder || World.players.find(p => p.slot + 1 === it.hs); const J = P && P._J; if (J && J.h1 && !(P.state === 'move')) drawBomb(g, it, J.h1[0] + P.face * 4, J.h1[1] - 4); else drawBomb(g, it, it.x, it.y); }
+}
 function drawItems(g) {
   for (const it of World.items) {
+    if (it.type === 'bomb') { if (it.holder || it.hs) continue; if (it.t > 1300 && World.frame % 8 < 4) continue; drawBomb(g, it, it.x, it.y - (it.th ? 0 : 12 + Math.sin(World.frame * 0.1 + it.id) * 2)); continue; }
     const b = Math.sin((it.t || World.frame) * 0.1) * 2, x = it.x, y = it.y - 10 + b;
     if (it.t > 1300 && World.frame % 8 < 4) continue;
     if (it.type === 'chest') { g.fillStyle = '#8a5a2b'; g.fillRect(x - 14, y - 10, 28, 20); g.fillStyle = '#ffd24a'; g.fillRect(x - 14, y - 4, 28, 4); continue; }
@@ -2819,7 +2831,7 @@ const Net = {
       s.pl = World.players.map(p => [p.def.id, R2(p.x), R2(p.y), p.face, STATES.indexOf(p.state), p.move ? p.move.name : '', p.mf, Math.floor(p.pct), (p.dead ? 1 : 0) | (p.out ? 2 : 0) | (p.air ? 4 : 0) | (p.tumble ? 8 : 0) | (p.hammerOut ? 16 : 0) | (p.mods.orb ? 32 : 0) | (p.frozenT > 0 ? 64 : 0) | (p.burnT > 0 ? 128 : 0) | (p.ff ? 256 : 0), R2(p.shieldHP), R2(p.chgT), p.sf % 1000, R2(p.mods.size * 100), Math.min(99, p.intang), R2(p.vy), p.jumps, p.boons.join('.'), p.rollDir | 0, p.wallSide | 0, Math.floor(p.meter || 0), p.combo | 0, Math.min(99, World.frame - (p.lastHitF ?? -999))]);
       s.en = World.enemies.slice(0, 24).map(e => [e.id, ALL_ETYPES.indexOf(e.type), R2(e.x), R2(e.y), e.face, e.atk ? e.atkName : '', Math.floor(e.af), R2(e.hp / e.maxHp * 100), (e.dying ? 1 : 0) | (e.flash > 0 ? 2 : 0) | (e.hitstun > 0 ? 4 : 0) | (e.air ? 8 : 0) | (e.stunGuard ? 16 : 0) | (e.minion ? 32 : 0) | (Math.abs(e.vx) > 0.3 ? 64 : 0) | (e.frozenT > 0 ? 128 : 0) | (e.burnT > 0 ? 256 : 0) | (e.shockT > 0 ? 512 : 0), e.elite ? ELITES.indexOf(e.elite) + 1 : 0, e.aim != null ? R2(e.aim * 100) : -999, e.ward | 0, e.dying | 0, e.spawnT | 0, ...(e.isRival ? [STATES.indexOf(e.state), e.move ? e.move.name : '', e.mf, Math.floor(e.pct), e.sf % 1000, e.jumps, R2(e.chgT), R2(e.vy), e.limit, e.hammerOut ? 1 : 0, e.ff ? 1 : 0, e.rollDir | 0] : [])]);
       s.pr = World.projs.slice(0, 28).map(p => [PTYPES.indexOf(p.type), R2(p.x), R2(p.y), R2(p.vx * 10), R2(p.vy * 10), R2(p.r), p.t]);
-      s.it = World.items.map(i => [i.type === 'food' ? 0 : 1, R2(i.x), R2(i.y), i.kind | 0, i.t > 1300 ? 1 : 0]);
+      s.it = World.items.map(i => [i.type === 'food' ? 0 : i.type === 'chest' ? 1 : 2, R2(i.x), R2(i.y), i.kind | 0, i.t > 1300 ? 1 : 0, i.holder ? i.holder.slot + 1 : 0, i.th ? Math.round((i.rot || 0) * 10) / 10 : 0, i.th ? 1 : 0, i.id % 97]);
       s.ev = this.evq.slice(-16);
       s.cm = [R2(World.cam.x), R2(World.cam.y), R2(World.cam.z * 100)];
     }
@@ -2927,7 +2939,7 @@ const Net = {
     }
     if (s.co && (!G.co || G.co.seq !== s.co[0])) G.co = { seq: s.co[0], text: s.co[1], col: s.co[2], size: s.co[3], t: 0 };
     if (s.pr) World.projs = s.pr.map(a => ({ type: PTYPES[a[0]], x: a[1], y: a[2], vx: a[3] / 10, vy: a[4] / 10, r: a[5], t: a[6], owner: null }));
-    if (s.it) World.items = s.it.map(a => ({ type: a[0] ? 'chest' : 'food', x: a[1], y: a[2], kind: a[3] | 0, t: a[4] ? 1400 : 1 }));
+    if (s.it) World.items = s.it.map(a => ({ type: ['food', 'chest', 'bomb'][a[0]] || 'food', x: a[1], y: a[2], kind: a[3] | 0, t: a[4] ? 1400 : 1, hs: a[5] | 0, rot: a[6] || 0, th: a[7] ? 1 : null, id: a[8] | 0 }));
     if (s.ev) for (const ev of s.ev) {
       if (ev[0] <= this.lastSeq) continue; this.lastSeq = ev[0]; const k = ev[1], a = ev.slice(2);
       if (k === 'snd') Audio2.play(a[0], a[1]); else if (k === 'sh') World.shake(a[0]); else if (FX[k]) FX[k](...a);
@@ -3086,7 +3098,7 @@ const Game = {
   },
   stageLogic() {
     const st = World.stage;
-    if (st.training) { this.teamStocks = 99; for (const t of ['shade', 'rival0', 'lancer']) if (!World.enemies.some(e => e.dummyType === t && !e.dead)) { this.dmyT = this.dmyT || {}; this.dmyT[t] = (this.dmyT[t] || 0) + 1; if (this.dmyT[t] > 60) { this.dmyT[t] = 0; this.spawnDummy(t, { shade: 620, rival0: 820, lancer: 960 }[t]); FX.swarm({ shade: 620, rival0: 820, lancer: 960 }[t], 560, 50); } } return; } const alive = World.players.filter(p => !p.dead && !p.out);
+    if (st.training) { this.teamStocks = 99; for (const t of ['shade', 'rival0', 'lancer']) if (!World.enemies.some(e => e.dummyType === t && !e.dead)) { this.dmyT = this.dmyT || {}; this.dmyT[t] = (this.dmyT[t] || 0) + 1; if (this.dmyT[t] > 60) { this.dmyT[t] = 0; this.spawnDummy(t, { shade: 620, rival0: 820, lancer: 960 }[t]); FX.swarm({ shade: 620, rival0: 820, lancer: 960 }[t], 560, 50); } } if (!World.items.some(i => i.type === 'bomb')) { this.bombT = (this.bombT || 0) + 1; if (this.bombT > 150) { this.bombT = 0; spawnItem('bomb', 440, 420); } } return; } const alive = World.players.filter(p => !p.dead && !p.out);
     // events
     for (const ev of st.events) {
       if (ev.used) continue;
@@ -3133,6 +3145,7 @@ const Game = {
   dropFood(A) {
     const n = 1 + World.players.length + (rnd() < 0.4 ? 1 : 0);
     for (let i = 0; i < n; i++) { const x = rr(A.l + 80, A.r - 80); spawnItem('food', x, World.cam.y - 300 - i * 40, { kind: rollFood() }); }
+    if (rnd() < 0.45) spawnItem('bomb', rr(A.l + 100, A.r - 100), World.cam.y - 340);
     if (this.waveI < A.waves.length) this.callout('WAVE CLEAR  ·  FOOD!', '#7dff8a', 34);
   },
   spawnWave(A, wi) {
@@ -3372,6 +3385,7 @@ function drawWorld() {
   for (const e of World.enemies) drawEnemy(ctx, e);
   for (const p of World.projs) drawProj(ctx, p);
   for (const p of World.players) drawFighter(ctx, p);
+  drawHeldItems(ctx);
   drawParticles(ctx);
   if (Game.showHB && st.training) drawHitboxDebug(ctx);
   ctx.restore();
@@ -3662,6 +3676,81 @@ function burstFreezeStep() {
   if (p) { p.sf++; if (World.freezeT === 0) { burstStrike(p); World.burster = null; } }
 }
 
+// ===================== THROWABLE ITEMS: Rift Bombs =====================
+// Smash-style: ATTACK near an item picks it up; ATTACK again throws it (stick up / down to aim, smash-flick for power).
+function nearItem(p) { let best = null, bd = 44; for (const it of World.items) { if (it.type !== 'bomb' || it.holder || it.th) continue; const d = Math.abs(it.x - p.x); if (d < bd && Math.abs(it.y - p.y) < 30) { bd = d; best = it; } } return best; }
+function itemInput(p, inp, raw) {
+  if (p.item && (p.item.gone || p.item.holder !== p)) p.item = null;
+  if (!inp.ap || raw.s) return;
+  if (!p.item) {
+    if (p.air || !(p.state === 'idle' || p.state === 'run' || p.state === 'crouch' || p.state === 'land0')) return;
+    const it = nearItem(p); if (!it) return;
+    it.holder = p; it.vy = 0; p.item = it; p.eat('ap'); p.state = 'land'; p.landLag = 7; p.sf = 0; p.vx *= 0.4; Audio2.play('grab', 0.6); FX.ring(it.x, it.y - 10, 16, '#ff9ae8'); return;
+  }
+  if (!p.actionable()) return;
+  const up = inp.my < -0.55 || inp.cy < -0.55, down = inp.my > 0.55 || inp.cy > 0.55;
+  if (!up && !down && Math.abs(inp.mx) > 0.3 && sign(inp.mx) !== p.face) p.face = sign(inp.mx);
+  p._tossPow = (inp.flick || inp.m || Math.abs(inp.cx) > 0.5 || (World.frame - p.lastFlick.t < 8)) ? 1.35 : 1;
+  p.setMove(up ? 'itossU' : down ? 'itossD' : 'itoss');
+}
+function itemToss(p, t, dir) {
+  const it = p.item; if (!it) return;
+  if (t !== 9) return;
+  const pw = p._tossPow || 1; it.holder = null; p.item = null; it.t = 0;
+  const J = p.jointsAt(p.mft); it.x = J.h1[0]; it.y = J.h1[1] + 10;
+  if (dir === 'd' && !p.air) { it.vy = 0; it.th = null; it.x = p.x + p.face * 22; it.y = p.y; Audio2.play('land', 0.5); return; }
+  const v = dir === 'u' ? [p.face * 1.2 + p.vx * 0.3, -15 * pw] : dir === 'd' ? [p.vx * 0.3, 12 * pw] : [p.face * 12.5 * pw + p.vx * 0.35, -3.2];
+  it.th = { vx: v[0], vy: v[1], owner: p, t: 0 }; it.rot = 0;
+  Audio2.play('swing', 0.9); FX.add({ k: 'ring', x: it.x, y: it.y, r0: 4, r: 26, life: 10, max: 10, c: '#ffd0f4' });
+}
+function dropItem(p, pop) { const it = p.item; if (!it) return; it.holder = null; p.item = null; it.th = null; it.vy = pop ? -6 : 0; it.x = p.x; it.y = p.y - 30; it.t = Math.min(it.t, 600); }
+function updateBomb(it) {
+  it.t++;
+  const P = it.holder;
+  if (P) {
+    if (P.dead || P.out || P.item !== it) { it.holder = null; } else {
+      if (P.state === 'move' && P.move && P.move.name && P.move.name.startsWith('itoss')) { const J = P.jointsAt(P.mft); it.x = J.h1[0]; it.y = J.h1[1] + 10; }
+      else { it.x = P.x + P.face * 16 * P.mods.size; it.y = P.y - 30 * P.mods.size; }
+      it.t = Math.min(it.t, 200); return;
+    }
+  }
+  if (it.th) {
+    const T = it.th; T.t++; it.x += T.vx; it.y += T.vy; T.vy = Math.min(14, T.vy + 0.5); T.vx *= 0.995; it.rot = (it.rot || 0) + T.vx * 0.04 + 0.08;
+    if (T.t % 2 === 0) FX.add({ k: 'dust', x: it.x, y: it.y - 10, vx: 0, vy: 0, life: 12, max: 12, c: 'rgba(255,140,230,0.5)', s: 5 });
+    for (const e of World.enemies) { if (e.dead || e.dying || e.spawnT > 0) continue; const r = e.hurt(); if (circleRect(it.x, it.y - 10, 14, r.x, r.y, r.w, r.h)) return bombBoom(it); }
+    if (T.t > 4) { const g = groundBelow(it.x, it.y - 6, 14); if (g !== null && T.vy > 0) return bombBoom(it); if (solidAt(it.x, it.y - 10)) return bombBoom(it); }
+    if (T.t > 160) return bombBoom(it);
+    if (it.y > World.stage.killY) it.gone = 1;
+    return;
+  }
+  it.vy = Math.min(8, it.vy + 0.4); const g = groundBelow(it.x, it.y - 4, 20); if (g !== null && it.y + it.vy >= g) { if (it.vy > 3) it.vy = -it.vy * 0.3; else { it.y = g; it.vy = 0; } } else it.y += it.vy;
+  if (it.y > World.stage.killY) it.gone = 1;
+  if (it.t > 1500) it.gone = 1;
+}
+function bombBoom(it) {
+  const T = it.th || {}; const o = T.owner; it.gone = 1; const x = it.x, y = it.y - 10, R = 100;
+  FX.explode(x, y, R); FX.add({ k: 'impact', x, y, r: 70, life: 12, max: 12, c: '#ff9ae8', a: rr(0, 1) }); FX.add({ k: 'ring', x, y, r0: 10, r: R * 1.5, life: 20, max: 20, c: '#ff4fd8' });
+  World.shake(11); World.flashT = Math.max(World.flashT || 0, 3); Audio2.play('boom'); Audio2.play('bighit', 0.7);
+  for (const e of World.enemies) {
+    if (e.dead || e.dying || e.spawnT > 0) continue; const r = e.hurt(); const cx = clamp(x, r.x, r.x + r.w), cy = clamp(y, r.y, r.y + r.h); if (Math.hypot(cx - x, cy - y) > R) continue;
+    const dmg = 17 * (o ? o.mods.dmg : 1) * (e.boss ? 1.2 : 1);
+    e.takeHit({ dmg, ang: e.x >= x ? 55 : 125, bkb: 60, kbg: 85, att: o || World.players[0], x: e.x, y: e.y - 30, ax: x, fx: 'fire' });
+    if (o) onPlayerHit(o, e, dmg, 'hit');
+  }
+}
+function drawBomb(g, it, x, y) {
+  const t = World.frame, pulse = 0.5 + 0.5 * Math.sin(t * 0.25 + it.id);
+  g.save(); g.translate(x, y); if (it.rot) g.rotate(it.rot);
+  const gl = g.createRadialGradient(0, 0, 4, 0, 0, 26); gl.addColorStop(0, `rgba(255,90,220,${0.35 + pulse * 0.25})`); gl.addColorStop(1, 'rgba(255,90,220,0)'); g.fillStyle = gl; g.beginPath(); g.arc(0, 0, 26, 0, TAU); g.fill();
+  const bg = g.createRadialGradient(-4, -5, 2, 0, 0, 13); bg.addColorStop(0, '#6b4a9a'); bg.addColorStop(1, '#2a1546'); g.fillStyle = bg; g.strokeStyle = OL; g.lineWidth = 2.5; g.beginPath(); g.arc(0, 0, 12, 0, TAU); g.fill(); g.stroke();
+  g.fillStyle = `rgba(255,120,235,${0.7 + pulse * 0.3})`; g.beginPath(); for (let i = 0; i < 4; i++) { const a = i * TAU / 4 + t * 0.03; g.lineTo(Math.cos(a) * 6, Math.sin(a) * 6); g.lineTo(Math.cos(a + TAU / 8) * 2.5, Math.sin(a + TAU / 8) * 2.5); } g.closePath(); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.ellipse(-4, -5, 3.5, 2.2, -0.5, 0, TAU); g.fill();
+  g.fillStyle = '#3b2a1e'; g.fillRect(-3, -16, 6, 5); g.strokeRect(-3, -16, 6, 5);
+  g.strokeStyle = '#c9b48a'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, -16); g.quadraticCurveTo(5, -21, 3, -25); g.stroke();
+  if (t % 4 < 3) { g.fillStyle = '#fff6a0'; g.beginPath(); g.arc(3 + rr(-1, 1), -26 + rr(-1, 1), 2.5 + pulse * 1.5, 0, TAU); g.fill(); }
+  g.restore();
+}
+
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -3713,7 +3802,7 @@ function drawTitleBG() {
 function drawTitleFighters(y, s, spread) {
   FIGHTERS.forEach((F, i) => { const x = W / 2 - spread * 1.5 + i * spread; const pose = menuIdlePose(i, World.frame); drawFighterArt(i, x, y, i < 2 ? 1 : -1, s, pose); });
 }
-const TIPS = ['Press SHIELD just before you hit the ground while tumbling to TECH and recover instantly.', 'Hold a direction while teching to tech-roll away.', 'Release SHIELD right as an attack lands to PARRY and stagger the attacker.', 'SHIELD + ATTACK grabs. Then press a direction to throw, or ATTACK to pummel.', 'Your damage % makes you fly farther. Eat food to bring it down.', 'Fill your meter, then press SHIELD + SPECIAL for a screen-clearing RIFT BURST.', 'Missed a tech? From the ground: ATTACK for a getup attack, or a direction to roll.', 'Jump while touching a wall and pushing away from it to WALL JUMP.', 'Inputs are buffered for 9 frames: press your next move a little early.', 'Land an aerial just after its hit ends (or before it starts) for no landing lag.', 'Repeating the same move makes it weaker. Mix it up!', 'Duo boons appear when you own both of their prerequisite boons.', 'Rift Shards from every run buy permanent upgrades in the RIFT FORGE.', 'Ledge: SHIELD rolls onto stage, ATTACK climbs with a strike, JUMP leaps off.', 'Knock enemies through the purple barriers for an instant KO.'];
+const TIPS = ['Press SHIELD just before you hit the ground while tumbling to TECH and recover instantly.', 'Hold a direction while teching to tech-roll away.', 'Release SHIELD right as an attack lands to PARRY and stagger the attacker.', 'SHIELD + ATTACK grabs. Then press a direction to throw, or ATTACK to pummel.', 'Your damage % makes you fly farther. Eat food to bring it down.', 'Fill your meter, then press SHIELD + SPECIAL for a screen-clearing RIFT BURST.', 'Missed a tech? From the ground: ATTACK for a getup attack, or a direction to roll.', 'Jump while touching a wall and pushing away from it to WALL JUMP.', 'Inputs are buffered for 9 frames: press your next move a little early.', 'Land an aerial just after its hit ends (or before it starts) for no landing lag.', 'Repeating the same move makes it weaker. Mix it up!', 'Duo boons appear when you own both of their prerequisite boons.', 'Rift Shards from every run buy permanent upgrades in the RIFT FORGE.', 'Ledge: SHIELD rolls onto stage, ATTACK climbs with a strike, JUMP leaps off.', 'Knock enemies through the purple barriers for an instant KO.', 'Rift Bombs: ATTACK to pick one up, ATTACK again to throw. Hold up or down to aim.', 'In Training, pause to show hitboxes, launch lines and change dummy behaviour.'];
 function drawRunInfo() {
   const ps = World.players; if (!ps || !ps.length || !Game.run) return; const x = W / 2 + 40, w = W / 2 - 80; const rowsOf = p => Math.max(1, Math.ceil(Math.min(12, new Set(p.boons).size) / 2)); const hgt = 70 + ps.reduce((a, p) => a + 40 + rowsOf(p) * 22, 0); glass(x, 250, w, Math.min(400, hgt), '#ffd23c', 18, 0.9); let yy = 316;
   T(Game.run.training ? 'TRAINING' : stageLabel(Game.run.idx) + '  ·  ' + fmtTime(Game.run.time) + '  ·  KO ' + Game.run.kills, x + w / 2, 284, 18, '#ffd23c', { stroke: 4 });
@@ -3725,14 +3814,14 @@ function drawRunInfo() {
   });
 }
 function drawControlsPanel(x, y, a = 0.95) {
-  glass(x - 40, y - 30, W - (x - 40) * 2, 395, '#ff4fd8', 20, a);
+  glass(x - 40, y - 30, W - (x - 40) * 2, 415, '#ff4fd8', 20, a);
   T('CONTROLS', W / 2, y + 14, 34);
   const col1 = x - 10, col2 = W / 2 - 60, col3 = W / 2 + 230;
   const sec = (title, cx, items) => { T(title, cx, y + 58, 17, '#ff8fe4', { align: 'left' }); items.forEach((t, i) => T(t, cx, y + 88 + i * 25, 14.5, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false })); };
   sec('SWITCH PRO / GAMEPAD', col1, ['Left stick — move / aim', 'A (right) — attack', 'B (bottom) — special', 'X / Y — jump', 'L / R / ZL / ZR — shield', 'Flick stick + A — smash', 'Right stick — smash / aerial', 'Flick up — jump', '+ — pause']);
   sec('KEYBOARD  P1 / P2', col2, ['Move — WASD / Arrows', 'Attack — J / ,', 'Special — K / .', 'Jump — Space / R-Shift', 'Shield — L / /', 'Smash — I / ;', 'Pause — Esc / Backspace', '', 'Shield + direction — roll / dodge']);
-  sec('TECHNIQUES', col3, ['Grab — SHIELD + ATTACK', 'Throw — grab + direction', 'Tech — SHIELD as you land', 'Tech roll — + direction', 'Parry — release SHIELD on hit', 'Wall jump — JUMP away from wall', 'Rift Burst — SHIELD + SPECIAL', 'Getup — ATTACK / dir / JUMP', 'Recovery — UP + SPECIAL']);
-  T('Launch foes off-screen or through the purple barriers for a KO.  Food lowers your damage %.', W / 2, y + 330, 15, '#ffd23c', { stroke: 4 });
+  sec('TECHNIQUES', col3, ['Grab — SHIELD + ATTACK', 'Throw — grab + direction', 'Tech — SHIELD as you land', 'Tech roll — + direction', 'Parry — release SHIELD on hit', 'Wall jump — JUMP away from wall', 'Rift Burst — SHIELD + SPECIAL', 'Getup — ATTACK / dir / JUMP', 'Recovery — UP + SPECIAL', 'Rift Bomb — ATTACK: pick up / throw']);
+  T('Launch foes off-screen or through the purple barriers for a KO.  Food lowers your damage %.', W / 2, y + 352, 15, '#ffd23c', { stroke: 4 });
 }
 function drawControlsPanelOld(x, y, a = 0.95) {
   glass(x, y, W - x * 2, 470, '#ff4fd8', 20, a);

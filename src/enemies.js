@@ -264,9 +264,10 @@ const FOODS = [
   { n: 'pizza', heal: 14, w: 3 }, { n: 'feast', heal: 30, w: 1 }, { n: 'heart', heal: 60, w: 0.35 },
 ];
 function rollFood() { const tot = FOODS.reduce((a, f) => a + f.w, 0); let r = rnd() * tot; for (let i = 0; i < FOODS.length; i++) { r -= FOODS[i].w; if (r <= 0) return i; } return 0; }
-function spawnItem(type, x, y, o = {}) { World.items.push({ type, x, y, vy: -4, t: 0, id: World.uid++, kind: o.kind ?? (type === 'food' ? rollFood() : 0) }); }
+function spawnItem(type, x, y, o = {}) { if (type === 'bomb' && World.items.filter(i => i.type === 'bomb').length >= 4) return; World.items.push({ type, x, y, vy: -4, t: 0, id: World.uid++, kind: o.kind ?? (type === 'food' ? rollFood() : 0) }); }
 function updateItems() {
   for (const it of World.items) {
+    if (it.type === 'bomb') { updateBomb(it); continue; }
     it.t++; it.vy = Math.min(8, it.vy + 0.4); const g = groundBelow(it.x, it.y - 4, 20); if (g !== null && it.y + it.vy >= g) { it.y = g; it.vy = 0; } else it.y += it.vy;
     for (const p of World.players) {
       if (p.dead || p.out) continue;

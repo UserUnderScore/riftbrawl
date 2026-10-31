@@ -91,3 +91,78 @@ function burstFreezeStep() {
   const p = World.burster; World.freezeT--; World.frame++; updateParticles();
   if (p) { p.sf++; if (World.freezeT === 0) { burstStrike(p); World.burster = null; } }
 }
+
+// ===================== THROWABLE ITEMS: Rift Bombs =====================
+// Smash-style: ATTACK near an item picks it up; ATTACK again throws it (stick up / down to aim, smash-flick for power).
+function nearItem(p) { let best = null, bd = 44; for (const it of World.items) { if (it.type !== 'bomb' || it.holder || it.th) continue; const d = Math.abs(it.x - p.x); if (d < bd && Math.abs(it.y - p.y) < 30) { bd = d; best = it; } } return best; }
+function itemInput(p, inp, raw) {
+  if (p.item && (p.item.gone || p.item.holder !== p)) p.item = null;
+  if (!inp.ap || raw.s) return;
+  if (!p.item) {
+    if (p.air || !(p.state === 'idle' || p.state === 'run' || p.state === 'crouch' || p.state === 'land0')) return;
+    const it = nearItem(p); if (!it) return;
+    it.holder = p; it.vy = 0; p.item = it; p.eat('ap'); p.state = 'land'; p.landLag = 7; p.sf = 0; p.vx *= 0.4; Audio2.play('grab', 0.6); FX.ring(it.x, it.y - 10, 16, '#ff9ae8'); return;
+  }
+  if (!p.actionable()) return;
+  const up = inp.my < -0.55 || inp.cy < -0.55, down = inp.my > 0.55 || inp.cy > 0.55;
+  if (!up && !down && Math.abs(inp.mx) > 0.3 && sign(inp.mx) !== p.face) p.face = sign(inp.mx);
+  p._tossPow = (inp.flick || inp.m || Math.abs(inp.cx) > 0.5 || (World.frame - p.lastFlick.t < 8)) ? 1.35 : 1;
+  p.setMove(up ? 'itossU' : down ? 'itossD' : 'itoss');
+}
+function itemToss(p, t, dir) {
+  const it = p.item; if (!it) return;
+  if (t !== 9) return;
+  const pw = p._tossPow || 1; it.holder = null; p.item = null; it.t = 0;
+  const J = p.jointsAt(p.mft); it.x = J.h1[0]; it.y = J.h1[1] + 10;
+  if (dir === 'd' && !p.air) { it.vy = 0; it.th = null; it.x = p.x + p.face * 22; it.y = p.y; Audio2.play('land', 0.5); return; }
+  const v = dir === 'u' ? [p.face * 1.2 + p.vx * 0.3, -15 * pw] : dir === 'd' ? [p.vx * 0.3, 12 * pw] : [p.face * 12.5 * pw + p.vx * 0.35, -3.2];
+  it.th = { vx: v[0], vy: v[1], owner: p, t: 0 }; it.rot = 0;
+  Audio2.play('swing', 0.9); FX.add({ k: 'ring', x: it.x, y: it.y, r0: 4, r: 26, life: 10, max: 10, c: '#ffd0f4' });
+}
+function dropItem(p, pop) { const it = p.item; if (!it) return; it.holder = null; p.item = null; it.th = null; it.vy = pop ? -6 : 0; it.x = p.x; it.y = p.y - 30; it.t = Math.min(it.t, 600); }
+function updateBomb(it) {
+  it.t++;
+  const P = it.holder;
+  if (P) {
+    if (P.dead || P.out || P.item !== it) { it.holder = null; } else {
+      if (P.state === 'move' && P.move && P.move.name && P.move.name.startsWith('itoss')) { const J = P.jointsAt(P.mft); it.x = J.h1[0]; it.y = J.h1[1] + 10; }
+      else { it.x = P.x + P.face * 16 * P.mods.size; it.y = P.y - 30 * P.mods.size; }
+      it.t = Math.min(it.t, 200); return;
+    }
+  }
+  if (it.th) {
+    const T = it.th; T.t++; it.x += T.vx; it.y += T.vy; T.vy = Math.min(14, T.vy + 0.5); T.vx *= 0.995; it.rot = (it.rot || 0) + T.vx * 0.04 + 0.08;
+    if (T.t % 2 === 0) FX.add({ k: 'dust', x: it.x, y: it.y - 10, vx: 0, vy: 0, life: 12, max: 12, c: 'rgba(255,140,230,0.5)', s: 5 });
+    for (const e of World.enemies) { if (e.dead || e.dying || e.spawnT > 0) continue; const r = e.hurt(); if (circleRect(it.x, it.y - 10, 14, r.x, r.y, r.w, r.h)) return bombBoom(it); }
+    if (T.t > 4) { const g = groundBelow(it.x, it.y - 6, 14); if (g !== null && T.vy > 0) return bombBoom(it); if (solidAt(it.x, it.y - 10)) return bombBoom(it); }
+    if (T.t > 160) return bombBoom(it);
+    if (it.y > World.stage.killY) it.gone = 1;
+    return;
+  }
+  it.vy = Math.min(8, it.vy + 0.4); const g = groundBelow(it.x, it.y - 4, 20); if (g !== null && it.y + it.vy >= g) { if (it.vy > 3) it.vy = -it.vy * 0.3; else { it.y = g; it.vy = 0; } } else it.y += it.vy;
+  if (it.y > World.stage.killY) it.gone = 1;
+  if (it.t > 1500) it.gone = 1;
+}
+function bombBoom(it) {
+  const T = it.th || {}; const o = T.owner; it.gone = 1; const x = it.x, y = it.y - 10, R = 100;
+  FX.explode(x, y, R); FX.add({ k: 'impact', x, y, r: 70, life: 12, max: 12, c: '#ff9ae8', a: rr(0, 1) }); FX.add({ k: 'ring', x, y, r0: 10, r: R * 1.5, life: 20, max: 20, c: '#ff4fd8' });
+  World.shake(11); World.flashT = Math.max(World.flashT || 0, 3); Audio2.play('boom'); Audio2.play('bighit', 0.7);
+  for (const e of World.enemies) {
+    if (e.dead || e.dying || e.spawnT > 0) continue; const r = e.hurt(); const cx = clamp(x, r.x, r.x + r.w), cy = clamp(y, r.y, r.y + r.h); if (Math.hypot(cx - x, cy - y) > R) continue;
+    const dmg = 17 * (o ? o.mods.dmg : 1) * (e.boss ? 1.2 : 1);
+    e.takeHit({ dmg, ang: e.x >= x ? 55 : 125, bkb: 60, kbg: 85, att: o || World.players[0], x: e.x, y: e.y - 30, ax: x, fx: 'fire' });
+    if (o) onPlayerHit(o, e, dmg, 'hit');
+  }
+}
+function drawBomb(g, it, x, y) {
+  const t = World.frame, pulse = 0.5 + 0.5 * Math.sin(t * 0.25 + it.id);
+  g.save(); g.translate(x, y); if (it.rot) g.rotate(it.rot);
+  const gl = g.createRadialGradient(0, 0, 4, 0, 0, 26); gl.addColorStop(0, `rgba(255,90,220,${0.35 + pulse * 0.25})`); gl.addColorStop(1, 'rgba(255,90,220,0)'); g.fillStyle = gl; g.beginPath(); g.arc(0, 0, 26, 0, TAU); g.fill();
+  const bg = g.createRadialGradient(-4, -5, 2, 0, 0, 13); bg.addColorStop(0, '#6b4a9a'); bg.addColorStop(1, '#2a1546'); g.fillStyle = bg; g.strokeStyle = OL; g.lineWidth = 2.5; g.beginPath(); g.arc(0, 0, 12, 0, TAU); g.fill(); g.stroke();
+  g.fillStyle = `rgba(255,120,235,${0.7 + pulse * 0.3})`; g.beginPath(); for (let i = 0; i < 4; i++) { const a = i * TAU / 4 + t * 0.03; g.lineTo(Math.cos(a) * 6, Math.sin(a) * 6); g.lineTo(Math.cos(a + TAU / 8) * 2.5, Math.sin(a + TAU / 8) * 2.5); } g.closePath(); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.55)'; g.beginPath(); g.ellipse(-4, -5, 3.5, 2.2, -0.5, 0, TAU); g.fill();
+  g.fillStyle = '#3b2a1e'; g.fillRect(-3, -16, 6, 5); g.strokeRect(-3, -16, 6, 5);
+  g.strokeStyle = '#c9b48a'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, -16); g.quadraticCurveTo(5, -21, 3, -25); g.stroke();
+  if (t % 4 < 3) { g.fillStyle = '#fff6a0'; g.beginPath(); g.arc(3 + rr(-1, 1), -26 + rr(-1, 1), 2.5 + pulse * 1.5, 0, TAU); g.fill(); }
+  g.restore();
+}
