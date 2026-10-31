@@ -550,13 +550,14 @@ const FX = {
   ring(x, y, r, c = '#fff') { this.add({ k: 'ring', x, y, r0: 4, r, life: 16, max: 16, c }); },
   hit(x, y, kb, fx) {
     const c = { fire: '#ffb347', spark: '#9dff8a', slash: '#9cc8ff', ice: '#bfefff', shock: '#f4ff7a', wind: '#e8f7ff', arcane: '#d29bff' }[fx] || '#fff7c2';
-    this.add({ k: 'star', x, y, r: 10 + Math.min(40, kb / 4), life: 8, max: 8, c });
-    this.burst(x, y, c, Math.min(20, 4 + kb / 12));
+    this.add({ k: 'impact', x, y, r: 16 + Math.min(52, kb / 3), life: 11, max: 11, c, a: rr(0, 1) });
+    this.burst(x, y, c, Math.min(22, 5 + kb / 10));
+    if (kb > 125) { World.flashT = Math.max(World.flashT || 0, 5); World.zp = Math.max(World.zp || 0, 0.05); this.add({ k: 'ring', x, y, r0: 10, r: 120, life: 18, max: 18, c: '#ffffff' }); }
     if (fx === 'slash') this.add({ k: 'slash', x, y, a: rr(0, TAU), r: 40, life: 10, max: 10, c });
   },
   explode(x, y, r) { this.add({ k: 'ring', x, y, r0: 6, r: r * 1.3, life: 18, max: 18, c: '#ffd27a' }); this.burst(x, y - 10, '#ff9a3c', 18); this.burst(x, y - 10, '#555', 8); },
   text(x, y, t, c = '#fff', s = 16) { this.add({ k: 'text', x, y, vy: -1, t: String(t), life: 50, max: 50, c, s }); },
-  ko(x, y, c) { this.add({ k: 'ko', x, y, life: 50, max: 50, c }); this.burst(x, y, c, 30); },
+  ko(x, y, c) { this.add({ k: 'kob', x, y, life: 64, max: 64, c }); this.burst(x, y, c, 30); World.flashT = 9; World.zp = 0.08; },
   after(x, y, face, c) { this.add({ k: 'after', x, y, face, life: 12, max: 12, c }); },
   trail(x, y, c, s) { this.add({ k: 'dust', x, y, vx: 0, vy: 0, life: 14, max: 14, c, s }); },
   zap(x1, y1, x2, y2) { this.add({ k: 'zap', x: x1, y: y1, x2, y2, life: 10, max: 10, c: '#bfe3ff' }); },

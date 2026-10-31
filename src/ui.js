@@ -1,0 +1,234 @@
+// ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
+function T(t, x, y, size, col = '#fff', o = {}) {
+  ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
+  if (o.shadow !== false) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillText(t, x + size * 0.05, y + size * 0.07); }
+  if (o.stroke !== 0) { ctx.lineJoin = 'round'; ctx.lineWidth = o.stroke || Math.max(3, size * 0.16); ctx.strokeStyle = o.strokeCol || OL; ctx.strokeText(t, x, y); }
+  if (o.grad) { const g = ctx.createLinearGradient(0, y - size * 0.85, 0, y); g.addColorStop(0, o.grad[0]); g.addColorStop(1, o.grad[1]); ctx.fillStyle = g; } else ctx.fillStyle = col;
+  ctx.fillText(t, x, y);
+}
+function slant(x, y, w, h, k = 14) { ctx.beginPath(); ctx.moveTo(x + k, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w - k, y + h); ctx.lineTo(x, y + h); ctx.closePath(); }
+function glass(x, y, w, h, accent = '#ff4fd8', k = 14, a = 0.88) {
+  slant(x, y, w, h, k); const g = ctx.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, `rgba(44,32,74,${a})`); g.addColorStop(1, `rgba(20,14,36,${a})`); ctx.fillStyle = g; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.stroke();
+  ctx.save(); slant(x, y, w, h, k); ctx.clip(); ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + k, y); ctx.lineTo(x + k + 7, y); ctx.lineTo(x + 7, y + h); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(x, y, w, h * 0.45); ctx.restore();
+}
+function menuIdlePose(i, t) { const b = Math.sin(t * 0.06 + i) * 1.2; return P(0, -25 + b, 0.08, 9, 14 - b, -6, 18 - b, 7, 25 - b, -7, 25 - b, i === 1 ? 30 : 60); }
+function drawFighterArt(fid, x, y, face, s, pose, rival) {
+  const F = FIGHTERS[fid], A = artFor(fid, rival);
+  const wpn = F.weapon !== 'none' ? J => drawWeaponHD(ctx, F.weapon, J.h1[0], J.h1[1], face, pose[11], s, { glow: '#9dff8a' }) : null;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 20 * s, 5 * s, 0, 0, TAU); ctx.fill();
+  drawBody(ctx, x, y, face, pose, A, s, { expr: 'fight', weapon: wpn, seed: fid * 50, eye: F.color });
+}
+const LogoCache = {};
+function drawLogo(x, y, size) {
+  const k = HD.k, key = size + ':' + k; let c = LogoCache[key];
+  const cw = Math.ceil(size * 7.2 * k), ch = Math.ceil(size * 1.6 * k);
+  if (!c) { c = LogoCache[key] = document.createElement('canvas'); c.width = cw; c.height = ch; }
+  const g = c.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cw, ch); g.setTransform(k, 0, 0, k, 0, 0);
+  const ox = size * 3.6, oy = size * 1.15; g.translate(ox, oy); g.transform(1, 0, -0.12, 1, 0, 0);
+  g.font = `italic 900 ${size}px ${FONT}`; g.textAlign = 'center';
+  g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillText('RIFTBRAWL', 6, 10);
+  g.lineJoin = 'round'; g.lineWidth = size * 0.2; g.strokeStyle = '#1a0f2e'; g.strokeText('RIFTBRAWL', 0, 0);
+  g.lineWidth = size * 0.08; g.strokeStyle = '#ff4fd8'; g.strokeText('RIFTBRAWL', 0, 0);
+  const gr = g.createLinearGradient(0, -size * 0.8, 0, 0); gr.addColorStop(0, '#fff7c2'); gr.addColorStop(0.45, '#ffd23c'); gr.addColorStop(1, '#ff7a2c'); g.fillStyle = gr; g.fillText('RIFTBRAWL', 0, 0);
+  const sx = ((World.frame * 8) % (size * 12)) - size * 6; g.globalCompositeOperation = 'source-atop'; const sg = g.createLinearGradient(sx - 60, 0, sx + 60, 0); sg.addColorStop(0, 'rgba(255,255,255,0)'); sg.addColorStop(0.5, 'rgba(255,255,255,0.65)'); sg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = sg; g.fillRect(-size * 5, -size * 1.2, size * 10, size * 1.6); g.globalCompositeOperation = 'source-over';
+  ctx.drawImage(c, x - ox, y - oy, cw / k, ch / k);
+}
+function drawTitleBG() {
+  const g = ctx; const t = Game.t + (Game.tt = (Game.tt || 0) + 1); World.frame++;
+  const bg = g.createRadialGradient(W / 2, H * 0.42, 40, W / 2, H * 0.42, W * 0.75); bg.addColorStop(0, '#5a2a9a'); bg.addColorStop(0.45, '#2a1450'); bg.addColorStop(1, '#0c0618'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  g.save(); g.translate(W / 2, H * 0.42); g.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 7; i++) { g.strokeStyle = `rgba(${i % 2 ? '255,79,216' : '125,90,255'},${0.16 - i * 0.015})`; g.lineWidth = 18 - i * 2; g.beginPath(); g.ellipse(0, 0, 120 + i * 70, 50 + i * 26, 0.15, t * 0.004 * (i % 2 ? 1 : -1) + i, t * 0.004 * (i % 2 ? 1 : -1) + i + 4.2); g.stroke(); }
+  const cg = g.createRadialGradient(0, 0, 0, 0, 0, 160); cg.addColorStop(0, 'rgba(255,220,255,0.55)'); cg.addColorStop(1, 'rgba(255,120,255,0)'); g.fillStyle = cg; g.beginPath(); g.arc(0, 0, 160, 0, TAU); g.fill();
+  g.restore();
+  for (let i = 0; i < 26; i++) { const x = (i * 97 + t * 0.3 * (i % 3 + 1)) % (W + 100) - 50, y = (i * 61 + Math.sin(t * 0.01 + i) * 20) % H; g.save(); g.translate(x, y); g.rotate(i + t * 0.006); g.fillStyle = i % 3 ? 'rgba(255,79,216,0.22)' : 'rgba(160,120,255,0.25)'; g.beginPath(); g.moveTo(0, -16); g.lineTo(6, 0); g.lineTo(0, 16); g.lineTo(-6, 0); g.fill(); g.restore(); }
+  // stage platform
+  const py = H - 118; const pg = g.createLinearGradient(0, py, 0, H); pg.addColorStop(0, '#3a2a5e'); pg.addColorStop(1, '#120a22'); g.fillStyle = pg; g.beginPath(); g.moveTo(80, py); g.lineTo(W - 80, py); g.lineTo(W - 20, H); g.lineTo(20, H); g.fill();
+  g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = 'rgba(255,79,216,0.5)'; g.fillRect(80, py - 2, W - 160, 4); g.restore();
+}
+function drawTitleFighters(y, s, spread) {
+  FIGHTERS.forEach((F, i) => { const x = W / 2 - spread * 1.5 + i * spread; const pose = menuIdlePose(i, World.frame); drawFighterArt(i, x, y, i < 2 ? 1 : -1, s, pose); });
+}
+function drawControlsPanel(x, y, a = 0.95) {
+  glass(x, y, W - x * 2, 470, '#ff4fd8', 20, a);
+  T('CONTROLS', W / 2, y + 48, 34);
+  const col1 = x + 50, col2 = W / 2 + 30;
+  T('SWITCH PRO / GAMEPAD', col1, y + 92, 18, '#ff8fe4', { align: 'left' });
+  ['Left stick — move / aim', 'A (right) — attack', 'B (bottom) — special', 'X / Y — jump', 'L / R / ZL / ZR — shield, dodge', 'Flick stick + A — smash attack', 'Right stick — smash / aerials', 'Flick up — jump', '+ — pause'].forEach((t, i) => T(t, col1, y + 124 + i * 28, 16, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false }));
+  T('KEYBOARD  P1  /  P2', col2, y + 92, 18, '#ff8fe4', { align: 'left' });
+  ['Move — WASD / Arrows', 'Attack — J / ,', 'Special — K / .', 'Jump — Space / Right Shift', 'Shield — L / /', 'Smash — I / ;', 'Pause — Esc / Backspace', '', 'Shield + direction = roll / dodge'].forEach((t, i) => T(t, col2, y + 124 + i * 28, 16, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false }));
+  T('Up + Special = recovery  ·  Grab ledges by falling near them  ·  Launch foes off-screen for a KO!', W / 2, y + 448, 15, '#ffd23c', { stroke: 0 });
+}
+const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Turn the game sound on or off.'];
+function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
+  opts.forEach((o, i) => {
+    const sel = i === idx; const w = sel ? 470 : 430, h = 48, x = (x0 ?? W / 2 - 220) - (sel ? 10 : 0), y = y0 + i * 58 - 32;
+    if (sel) { slant(x + 6, y + 6, w, h); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill(); }
+    slant(x, y, w, h); const g = ctx.createLinearGradient(x, 0, x + w, 0); if (sel) { g.addColorStop(0, '#ff4fd8'); g.addColorStop(1, '#8a3cff'); } else { g.addColorStop(0, 'rgba(40,28,70,0.92)'); g.addColorStop(1, 'rgba(24,16,44,0.92)'); } ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.15)'; ctx.stroke();
+    T(o, x + 34, y + 33, sel ? 24 : 21, sel ? '#fff' : '#d8d0ea', { align: 'left', stroke: sel ? 5 : 0, shadow: sel });
+    if (sel) { ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.moveTo(x + w - 40, y + 14); ctx.lineTo(x + w - 26, y + 24); ctx.lineTo(x + w - 40, y + 34); ctx.fill(); }
+    clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } });
+  });
+}
+function pctGrad(p) { const c = pctColor(p); return [shade('#ffffff', 0) === c ? '#fff' : '#ffffff', c]; }
+function pctColor(p) { const t = clamp(p / 150, 0, 1); const stops = [[255, 255, 255], [255, 230, 90], [255, 140, 40], [235, 40, 40], [140, 10, 20]]; const f = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(f)), k = f - i; const c = stops[i].map((v, j) => Math.round(v + (stops[i + 1][j] - v) * k)); return `rgb(${c[0]},${c[1]},${c[2]})`; }
+function drawHUD() {
+  const G = Game, R = G.run; if (!R) return;
+  const n = World.players.length; const cw = 270, gap = 26, total = n * cw + (n - 1) * gap; const x0 = W / 2 - total / 2;
+  World.players.forEach((p, i) => {
+    const x = x0 + i * (cw + gap), y = H - 92; const col = p.def.color;
+    if (p._hp === undefined) p._hp = p.pct; if (p.pct > p._hp + 0.5) { p._pop = 12; } p._hp = p.pct; if (p._pop > 0) p._pop--;
+    glass(x, y, cw, 80, col, 16, 0.9);
+    // portrait
+    const px = x + 52, py = y + 38; ctx.save(); ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); const pg = ctx.createRadialGradient(px, py - 10, 4, px, py, 34); pg.addColorStop(0, shade(col, 0.2)); pg.addColorStop(1, shade(col, -0.45)); ctx.fillStyle = pg; ctx.fill(); ctx.clip(); if (!p.out) drawPortrait(ctx, p.def.id, px + 2, py + (p.def.id === 2 ? 16 : p.def.id === 3 ? 10 : 6), p.def.id === 2 ? 26 : 30, false); ctx.restore();
+    ctx.lineWidth = 3.5; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = OL; ctx.beginPath(); ctx.arc(px, py, 35, 0, TAU); ctx.stroke();
+    T(p.def.name, x + 96, y + 72, 14, '#fff', { align: 'left', stroke: 4 });
+    const tag = (Net.isHost || Net.isGuest) ? (G.slots[i] && G.slots[i].dev === 'net' ? 'PARTNER' : 'YOU') : 'P' + (i + 1);
+    ctx.fillStyle = col; slant(x + cw - 74, y - 12, 62, 20, 6); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.stroke(); T(tag, x + cw - 43, y + 3, 13, '#fff', { stroke: 3, shadow: false });
+    // damage
+    const pop = (p._pop || 0) / 12; const jx = pop > 0 ? rr(-3, 3) * pop : 0, jy = pop > 0 ? rr(-3, 3) * pop : 0;
+    if (p.out || p.dead) T(p.out ? 'OUT' : 'KO', x + cw - 26, y + 60, 44, '#9a90b0', { align: 'right', stroke: 8 });
+    else {
+      ctx.save(); const num = String(Math.floor(p.pct)); const sz = 60 * (1 + pop * 0.25); ctx.translate(x + cw - 48 + jx, y + 62 + jy);
+      T(num, 0, 0, sz, null, { align: 'right', stroke: 10, grad: ['#ffffff', pctColor(p.pct)] }); T('%', 4, 0, 26, null, { align: 'left', stroke: 6, grad: ['#ffffff', pctColor(p.pct)] }); ctx.restore();
+    }
+    const bs = p.boons.slice(-12); bs.forEach((id, k) => { ctx.fillStyle = RARITY[BOON_BY_ID[id].r].c; ctx.beginPath(); ctx.arc(x + 100 + k * 11, y + 14, 4, 0, TAU); ctx.fill(); });
+  });
+  // top-left stage plate
+  glass(10, 10, 330, 52, '#ff4fd8', 14, 0.82);
+  T(stageLabel(R.idx), 36, 30, 13, '#ff9ae8', { align: 'left', stroke: 0, weight: 800 });
+  T(World.stage.B.name.toUpperCase(), 36, 54, 22, '#fff', { align: 'left', stroke: 5 });
+  let mx = 22; for (const m of (World.stage.mods || [])) { const t = MODIFIERS[m].name; ctx.font = `italic 800 13px ${FONT}`; const w = ctx.measureText(t).width + 24; ctx.fillStyle = '#ffd23c'; slant(mx, 68, w, 22, 6); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.stroke(); T(t, mx + w / 2, 84, 13, OL, { stroke: 0, shadow: false, weight: 800 }); mx += w + 6; }
+  // top-right: timer, KOs, lives
+  glass(W - 300, 10, 290, 52, '#ffd23c', 14, 0.82);
+  const tsec = Math.floor(R.time / 60); T(String(Math.floor(tsec / 60)).padStart(2, '0') + ':' + String(tsec % 60).padStart(2, '0'), W - 30, 48, 28, '#fff', { align: 'right', stroke: 6 });
+  T('KO ' + R.kills, W - 150, 48, 18, '#ffd23c', { align: 'right', stroke: 4 });
+  for (let i = 0; i < Math.min(6, G.teamStocks); i++) heart(W - 270 + i * 17, 36, 7);
+  if (G.teamStocks > 6) T('+' + (G.teamStocks - 6), W - 168, 42, 13, '#ff6b8a', { align: 'left', stroke: 3 });
+  // center status
+  const b = G.bossRef;
+  if (b && !b.dead && !b.dying) {
+    const bw = 620, bx = W / 2 - bw / 2, by = 22; b._trail = b._trail === undefined ? b.hp : Math.max(b.hp, b._trail - b.maxHp * 0.004);
+    glass(bx - 16, by - 8, bw + 32, 40, '#ff3cd5', 14, 0.9);
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx, by + 2, bw, 20);
+    ctx.fillStyle = '#fff'; ctx.fillRect(bx, by + 2, bw * clamp(b._trail / b.maxHp, 0, 1), 20);
+    const hg = ctx.createLinearGradient(0, by, 0, by + 22); hg.addColorStop(0, '#ff8ae8'); hg.addColorStop(1, '#c2189a'); ctx.fillStyle = hg; ctx.fillRect(bx, by + 2, bw * clamp(b.hp / b.maxHp, 0, 1), 20);
+    ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.strokeRect(bx, by + 2, bw, 20);
+    T(b.def.name.toUpperCase(), W / 2, by + 56, 22, '#fff', { stroke: 6 });
+  } else if (G.arenaI >= 0) { const A = World.stage.arenas[G.arenaI]; glass(W / 2 - 150, 14, 300, 40, '#ff4fd8', 12, 0.85); T('WAVE ' + Math.min(A.waves.length, G.waveI + 1) + ' / ' + A.waves.length, W / 2, 43, 24, '#fff', { stroke: 5 }); }
+  else if (World.stage.arenas.every(a => a.done)) { if (World.frame % 60 < 44) T('EXIT OPEN ➜', W / 2, 46, 26, '#e6c8ff', { stroke: 6 }); }
+  else if (World.frame % 90 < 64 && G.stageT < 600) T('GO! ➜', W / 2, 50, 34, '#ffd23c', { stroke: 7 });
+  // stage intro banner
+  const bn = G.banner; if (bn && bn.t < 210) {
+    const k = bn.t < 16 ? 1 - Math.pow(1 - bn.t / 16, 3) : bn.t > 180 ? 1 - (bn.t - 180) / 30 : 1; const off = (1 - k) * -W;
+    ctx.save(); ctx.globalAlpha = clamp(k * 1.2, 0, 1); ctx.translate(off, 0);
+    slant(-20, H / 2 - 92, W + 40, 150, 40); const bg = ctx.createLinearGradient(0, H / 2 - 92, 0, H / 2 + 58); bg.addColorStop(0, 'rgba(40,20,80,0.92)'); bg.addColorStop(1, 'rgba(14,8,30,0.92)'); ctx.fillStyle = bg; ctx.fill();
+    ctx.fillStyle = '#ff4fd8'; ctx.fillRect(0, H / 2 - 92, W, 5); ctx.fillStyle = '#ffd23c'; ctx.fillRect(0, H / 2 + 53, W, 5);
+    T(bn.title, W / 2, H / 2 - 22, 58, null, { stroke: 10, grad: ['#fff7c2', '#ffb02c'] });
+    T(bn.sub.toUpperCase(), W / 2, H / 2 + 18, 26, '#ff8fe4', { stroke: 6 });
+    if (bn.mods.length) T(bn.mods.map(m => MODIFIERS[m].name + ': ' + MODIFIERS[m].desc).join('   ·   '), W / 2, H / 2 + 45, 15, '#ffe9a0', { stroke: 4 });
+    ctx.restore();
+  }
+  if (G.showControls > 0) { G.showControls--; drawControlsPanel(140, 110, 0.94); }
+}
+function heart(x, y, r) { ctx.fillStyle = '#ff4d6d'; ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y + r); ctx.bezierCurveTo(x - r * 1.8, y - r * 0.2, x - r * 0.9, y - r * 1.5, x, y - r * 0.5); ctx.bezierCurveTo(x + r * 0.9, y - r * 1.5, x + r * 1.8, y - r * 0.2, x, y + r); ctx.fill(); ctx.stroke(); }
+function drawCharSel() {
+  drawTitleBG(); const G = Game; const t = World.frame;
+  T('CHOOSE YOUR FIGHTER', W / 2, 62, 44, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
+  if (G.mode === 'local' && G.slots.length < 2) T('Player 2: press ATTACK or JUMP on another controller (or Arrows + Comma) to join', W / 2, 94, 16, '#ffe9a0', { stroke: 4 });
+  if (G.mode === 'host') T(Net.guestPeer ? 'PARTNER CONNECTED ✓' : 'Waiting for partner…  Room code: ' + Net.code, W / 2, 94, 17, Net.guestPeer ? '#7dff8a' : '#ffe9a0', { stroke: 4 });
+  // big previews for each slot
+  const slots = G.slots.length ? G.slots : [{}];
+  slots.forEach((sl, k) => {
+    const fid = G.csel[k] ?? 0, F = FIGHTERS[fid]; const left = k === 0; const px = left ? 60 : W - 60 - 360, py = 112;
+    glass(px, py, 360, 400, F.color, 24, 0.85);
+    ctx.save(); slant(px, py, 360, 400, 24); ctx.clip(); const sg = ctx.createRadialGradient(px + 180, py + 230, 10, px + 180, py + 230, 230); sg.addColorStop(0, rgba(F.color, 0.55)); sg.addColorStop(1, rgba(F.color, 0)); ctx.fillStyle = sg; ctx.fillRect(px, py, 360, 400);
+    drawFighterArt(fid, px + 180, py + 300, left ? 1 : -1, 3.1, menuIdlePose(fid, t)); ctx.restore();
+    T((k === 0 ? 'P1' : 'P2'), px + 34, py + 36, 22, k === 0 ? '#ff6b6b' : '#5ab4ff', { align: 'left', stroke: 5 });
+    T(F.name, px + 180, py + 340, 46, F.color, { stroke: 9 }); T(F.title.toUpperCase(), px + 180, py + 366, 16, '#fff', { stroke: 4 });
+    if (G.cready[k]) { ctx.save(); ctx.translate(px + 180, py + 180); ctx.rotate(-0.15); slant(-130, -34, 260, 64, 18); ctx.fillStyle = 'rgba(255,210,60,0.95)'; ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 4; ctx.stroke(); T('READY!', 0, 18, 46, '#fff', { stroke: 9 }); ctx.restore(); }
+  });
+  // moveset card in the middle
+  const mf = FIGHTERS[G.csel[0] ?? 0]; glass(W / 2 - 200, 130, 400, 180, mf.color, 18, 0.85);
+  T('SPECIAL MOVES', W / 2, 160, 18, '#ffd23c', { stroke: 4 });
+  [['NEUTRAL', 'nspec'], ['SIDE', 'sspec'], ['UP', 'uspec'], ['DOWN', 'dspec']].forEach(([k, m], j) => { T(k, W / 2 - 160, 194 + j * 28, 14, '#ff9ae8', { align: 'left', stroke: 3, weight: 800 }); T(mf.specials[m].name, W / 2 - 70, 194 + j * 28, 17, '#fff', { align: 'left', stroke: 4 }); });
+  UI.wrap(mf.blurb, W / 2 - 180, 330, 360, 14, '#e8e2f5');
+  const st = mf.stats; [['WEIGHT', st.weight / 130], ['SPEED', st.run / 7], ['JUMPS', (st.jumps + 1) / 3]].forEach(([n, v], j) => { const y = 380 + j * 24; T(n, W / 2 - 160, y + 12, 13, '#cfc6e6', { align: 'left', stroke: 0, weight: 800 }); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 70, y, 230, 13); ctx.fillStyle = mf.color; ctx.fillRect(W / 2 - 70, y, 230 * clamp(v, 0, 1), 13); ctx.strokeStyle = OL; ctx.lineWidth = 1.5; ctx.strokeRect(W / 2 - 70, y, 230, 13); });
+  // roster
+  const tw = 128, ty = H - 168;
+  FIGHTERS.forEach((F, i) => {
+    const x = W / 2 - 2 * (tw + 14) + i * (tw + 14) + 7; const sel = G.slots.map((s2, k) => G.csel[k] === i ? k : -1).filter(k => k >= 0);
+    slant(x, ty, tw, 120, 16); const g = ctx.createLinearGradient(0, ty, 0, ty + 120); g.addColorStop(0, shade(F.color, -0.1)); g.addColorStop(1, shade(F.color, -0.6)); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = sel.length ? 4 : 2; ctx.strokeStyle = sel.length ? '#fff' : OL; ctx.stroke();
+    ctx.save(); slant(x, ty, tw, 120, 16); ctx.clip(); drawPortrait(ctx, i, x + tw / 2, ty + 58, 40, false); ctx.restore();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; slant(x - 2, ty + 92, tw - 6, 28, 16); ctx.fill(); T(F.name, x + tw / 2 - 6, ty + 113, 18, '#fff', { stroke: 4 });
+    sel.forEach((k, j) => { const bx = x + 8 + j * 46, by = ty - 14; ctx.fillStyle = k === 0 ? '#ff4b4b' : '#3a8dff'; slant(bx, by, 44, 24, 8); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2.5; ctx.stroke(); T('P' + (k + 1), bx + 22, by + 18, 15, '#fff', { stroke: 3, shadow: false }); });
+    clickRegions().push({ x, y: ty, w: tw, h: 120, fn: () => { Game.clickChar = i; } });
+  });
+  T('◀ ▶ choose     ATTACK / JUMP confirm     SPECIAL back', W / 2, H - 16, 15, '#cfc6e6', { stroke: 4 });
+}
+const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: '✚', shield: '⬢', spec: '✦', smash: '✸', take: '◆', lag: '⤓', kb: '✹', aerial: '✈', land: '☄', thorns: '✶', stock: '♥', atk: '⚡', orb: '◉', steal: '♦', exec: '☠', meteor: '☄', phoenix: '❂', chain: 'ϟ', giant: '▲', glass: '◇' };
+function drawBoon() {
+  drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.78)'; ctx.fillRect(0, 0, W, H); const G = Game;
+  T(G.run && G.run.endless && G.run.idx === 11 ? 'ENDLESS AWAITS · CHOOSE A BOON' : 'STAGE CLEAR!', W / 2, 74, 46, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
+  T('Choose a boon', W / 2, 104, 18, '#ff9ae8', { stroke: 4 });
+  const n = World.players.length; const colW = n > 1 ? 560 : 640;
+  World.players.forEach((p, i) => {
+    const x0 = n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
+    T('P' + (i + 1) + ' · ' + p.def.name + (G.boonPick[i] ? '  ✓' : ''), x0 + colW / 2, 140, 22, p.def.color, { stroke: 5 });
+    (G.boonOpts[i] || []).forEach((id, k) => {
+      const b = BOON_BY_ID[id]; const y = 158 + k * 156; const sel = G.boonIdx[i] === k && !G.boonPick[i]; const picked = G.boonPick[i] === id; const rc = RARITY[b.r].c;
+      const lift = sel ? -4 : 0; slant(x0, y + lift, colW, 138, 20);
+      const g = ctx.createLinearGradient(x0, y, x0 + colW, y + 138); g.addColorStop(0, picked ? '#2f6b3a' : sel ? '#4a2f7a' : '#2a1f45'); g.addColorStop(1, picked ? '#173a1e' : sel ? '#26164a' : '#160f28'); ctx.fillStyle = g; ctx.fill();
+      ctx.lineWidth = sel || picked ? 4 : 2.5; ctx.strokeStyle = sel ? '#fff' : rc; ctx.stroke();
+      // icon medallion
+      const ix = x0 + 76, iy = y + 69 + lift; ctx.beginPath(); ctx.arc(ix, iy, 44, 0, TAU); const ig = ctx.createRadialGradient(ix - 12, iy - 14, 4, ix, iy, 46); ig.addColorStop(0, shade(rc, 0.4)); ig.addColorStop(1, shade(rc, -0.45)); ctx.fillStyle = ig; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = OL; ctx.stroke();
+      T(BOON_ICON[id] || '✦', ix, iy + 17, 46, '#fff', { italic: false, stroke: 5 });
+      T(RARITY[b.r].n, x0 + 140, y + 34 + lift, 14, rc, { align: 'left', stroke: 3, weight: 800 });
+      T(b.name, x0 + 140, y + 72 + lift, 32, '#fff', { align: 'left', stroke: 6 });
+      T(b.desc, x0 + 140, y + 104 + lift, 17, '#e0d8f0', { align: 'left', stroke: 0, italic: false, weight: 600, shadow: false });
+      const have = p.boons.filter(z => z === id).length; if (have) T('OWNED ×' + have, x0 + colW - 30, y + 34 + lift, 13, '#bfb4d8', { align: 'right', stroke: 3 });
+      if (G.slots[i] && G.slots[i].dev !== 'net') clickRegions().push({ x: x0, y, w: colW, h: 138, fn: () => { Game.clickBoon = [i, k]; } });
+    });
+    if (G.slots[i] && G.slots[i].dev === 'net' && !G.boonPick[i]) T('waiting for partner…', x0 + colW / 2, 650, 18, '#cfc6e6', { stroke: 4 });
+  });
+}
+function drawPause(local) {
+  ctx.fillStyle = 'rgba(10,6,20,0.7)'; ctx.fillRect(0, 0, W, H);
+  T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, 210, 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
+  if (!Net.isGuest) drawMenu('', ['RESUME', 'SHOW CONTROLS', 'QUIT RUN'], Game.pauseIdx, 330); else if (local) drawMenu('', ['RESUME', 'LEAVE GAME'], Game.pauseIdx, 330);
+}
+function sceneDraw() {
+  const G = Game; Game.clicks = [];
+  const sc = Net.isGuest ? Net.guestScene : G.scene;
+  setupHD(); ctx.setTransform(HD.k, 0, 0, HD.k, 0, 0); ctx.clearRect(0, 0, W, H); ctx.imageSmoothingQuality = 'high';
+  switch (sc) {
+    case 'title':
+      drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); drawLogo(W / 2, 220, 120);
+      T('A CO-OP ROGUELIKE PLATFORM FIGHTER', W / 2, 268, 20, '#ff9ae8', { stroke: 5 });
+      if (G.t % 70 < 50) T('PRESS ANY BUTTON', W / 2, 352, 32, '#fff', { stroke: 7 });
+      T(gamepadBlocked ? 'Controllers unavailable in this view — open the page full-screen to use one' : (getPads().length ? 'Controller detected: ' + shortPadName(getPads()[0].id) : 'Keyboard ready · plug in a controller and press a button'), W / 2, 390, 15, '#cfc6e6', { stroke: 4 });
+      if (G.best.time) T('Best clear ' + fmtTime(G.best.time) + (G.best.endless ? '  ·  Endless best ' + G.best.endless : ''), W / 2, 414, 14, '#bfb4d8', { stroke: 3 });
+      clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clicked = 1; } }); break;
+    case 'mode': {
+      drawTitleBG(); drawLogo(320, 118, 72);
+      drawMenu('', MODE_OPTS, G.menuIdx, 210, 70);
+      glass(W - 520, 190, 450, 300, '#ffd23c', 22, 0.85);
+      T(MODE_OPTS[G.menuIdx], W - 295, 236, 26, '#ffd23c', { stroke: 6 });
+      UI.wrap(MODE_DESC[G.menuIdx] || '', W - 470, 276, 360, 17, '#e8e2f5');
+      const fi = G.menuIdx % 4; ctx.save(); slant(W - 520, 190, 450, 300, 22); ctx.clip(); drawFighterArt(fi, W - 295, 476, -1, 1.9, menuIdlePose(fi, World.frame)); ctx.restore();
+      break;
+    }
+    case 'controls': drawTitleBG(); drawControlsPanel(120, 110); T('press any button to return', W / 2, 650, 15, '#cfc6e6', { stroke: 4 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break;
+    case 'remap': { drawTitleBG(); const R = G.remap; glass(W / 2 - 360, 120, 720, 400, '#ff4fd8', 24); T('CONTROLLER SETUP', W / 2, 180, 40, '#fff', { stroke: 8 }); if (!getPads().length) T('No controller detected. Connect one and press a button first.', W / 2, 300, 18, '#ffe9a0', { stroke: 4 }); else { T('Press the button you want for:', W / 2, 270, 20, '#e8e2f5', { stroke: 4 }); T(REMAP_STEPS[Math.min(R.step, REMAP_STEPS.length - 1)][1], W / 2, 350, 64, null, { stroke: 10, grad: ['#fff', '#ff4fd8'] }); T('Smash default: ATTACK = A (right), SPECIAL = B (bottom), JUMP = X, SHIELD = R', W / 2, 420, 15, '#cfc6e6', { stroke: 3 }); T('Esc: cancel   ·   Backspace: reset to default', W / 2, 460, 14, '#bfb4d8', { stroke: 3 }); } break; }
+    case 'lobby': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#ffd23c', 26); T('HOSTING ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T('Read this room code to your partner:', W / 2, 238, 20, '#e8e2f5', { stroke: 4 }); T(Net.code || '····', W / 2, 350, 110, null, { stroke: 14, grad: ['#fff7c2', '#ffb02c'] }); T(Net.status, W / 2, 410, 18, Net.ok ? '#7dff8a' : '#ff8a8a', { stroke: 4 }); T('They open this same game, pick ONLINE: JOIN, and enter the code.', W / 2, 450, 16, '#cfc6e6', { stroke: 3 }); T('SPECIAL / Esc to go back', W / 2, 500, 14, '#bfb4d8', { stroke: 3 }); break;
+    case 'join': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#5ab4ff', 26); T('JOIN ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T("Type your partner's 4-letter code, then press Enter", W / 2, 240, 18, '#e8e2f5', { stroke: 4 }); T(Net.status, W / 2, 470, 17, Net.ok ? '#7dff8a' : '#ffe9a0', { stroke: 4 }); break;
+    case 'charsel': drawCharSel(); break;
+    case 'play': drawWorld(); drawHUD(); if (G.paused || (Net.isGuest && Net.hostPaused)) drawPause(); if (Net.isGuest && G.localPause) drawPause(true); break;
+    case 'boon': drawBoon(); break;
+    case 'over': { drawTitleBG(); const s = G.overStats || {}; drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (G.t > 40) T('ATTACK: new run    ·    SPECIAL: title', W / 2, 380, 22, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
+    case 'victory': { drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.72)'; ctx.fillRect(0, 0, W, H); T('THE HOLLOW CROWN FALLS', W / 2, 170, 58, null, { stroke: 11, grad: ['#fff7c2', '#ffb02c'] }); T('RUN TIME ' + fmtTime(G.run ? G.run.time : 0), W / 2, 220, 22, '#fff', { stroke: 5 }); T('The rift is still open… how far can you go?', W / 2, 258, 20, '#ff9ae8', { stroke: 5 }); drawMenu('', ['ENTER ENDLESS MODE', 'END RUN (VICTORY)'], G.menuIdx, 360); break; }
+    case 'wait': drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); glass(W / 2 - 360, 260, 720, 110, '#5ab4ff', 22); T(Net.status || 'Waiting for host…', W / 2, 326, 24, '#fff', { stroke: 6 }); break;
+  }
+  UI.toasts.forEach((t, i) => { t.life--; ctx.globalAlpha = clamp(t.life / 30, 0, 1); ctx.font = `italic 800 16px ${FONT}`; const w = ctx.measureText(t.t).width + 40; glass(W - w - 16, 100 + i * 44, w, 36, '#7dff8a', 10, 0.92); T(t.t, W - 16 - w / 2 - 4, 124 + i * 44, 16, '#fff', { stroke: 4 }); ctx.globalAlpha = 1; });
+  UI.toasts = UI.toasts.filter(t => t.life > 0);
+}

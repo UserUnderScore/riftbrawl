@@ -61,8 +61,8 @@ const UI = {
   toasts: [],
   toast(t) { this.toasts.push({ t, life: 200 }); },
   panel(x, y, w, h, c = 'rgba(20,16,28,0.85)') { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); },
-  text(t, x, y, size = 20, c = '#fff', align = 'center', weight = 800) { ctx.font = `${weight} ${size}px ui-monospace,Menlo,Consolas,monospace`; ctx.textAlign = align; ctx.fillStyle = c; ctx.fillText(t, x, y); },
-  wrap(t, x, y, maxW, size, c, lh = 1.3, align = 'left') { ctx.font = `600 ${size}px ui-monospace,Menlo,Consolas,monospace`; ctx.textAlign = align; ctx.fillStyle = c; const words = t.split(' '); let line = ''; for (const w of words) { const test = line ? line + ' ' + w : w; if (ctx.measureText(test).width > maxW) { ctx.fillText(line, x, y); line = w; y += size * lh; } else line = test; } ctx.fillText(line, x, y); return y + size * lh; },
+  text(t, x, y, size = 20, c = '#fff', align = 'center', weight = 800) { ctx.font = `${weight} ${size}px Rubik,system-ui,sans-serif`; ctx.textAlign = align; ctx.fillStyle = c; ctx.fillText(t, x, y); },
+  wrap(t, x, y, maxW, size, c, lh = 1.3, align = 'left') { ctx.font = `600 ${size}px Rubik,system-ui,sans-serif`; ctx.textAlign = align; ctx.fillStyle = c; const words = t.split(' '); let line = ''; for (const w of words) { const test = line ? line + ' ' + w : w; if (ctx.measureText(test).width > maxW) { ctx.fillText(line, x, y); line = w; y += size * lh; } else line = test; } ctx.fillText(line, x, y); return y + size * lh; },
 };
 
 // ---- GAME ----
@@ -377,15 +377,18 @@ function drawWorld() {
   drawBackground(ctx, st, c);
   ctx.save();
   let sx = 0, sy = 0; if (World.shakeAmt > 0.3) { sx = rr(-1, 1) * World.shakeAmt; sy = rr(-1, 1) * World.shakeAmt; World.shakeAmt *= 0.85; } else World.shakeAmt = 0;
-  ctx.translate(W / 2 + sx, H / 2 + sy); ctx.scale(c.z, c.z); ctx.translate(-c.x, -c.y);
+  World.zp = (World.zp || 0) * 0.85; const zz = c.z * (1 + World.zp);
+  ctx.translate(W / 2 + sx, H / 2 + sy); ctx.scale(zz, zz); ctx.translate(-c.x, -c.y);
   drawStage(ctx, st); drawItems(ctx);
   for (const e of World.enemies) drawEnemy(ctx, e);
   for (const p of World.projs) drawProj(ctx, p);
   for (const p of World.players) drawFighter(ctx, p);
   drawParticles(ctx);
   ctx.restore();
+  drawAmbient(ctx, st);
   if (World.mod.dark) drawDarkness();
   drawBarrierOverlay();
+  drawKOBlasts(ctx);
   drawOffscreen();
 }
 let darkCv = null;
@@ -429,7 +432,7 @@ function drawHUD() {
     ctx.fillStyle = p.def.color; ctx.beginPath(); ctx.arc(x + 38, y + 30, 16, 0, TAU); ctx.fill();
     UI.text(p.def.name, x + 38, y + 64, 12, '#ddd');
     const pctTxt = p.out ? 'OUT' : p.dead ? '--' : Math.floor(p.pct) + '%';
-    ctx.font = '900 40px ui-monospace,Menlo,Consolas,monospace'; ctx.textAlign = 'right'; ctx.lineWidth = 6; ctx.strokeStyle = '#000'; ctx.strokeText(pctTxt, x + cw - 14, y + 50); ctx.fillStyle = p.out ? '#888' : pctColor(p.pct); ctx.fillText(pctTxt, x + cw - 14, y + 50);
+    ctx.font = '900 40px Rubik,system-ui,sans-serif'; ctx.textAlign = 'right'; ctx.lineWidth = 6; ctx.strokeStyle = '#000'; ctx.strokeText(pctTxt, x + cw - 14, y + 50); ctx.fillStyle = p.out ? '#888' : pctColor(p.pct); ctx.fillText(pctTxt, x + cw - 14, y + 50);
     UI.text('P' + (i + 1) + ((Net.isHost || Net.isGuest) ? (G.slots[i] && G.slots[i].dev === 'net' ? ' · PARTNER' : ' · YOU') : ''), x + 70, y + 18, 11, '#aaa', 'left');
     // boon pips
     const bs = p.boons.slice(-10); bs.forEach((id, k) => { ctx.fillStyle = RARITY[BOON_BY_ID[id].r].c; ctx.fillRect(x + 70 + k * 12, y + 58, 8, 8); });
@@ -443,7 +446,7 @@ function drawHUD() {
   UI.text(stageLabel(R.idx) + ' · ' + World.stage.B.name, 14, 23, 15, '#fff', 'left');
   const tsec = Math.floor(R.time / 60); UI.text(String(Math.floor(tsec / 60)).padStart(2, '0') + ':' + String(tsec % 60).padStart(2, '0'), W - 14, 23, 16, '#fff', 'right');
   UI.text('KOs ' + R.kills, W - 90, 23, 14, '#ffde3c', 'right');
-  let mx = 380; for (const m of (World.stage.mods || [])) { const t = MODIFIERS[m].name; ctx.font = '700 12px ui-monospace,monospace'; const w = ctx.measureText(t).width + 16; ctx.fillStyle = '#ff4fd8'; ctx.fillRect(mx, 8, w, 19); UI.text(t, mx + w / 2, 22, 12, '#fff', 'center', 700); mx += w + 8; }
+  let mx = 380; for (const m of (World.stage.mods || [])) { const t = MODIFIERS[m].name; ctx.font = '700 12px Rubik,system-ui,sans-serif'; const w = ctx.measureText(t).width + 16; ctx.fillStyle = '#ff4fd8'; ctx.fillRect(mx, 8, w, 19); UI.text(t, mx + w / 2, 22, 12, '#fff', 'center', 700); mx += w + 8; }
   // arena status / boss bar
   const b = G.bossRef;
   if (b && !b.dead && !b.dying) { const bw = 600; ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W / 2 - bw / 2 - 4, 46, bw + 8, 22); ctx.fillStyle = '#ff3cd5'; ctx.fillRect(W / 2 - bw / 2, 50, bw * Math.max(0, b.hp / b.maxHp), 14); UI.text(b.def.name.toUpperCase(), W / 2, 86, 16, '#fff'); }
@@ -517,7 +520,7 @@ function drawMenu(title, opts, idx, y0 = 300) {
 function sceneDraw() {
   const G = Game; Game.clicks = [];
   const sc = Net.isGuest ? Net.guestScene : G.scene;
-  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+  setupHD(); ctx.setTransform(HD.k, 0, 0, HD.k, 0, 0); ctx.clearRect(0, 0, W, H); ctx.imageSmoothingQuality = 'high';
   switch (sc) {
     case 'title': drawTitleBG(); UI.text('RIFTBRAWL', W / 2, 200, 96, '#fff'); UI.text('a co-op roguelike platform fighter', W / 2, 245, 22, '#ff4fd8');
       if (G.t % 60 < 40) UI.text('PRESS ANY BUTTON', W / 2, 380, 26, '#ffde3c'); UI.text(gamepadBlocked ? 'Controllers unavailable in this view — open the page full-screen to use one' : (getPads().length ? 'Controller detected: ' + shortPadName(getPads()[0].id) : 'Keyboard ready · Plug in a controller and press a button'), W / 2, 430, 15, '#aaa');
@@ -536,7 +539,7 @@ function sceneDraw() {
     case 'wait': drawTitleBG(); UI.text(Net.status || 'Waiting for host…', W / 2, 330, 24, '#fff'); break;
   }
   // toasts
-  UI.toasts.forEach((t, i) => { t.life--; ctx.globalAlpha = clamp(t.life / 30, 0, 1); ctx.fillStyle = 'rgba(15,12,22,0.9)'; ctx.font = '700 15px ui-monospace,monospace'; const w = ctx.measureText(t.t).width + 30; ctx.fillRect(W - w - 16, 46 + i * 40, w, 32); UI.text(t.t, W - 16 - w / 2, 67 + i * 40, 15, '#fff', 'center', 700); ctx.globalAlpha = 1; });
+  UI.toasts.forEach((t, i) => { t.life--; ctx.globalAlpha = clamp(t.life / 30, 0, 1); ctx.fillStyle = 'rgba(15,12,22,0.9)'; ctx.font = '700 15px Rubik,system-ui,sans-serif'; const w = ctx.measureText(t.t).width + 30; ctx.fillRect(W - w - 16, 46 + i * 40, w, 32); UI.text(t.t, W - 16 - w / 2, 67 + i * 40, 15, '#fff', 'center', 700); ctx.globalAlpha = 1; });
   UI.toasts = UI.toasts.filter(t => t.life > 0);
 }
 function drawPause(local) { ctx.fillStyle = 'rgba(10,8,16,0.75)'; ctx.fillRect(0, 0, W, H); UI.text(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, 200, 56, '#fff'); if (!Net.isGuest) drawMenu('', ['RESUME', 'SHOW CONTROLS', 'QUIT RUN'], Game.pauseIdx, 320); else if (local) drawMenu('', ['RESUME', 'LEAVE GAME'], Game.pauseIdx, 320); }

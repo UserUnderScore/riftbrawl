@@ -1,11 +1,11 @@
 // ===== PROCEDURAL STAGES =====
 const BIOMES = {
-  ruins: { name: 'Ashen Ruins', sky: ['#efe6d8', '#d9c9b2'], far: '#cbb89c', mid: '#b49f82', ground: '#3a3330', top: '#5a4e48', plat: '#6b5d55', acc: '#e07a5f', deco: 'columns' },
-  garden: { name: 'Sky Garden', sky: ['#dff2ee', '#b8e0d8'], far: '#a6d3c8', mid: '#86bfae', ground: '#2f3b37', top: '#4d6b5e', plat: '#5e7f70', acc: '#f2cc8f', deco: 'trees' },
-  foundry: { name: 'Clockwork Foundry', sky: ['#e8e1d9', '#c9bdb0'], far: '#b5a594', mid: '#9a8775', ground: '#2c2a2a', top: '#5b4f45', plat: '#7a6a5a', acc: '#ff9f43', deco: 'gears' },
-  crystal: { name: 'Crystal Depths', sky: ['#dfe3f2', '#bcc4e3'], far: '#a7b0d6', mid: '#8a93c2', ground: '#262838', top: '#4a4f73', plat: '#5c6290', acc: '#7df9ff', deco: 'crystals' },
-  frost: { name: 'Frost Peaks', sky: ['#eef4f8', '#cfdde8'], far: '#bccddb', mid: '#a1b6c8', ground: '#2b3440', top: '#e9f1f7', plat: '#9fb3c4', acc: '#9cc8ff', deco: 'peaks' },
-  void: { name: 'Void Rift', sky: ['#2a2238', '#120d1c'], far: '#3a2c50', mid: '#4b3666', ground: '#0d0a14', top: '#7a3cff', plat: '#5a2fa0', acc: '#ff3cd5', deco: 'shards' },
+  ruins: { name: 'Ashen Ruins', sky: ['#6fb6f5', '#ffe0b2'], far: '#a7b6d8', mid: '#9a8fb4', ground: '#5c4a40', top: '#d8bf8f', plat: '#b99b70', acc: '#ff8a5c', deco: 'columns' },
+  garden: { name: 'Sky Garden', sky: ['#4fb0ff', '#d9f4ff'], far: '#97c8ea', mid: '#5aa886', ground: '#6b4a2f', top: '#5cc24a', plat: '#8a6a44', acc: '#ffd23c', deco: 'trees' },
+  foundry: { name: 'Clockwork Foundry', sky: ['#ff8f5a', '#ffd79e'], far: '#c97b62', mid: '#8a4f3c', ground: '#3b3138', top: '#8a7866', plat: '#a2846a', acc: '#ffb347', deco: 'gears' },
+  crystal: { name: 'Crystal Depths', sky: ['#1a1448', '#5c40ad'], far: '#3e3080', mid: '#2d2664', ground: '#2a2852', top: '#7464e0', plat: '#5b6be0', acc: '#7df9ff', deco: 'crystals' },
+  frost: { name: 'Frost Peaks', sky: ['#78b4ff', '#eaf6ff'], far: '#b5d2f0', mid: '#86a9d0', ground: '#475a7c', top: '#eef5fb', plat: '#a7bbcf', acc: '#9cc8ff', deco: 'peaks' },
+  void: { name: 'Void Rift', sky: ['#120824', '#3c1a60'], far: '#2c1748', mid: '#3e2064', ground: '#1b1029', top: '#8a3cff', plat: '#5a2fa0', acc: '#ff3cd5', deco: 'shards' },
 };
 const ACT_BIOMES = [['ruins', 'garden'], ['foundry', 'crystal'], ['frost', 'void']];
 const MODIFIERS = {
