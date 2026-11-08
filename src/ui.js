@@ -83,10 +83,10 @@ function drawControlsPanelOld(x, y, a = 0.95) {
 }
 const MODE_DESC_X = 0;
 const MODE_DESC = ["Dive into the rift on your own. 12 stages, 3 bosses, then Endless.", 'Two players on one screen: plug in a second controller or share the keyboard.', 'Open an online room and read your 4-letter code to your partner.', "Type in your partner's room code to join their run.", 'A floating practice stage with ledges, a wall and respawning dummies. Infinite lives and a full Rift Burst meter.', 'Spend Rift Shards earned from runs on permanent upgrades.', 'See every button for controllers and keyboard.', 'Rebind your controller buttons if any feel wrong.', 'Volume of sound effects and menu sounds. Use left/right (or click the bar) to adjust.', 'Volume of the soundtrack. Use left/right (or click the bar) to adjust. 0% turns music off.'];
-function drawMenu(title, opts, idx, y0 = 300, x0 = null) {
+function drawMenu(title, opts, idx, y0 = 300, x0 = null, gap = 58) {
   opts.forEach((o, i) => {
     const sel = i === idx; Game._ma = Game._ma || {}; const ak = title + o; const k = Game._ma[ak] = lerp(Game._ma[ak] || 0, sel ? 1 : 0, 0.3);
-    const intro = easeOut(clamp((UIW.st - i * 2) / 14, 0, 1)); const w = 430 + 40 * k, h = 48, x = (x0 ?? W / 2 - 220) - 10 * k - (1 - intro) * 300, y = y0 + i * 58 - 32;
+    const intro = easeOut(clamp((UIW.st - i * 2) / 14, 0, 1)); const w = 430 + 40 * k, h = 48, x = (x0 ?? W / 2 - 220) - 10 * k - (1 - intro) * 300, y = y0 + i * gap - 32;
     if (intro < 1) ctx.globalAlpha = intro;
     if (sel) { slant(x + 6, y + 6, w, h); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill(); }
     slant(x, y, w, h); const g = ctx.createLinearGradient(x, 0, x + w, 0); if (sel) { g.addColorStop(0, '#ff4fd8'); g.addColorStop(1, '#8a3cff'); } else { g.addColorStop(0, 'rgba(40,28,70,0.92)'); g.addColorStop(1, 'rgba(24,16,44,0.92)'); } ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.15)'; ctx.stroke();
@@ -125,7 +125,7 @@ function drawHUD() {
     if (p.out || p.dead) T(p.out ? 'OUT' : 'KO', x + cw - 26, y + 60, 44, '#9a90b0', { align: 'right', stroke: 8 });
     else {
       ctx.save(); const num = String(Math.floor(p.pct)); const sz = 60 * (1 + pop * 0.25); ctx.translate(x + cw - 48 + jx, y + 62 + jy);
-      T(num, 0, 0, sz, null, { align: 'right', stroke: 10, grad: ['#ffffff', pctColor(p.pct)] }); T('%', 4, 0, 26, null, { align: 'left', stroke: 6, grad: ['#ffffff', pctColor(p.pct)] }); ctx.restore();
+      T(num, 0, 0, sz, null, { align: 'right', stroke: 10, grad: ['#ffffff', pctColor(p.pct)] }); T('%', 4, 0, 26, null, { align: 'left', stroke: 6, grad: ['#ffffff', pctColor(p.pct)] }); T('.' + Math.floor((p.pct % 1) * 10), 4, -28, 17, '#ffffff', { align: 'left', stroke: 4, shadow: false }); ctx.restore();
     }
     { const m = clamp((p.meter || 0) / 100, 0, 1), full = m >= 1; const mx0 = x + 96, my0 = y + 22, mw = cw - 150; ctx.fillStyle = 'rgba(0,0,0,0.55)'; slant(mx0, my0, mw, 9, 4); ctx.fill();
       if (m > 0) { const mg = ctx.createLinearGradient(mx0, 0, mx0 + mw, 0); mg.addColorStop(0, full ? '#fff7c2' : '#8a3cff'); mg.addColorStop(1, full ? '#ffb02c' : '#ff4fd8'); ctx.fillStyle = mg; slant(mx0, my0, Math.max(6, mw * m), 9, 4); ctx.fill(); }
@@ -169,7 +169,7 @@ function drawHUD() {
     if (bn.mods.length) T(bn.mods.map(m => MODIFIERS[m].name + ': ' + MODIFIERS[m].desc).join('   ·   '), W / 2, H / 2 + 45, 15, '#ffe9a0', { stroke: 4 });
     ctx.restore();
   }
-  drawCallout(G); drawBossIntro(G); drawBurstCutin();
+  drawCallout(G); drawBossIntro(G); drawBurstCutin(); drawCountdown(G); drawGameSplash(G); drawCritFlash();
   if (G.showControls > 0) { G.showControls--; drawControlsPanel(140, 110, 0.94); }
 }
 function drawBurstCutin() {
@@ -327,8 +327,8 @@ function drawBoon() {
 function drawPause(local) {
   ctx.fillStyle = 'rgba(10,6,20,0.7)'; ctx.fillRect(0, 0, W, H);
   const trn = !!(World.stage && World.stage.training);
-  T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, trn ? 130 : 190, 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
-  if (!Net.isGuest) drawMenu('', pauseOpts(), Game.pauseIdx, trn ? 210 : 300, 70); else if (local) drawMenu('', GUEST_PAUSE, Game.pauseIdx, 300, 70);
+  T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, trn ? 78 : 190, trn ? 60 : 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
+  if (!Net.isGuest) drawMenu('', pauseOpts(), Game.pauseIdx, trn ? 150 : 300, 70, trn ? 52 : 58); else if (local) drawMenu('', GUEST_PAUSE, Game.pauseIdx, 300, 70);
   drawRunInfo();
   T(trn ? '◀ ▶ change dummy / volume' : '◀ ▶ adjust volume', 290, trn ? 690 : 615, 15, '#cfc6e6', { stroke: 4 });
 }
@@ -400,4 +400,26 @@ function TWrap(text, x, y, size, col, maxW) {
   text = String(text || ''); ctx.font = `italic 800 ${size}px ${FONT}`; const words = text.split(' '), lines = []; let ln = '';
   for (const w of words) { const t = ln ? ln + ' ' + w : w; if (ctx.measureText(t).width > maxW && ln) { lines.push(ln); ln = w; } else ln = t; } if (ln) lines.push(ln);
   lines.slice(0, 4).forEach((l, i) => T(l, x, y + i * (size + 7), size, col, { stroke: 4 }));
+}
+
+// 3-2-1-GO! countdown, GAME! splash and critical-hit flash (all driven by synced timers so online guests see them too)
+function drawCountdown(G) {
+  const c = G.countT | 0; if (c <= 0) { G._cdLast = 0; return; }
+  const n = c > 150 ? '3' : c > 100 ? '2' : c > 50 ? '1' : 'GO!', local = (c > 150 ? c - 150 : c > 100 ? c - 100 : c > 50 ? c - 50 : c) / 50, k = 1 - local;
+  if (Net.isGuest && G._cdLast !== n) { G._cdLast = n; if (n === 'GO!') { Audio2.play('go'); announce('Go!'); } else { Audio2.play('count'); announce(n); } }
+  const pop = n === 'GO!' ? 1 + easeBack(clamp(k * 3, 0, 1)) * 0.4 : 1.6 - easeOut(clamp(k * 4, 0, 1)) * 0.6; const a = n === 'GO!' ? clamp(local * 2.5, 0, 1) : clamp((1 - k) * 3, 0, 1) * clamp(local * 5, 0, 1) + (k < 0.2 ? 1 : 0);
+  ctx.save(); ctx.globalAlpha = clamp(a, 0, 1); ctx.translate(W / 2, H / 2 - 30); ctx.scale(pop, pop);
+  T(n, 0, 0, n === 'GO!' ? 150 : 170, null, { stroke: 18, grad: n === 'GO!' ? ['#fff7c2', '#ff4fd8'] : ['#ffffff', '#ffb02c'] }); ctx.restore();
+}
+function drawGameSplash(G) {
+  const t = G.gameT | 0; if (t <= 0) { G._gsShown = 0; return; }
+  if (Net.isGuest && !G._gsShown) { G._gsShown = 1; Audio2.play('game'); announce('Game!'); }
+  const k = clamp((120 - t) / 14, 0, 1), sc = 2.2 - easeOut(k) * 1.2;
+  ctx.save(); ctx.fillStyle = `rgba(0,0,0,${0.35 * k})`; ctx.fillRect(0, 0, W, H); ctx.translate(W / 2, H / 2); ctx.rotate(-0.06); ctx.scale(sc, sc); ctx.globalAlpha = k;
+  T('GAME!', 0, 30, 170, null, { stroke: 20, grad: ['#ffffff', '#ff3c5a'] }); ctx.restore();
+}
+function drawCritFlash() {
+  const t = World.critT | 0; if (t <= 0) return; const k = t / 26;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; const gr = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.7); gr.addColorStop(0, `rgba(120,200,255,${0.0})`); gr.addColorStop(1, `rgba(90,170,255,${0.45 * k})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = `rgba(255,255,255,${0.6 * k})`; ctx.lineWidth = 3; for (let i = 0; i < 18; i++) { const a = i / 18 * TAU + t * 0.02, r0 = 260 + (i % 3) * 40; ctx.beginPath(); ctx.moveTo(W / 2 + Math.cos(a) * r0, H / 2 + Math.sin(a) * r0); ctx.lineTo(W / 2 + Math.cos(a) * 900, H / 2 + Math.sin(a) * 900); ctx.stroke(); } ctx.restore();
 }

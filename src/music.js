@@ -58,6 +58,11 @@ const Music = {
       case 'hat': this.noise(t, 0.04, 0.07 * vel, 'highpass', 8000, 0.7, 0.1); break;
       case 'ohat': this.noise(t, 0.22, 0.06 * vel, 'highpass', 7000, 0.7, 0.2); break;
       case 'crash': this.noise(t, 1.8, 0.14 * vel, 'highpass', 5000, 0.5, 0.8); break;
+      case 'super': this.voice(inst, [[F, 'sawtooth', -18], [F, 'sawtooth', -7], [F, 'sawtooth', 0], [F, 'sawtooth', 7], [F, 'sawtooth', 18], [F / 2, 'sawtooth', 0]], t, dur, 0.045 * vel, { fenv: [1400, 5200, 3600, 0.03], a: 0.008, d: 0.12, s: 0.75, r: 0.16, vib: 5.5, vibAmt: 6, vibDelay: 0.25, rev: 0.7 }); break;
+      case 'chip': this.voice(inst, [[F, 'square', 0], [F * 2, 'square', 4]], t, Math.min(dur, 0.12), 0.05 * vel, { cut: 6000, a: 0.002, d: 0.09, s: 0.35, r: 0.05, rev: 0.35 }); break;
+      case 'gate': this.voice(inst, [[F, 'sawtooth', -10], [F, 'sawtooth', 10], [F * 2, 'triangle', 0]], t, dur, 0.035 * vel, { cut: 2600, a: 0.012, d: 0.05, s: 0.8, r: 0.06, rev: 0.6 }); break;
+      case 'sub': this.voice(inst, [[F, 'sawtooth', 0], [F, 'square', 6], [F / 2, 'sine', 0]], t, dur, 0.13 * vel, { fenv: [260, 1300, 600, 0.025], a: 0.003, d: 0.09, s: 0.55, r: 0.05, rev: 0.05 }); break;
+      case 'clap': this.noise(t, 0.05, 0.16 * vel, 'bandpass', 1400, 1.2, 0.3); this.noise(t + 0.012, 0.05, 0.14 * vel, 'bandpass', 1500, 1.2, 0.3); this.noise(t + 0.024, 0.14, 0.15 * vel, 'bandpass', 1300, 1, 0.5); break;
       case 'timp': { const c = this.ctx, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(F * 1.08, t); o.frequency.exponentialRampToValueAtTime(F, t + 0.08); g.gain.setValueAtTime(0.4 * vel, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1); o.connect(g); g.connect(this.bus); const sg = c.createGain(); sg.gain.value = 0.7; g.connect(sg); sg.connect(this.revIn); o.start(t); o.stop(t + 1.2); this.noise(t, 0.08, 0.08 * vel, 'lowpass', 600, 0.7, 0.4); break; }
       case 'swell': this.noise(t, dur, 0.001, 'highpass', 4000); { const c = this.ctx, s = c.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true; const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 4000; const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12 * vel, t + dur); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05); s.connect(f); f.connect(g); g.connect(this.bus); s.start(t); s.stop(t + dur + 0.1); } break;
     }
@@ -108,8 +113,47 @@ const DR = {
   blast: { main: [['kick', [0, 2, 4, 6, 8, 10, 12, 14], 0.9], ['snare', [4, 12], 1], ['hat', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], 0.4]], fill: [['kick', [0, 4, 8, 12], 1], ['snare', [0, 2, 4, 6, 8, 9, 10, 11, 12, 13, 14, 15], 1]] },
 };
 
-// ----- TITLE THEME: "Riftbrawl" (heroic fanfare, C major) -----
+// ----- TITLE THEME v2: "Rift Signal" — original 140 BPM Newgrounds-era electronic track (A minor):
+// filtered intro -> chiptune verse -> supersaw anthem -> breakdown -> full drop. 32 bars (~55 s) loop.
 function songTitle() {
+  const A1 = ['Am', 'F', 'C', 'G', 'Am', 'F', 'G', 'E'], B1 = ['F', 'G', 'Em', 'Am', 'F', 'G', 'Am', 'E'];
+  const bars = [...['Am', 'F', 'C', 'G'], ...A1, ...B1, ...['Am', 'F', 'C', 'G'], ...A1]; // 4 + 8 + 8 + 4 + 8 = 32
+  const ch = chart(bars);
+  const verse = `A4:2 C5:2 E5:2 A5:4 G5:2 E5:2 C5:2 | F5:3 E5:3 C5:2 A4:4 C5:4 | G5:2 E5:2 C5:2 G4:2 C5:4 E5:4 | D5:4 B4:2 G4:2 B4:4 D5:4 |
+    A5:2 G5:2 E5:2 A5:4 B5:2 C6:4 | A5:3 G5:3 F5:2 E5:4 C5:4 | D5:2 E5:2 G5:2 D5:2 B4:4 G5:4 | G#5:8 E5:4 B4:4`;
+  const anthem = `C6:6 A5:2 F5:8 | D6:6 B5:2 G5:8 | E6:4 D6:4 B5:4 G5:4 | A5:12 R:4 | C6:4 D6:4 C6:4 A5:4 | B5:4 C6:4 D6:8 | E6:6 D6:2 C6:4 B5:4 | B5:8 G#5:8`;
+  const tracks = [];
+  // verse on chip lead (bars 4-11), anthem on supersaw (12-19), drop: verse up an octave on supersaw + chip doubling (24-31)
+  tracks.push(['chip', mel(verse, 4 * 16)]);
+  tracks.push(['super', mel(anthem, 12 * 16)], ['super', mel(anthem, 12 * 16).map(([st, m, l, v]) => [st, m - 12, l, 0.55])]);
+  tracks.push(['super', mel(verse, 24 * 16).map(([st, m, l, v]) => [st, m + 12, l, 0.9])], ['chip', mel(verse, 24 * 16, 0.7)]);
+  // breakdown bells (bars 20-23): a fragment of the anthem
+  tracks.push(['bell', mel('C6:6 A5:2 F5:8 | D6:6 B5:2 G5:8 | E6:4 D6:4 B5:4 G5:4 | A5:8 B5:4 C6:4', 20 * 16)]);
+  // 16th arps everywhere except the very first bar
+  const arp = []; for (const c of ch) { if (c.step < 16) continue; const t = [c.tones[0] + 24, c.tones[1] + 24, c.tones[2] + 24, c.tones[0] + 36]; for (let i = 0; i < c.len; i++) arp.push([c.step + i, t[[0, 2, 1, 3, 2, 1, 3, 2][i % 8]], 1, (i % 4 ? 0.45 : 0.75) * (c.step < 64 ? 0.4 + c.step / 160 : 1)]); }
+  tracks.push(['pluck', arp]);
+  // trance-gated pad + offbeat bass (the pumping feel), not in the intro's first 2 bars
+  const gate = [], bass = [];
+  for (const c of ch) { const b = c.step / 16, brk = b >= 20 && b < 24; for (let i = 0; i < c.len; i += 2) { if (b >= 2) for (const m of c.tones.slice(0, 3)) gate.push([c.step + i, m + 12, 1.6, i % 4 === 2 ? 0.95 : 0.55]); if (b >= 4 && !brk && i % 4 === 2) bass.push([c.step + i, c.root - 12, 1.7, 1]); if (b >= 4 && !brk && i % 8 === 0) bass.push([c.step + i, c.root - 24, 1, 0.7]); } }
+  tracks.push(['gate', gate], ['sub', bass]);
+  // drums
+  const kick = [], clap = [], hat = [], ohat = [], snare = [], crash = [];
+  for (let b = 0; b < 32; b++) {
+    const s0 = b * 16, brk = b >= 20 && b < 24, intro = b < 4;
+    if (!brk && b >= 2) for (const k of [0, 4, 8, 12]) kick.push([s0 + k, 36, 1, 1]);
+    if (!brk && b >= 4) clap.push([s0 + 4, 60, 1, 0.9], [s0 + 12, 60, 1, 0.9]);
+    for (let k = 0; k < 16; k++) { if (intro && b < 1 && k % 4) continue; hat.push([s0 + k, 60, 1, (k % 4 === 0 ? 0.55 : 0.35) * (brk ? 0.6 : 1)]); }
+    if (!brk && b >= 4) for (const k of [2, 6, 10, 14]) ohat.push([s0 + k, 60, 1, 0.6]);
+    if (b === 3 || b === 11 || b === 19 || b === 31) for (const k of [8, 10, 12, 13, 14, 15]) snare.push([s0 + k, 60, 1, 0.7 + k / 40]);
+    if (b === 23) for (let k = 0; k < 16; k++) snare.push([s0 + k, 60, 1, 0.3 + k / 22]);
+    if (b === 22) for (let k = 0; k < 16; k += 2) snare.push([s0 + k, 60, 1, 0.3 + k / 40]);
+    if (b === 4 || b === 12 || b === 24) crash.push([s0, 60, 1, 1]);
+  }
+  tracks.push(['kick', kick], ['clap', clap], ['hat', hat], ['ohat', ohat], ['snare', snare], ['crash', crash], ['swell', [[2 * 16, 60, 32, 1], [22 * 16, 60, 32, 1]]]);
+  return compile(140, 32, tracks);
+}
+// (previous orchestral title theme, kept for reference)
+function songTitleFanfare() {
   const ch = chart(['C', 'G', 'Am', 'F G', 'C', 'Em', 'F G', 'C', 'Am', 'Em', 'F', 'G', 'C', 'E', 'F G', 'C']);
   const melody = mel(`G4:2 G4:2 C5:6 D5:2 E5:4 | D5:4 C5:2 D5:2 G4:8 | A4:6 B4:2 C5:4 E5:4 | F5:6 E5:2 D5:8 |
     E5:4 G5:4 A5:8 | G5:4 F5:2 E5:2 D5:8 | C5:4 D5:4 E5:4 G5:4 | C6:16 |

@@ -54,7 +54,7 @@ const Net = {
   // capture FX + sounds on host so the guest can replay them
   wrapFX() {
     if (this.wrapped) return; this.wrapped = true;
-    for (const k of ['burst', 'ring', 'hit', 'explode', 'text', 'ko', 'zap', 'portal', 'after', 'swarm', 'dissolve', 'tech', 'parry']) { const o = FX[k].bind(FX); FX[k] = (...a) => { if (Net.isHost && Game.scene === 'play') Net.pushEv(k, a); o(...a); }; }
+    for (const k of ['burst', 'ring', 'hit', 'explode', 'text', 'ko', 'zap', 'portal', 'after', 'swarm', 'dissolve', 'tech', 'parry', 'specialKO', 'meteor', 'glint', 'ffspark']) { const o = FX[k].bind(FX); FX[k] = (...a) => { if (Net.isHost && Game.scene === 'play') Net.pushEv(k, a); o(...a); }; }
     const op = Audio2.play.bind(Audio2); Audio2.play = (n, k) => { if (Net.isHost && Game.scene === 'play' && n !== 'charge') Net.pushEv('snd', [n, k || 0]); op(n, k); };
     const os = World.shake.bind(World); World.shake = a => { if (Net.isHost && a > 3) Net.pushEv('sh', [R2(a)]); os(a); };
   },
@@ -71,9 +71,10 @@ const Net = {
       const s = this.local.cur;
       for (const k of ['a', 'b', 'j', 's', 'm', 'p']) if (s[k + 'p']) this.cnt[k] = (this.cnt[k] + 1) % 1000;
       if (s.cp) this.cnt.c = (this.cnt.c + 1) % 1000;
+      if (s.tp) this.cnt.t = ((this.cnt.t | 0) + 1) % 1000;
       if (s.flick) this.pf = s.flick; if (s.flickY) this.pfy = s.flickY;
       if (this.tc % 2 === 0) {
-        const inp = Game.localPause ? [0, 0, 0, 0, 0, this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, 0, 0, 0] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, this.pf, this.pfy, 0];
+        const inp = Game.localPause ? [0, 0, 0, 0, 0, this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, 0, 0, this.cnt.t | 0] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, this.pf, this.pfy, this.cnt.t | 0];
         this.pf = 0; this.pfy = 0;
         this.r.presence({ role: 'guest', in: inp, ch: Game.gch | 0, rdy: Game.grdy ? 1 : 0, bp: Game.gbp || 0, mu: Meta.levels(), rr: Game.grr | 0 }).catch(() => { });
       }
@@ -89,10 +90,10 @@ const Net = {
       s.sg = [R.stageSeed, R.idx, World.players.length, (st.mods || []).join('.'), R.idx >= 12 ? 1 : 0, R.endless ? 1 : 0, R.path || 'road'];
       s.bz = World.freezeT > 0 && World.burster ? [World.burster.slot, World.freezeT] : 0;
       const b = G.bossRef;
-      s.hud = [G.teamStocks, R.time, R.kills, G.arenaI, G.waveI, World.barriers ? R2(World.barriers.l) : 0, World.barriers ? R2(World.barriers.r) : 0, st.arenas.reduce((m, a, i) => m | (a.done ? 1 << i : 0), 0), st.events.reduce((m, e, i) => m | (e.used ? 1 << i : 0), 0), G.stageT, b && !b.dead ? b.id : 0, G.bossIntro ? G.bossIntro.t : -1];
+      s.hud = [G.teamStocks, R.time, R.kills, G.arenaI, G.waveI, World.barriers ? R2(World.barriers.l) : 0, World.barriers ? R2(World.barriers.r) : 0, st.arenas.reduce((m, a, i) => m | (a.done ? 1 << i : 0), 0), st.events.reduce((m, e, i) => m | (e.used ? 1 << i : 0), 0), G.stageT, b && !b.dead ? b.id : 0, G.bossIntro ? G.bossIntro.t : -1, G.countT | 0, G.gameT | 0, World.critT | 0];
       if (G.co) s.co = [G.co.seq, G.co.text, G.co.col, G.co.size];
-      s.pl = World.players.map(p => [p.def.id, R2(p.x), R2(p.y), p.face, STATES.indexOf(p.state), p.move ? p.move.name : '', p.mf, Math.floor(p.pct), (p.dead ? 1 : 0) | (p.out ? 2 : 0) | (p.air ? 4 : 0) | (p.tumble ? 8 : 0) | (p.hammerOut ? 16 : 0) | (p.mods.orb ? 32 : 0) | (p.frozenT > 0 ? 64 : 0) | (p.burnT > 0 ? 128 : 0) | (p.ff ? 256 : 0), R2(p.shieldHP), R2(p.chgT), p.sf % 1000, R2(p.mods.size * 100), Math.min(99, p.intang), R2(p.vy), p.jumps, p.boons.join('.'), p.rollDir | 0, p.wallSide | 0, Math.floor(p.meter || 0), p.combo | 0, Math.min(99, World.frame - (p.lastHitF ?? -999))]);
-      s.en = World.enemies.slice(0, 24).map(e => [e.id, ALL_ETYPES.indexOf(e.type), R2(e.x), R2(e.y), e.face, e.atk ? e.atkName : '', Math.floor(e.af), R2(e.hp / e.maxHp * 100), (e.dying ? 1 : 0) | (e.flash > 0 ? 2 : 0) | (e.hitstun > 0 ? 4 : 0) | (e.air ? 8 : 0) | (e.stunGuard ? 16 : 0) | (e.minion ? 32 : 0) | (Math.abs(e.vx) > 0.3 ? 64 : 0) | (e.frozenT > 0 ? 128 : 0) | (e.burnT > 0 ? 256 : 0) | (e.shockT > 0 ? 512 : 0), e.elite ? ELITES.indexOf(e.elite) + 1 : 0, e.aim != null ? R2(e.aim * 100) : -999, e.ward | 0, e.dying | 0, e.spawnT | 0, ...(e.isRival ? [STATES.indexOf(e.state), e.move ? e.move.name : '', e.mf, Math.floor(e.pct), e.sf % 1000, e.jumps, R2(e.chgT), R2(e.vy), e.limit, e.hammerOut ? 1 : 0, e.ff ? 1 : 0, e.rollDir | 0] : [])]);
+      s.pl = World.players.map(p => [p.def.id, R2(p.x), R2(p.y), p.face, STATES.indexOf(p.state), p.move ? p.move.name : '', p.mf, Math.floor(p.pct), (p.dead ? 1 : 0) | (p.out ? 2 : 0) | (p.air ? 4 : 0) | (p.tumble ? 8 : 0) | (p.hammerOut ? 16 : 0) | (p.mods.orb ? 32 : 0) | (p.frozenT > 0 ? 64 : 0) | (p.burnT > 0 ? 128 : 0) | (p.ff ? 256 : 0) | (p.buriedT > 0 ? 512 : 0), R2(p.shieldHP), R2(p.chgT), p.sf % 1000, R2(p.mods.size * 100), Math.min(99, p.intang), R2(p.vy), p.jumps, p.boons.join('.'), p.rollDir | 0, p.wallSide | 0, Math.floor(p.meter || 0), p.combo | 0, Math.min(99, World.frame - (p.lastHitF ?? -999))]);
+      s.en = World.enemies.slice(0, 24).map(e => [e.id, ALL_ETYPES.indexOf(e.type), R2(e.x), R2(e.y), e.face, e.atk ? e.atkName : '', Math.floor(e.af), R2(e.hp / e.maxHp * 100), (e.dying ? 1 : 0) | (e.flash > 0 ? 2 : 0) | (e.hitstun > 0 ? 4 : 0) | (e.air ? 8 : 0) | (e.stunGuard ? 16 : 0) | (e.minion ? 32 : 0) | (Math.abs(e.vx) > 0.3 ? 64 : 0) | (e.frozenT > 0 ? 128 : 0) | (e.burnT > 0 ? 256 : 0) | (e.shockT > 0 ? 512 : 0) | (e.buriedT > 0 ? 1024 : 0) | (e.tripT > 0 ? 2048 : 0), e.elite ? ELITES.indexOf(e.elite) + 1 : 0, e.aim != null ? R2(e.aim * 100) : -999, e.ward | 0, e.dying | 0, e.spawnT | 0, ...(e.isRival ? [STATES.indexOf(e.state), e.move ? e.move.name : '', e.mf, Math.floor(e.pct), e.sf % 1000, e.jumps, R2(e.chgT), R2(e.vy), e.limit, e.hammerOut ? 1 : 0, e.ff ? 1 : 0, e.rollDir | 0] : [])]);
       s.pr = World.projs.slice(0, 28).map(p => [PTYPES.indexOf(p.type), R2(p.x), R2(p.y), R2(p.vx * 10), R2(p.vy * 10), R2(p.r), p.t]);
       s.it = World.items.map(i => [i.type === 'food' ? 0 : i.type === 'chest' ? 1 : i.type === 'bomb' ? 2 : 3, R2(i.x), R2(i.y), i.type === 'crate' ? (i.hp > 0 ? Math.ceil(i.hp / 8) : 0) * 10 + Math.min(9, i.hitT | 0) : i.kind | 0, i.t > 1300 ? 1 : 0, i.holder ? i.holder.slot + 1 : 0, i.th ? Math.round((i.rot || 0) * 10) / 10 : 0, i.th ? 1 : 0, i.id % 97]);
       s.ev = this.evq.slice(-16);
@@ -173,7 +174,7 @@ const Net = {
       const h = s.hud; G.teamStocks = h[0]; G.run.time = h[1]; G.run.kills = h[2]; G.arenaI = h[3]; G.waveI = h[4];
       World.barriers = h[5] || h[6] ? { l: h[5], r: h[6] } : null;
       World.stage.arenas.forEach((a, i) => a.done = !!(h[7] & (1 << i))); World.stage.events.forEach((e, i) => e.used = !!(h[8] & (1 << i))); G.stageT = h[9];
-      G.bossIntro = h[11] >= 0 ? { t: h[11] } : null;
+      G.bossIntro = h[11] >= 0 ? { t: h[11] } : null; G.countT = h[12] | 0; G.gameT = h[13] | 0; World.critT = h[14] | 0;
     }
     // players
     if (s.pl) {
@@ -181,7 +182,7 @@ const Net = {
         let p = World.players[i];
         if (!p || p.def.id !== a[0]) { p = World.players[i] = new Fighter(FIGHTERS[a[0]], i, { cur: new InputSource('none').blank() }); p.x = a[1]; p.y = a[2]; }
         p.tx = a[1]; p.ty = a[2]; p.face = a[3]; p.state = STATES[a[4]] || 'idle'; p.move = a[5] ? p.def.moves[a[5]] : null; if (p.state === 'move' && !p.move) p.state = 'idle';
-        p.mf = a[6]; p.pct = a[7]; const fl = a[8]; p.dead = !!(fl & 1); p.out = !!(fl & 2); p.air = fl & 4 ? 1 : 0; p.tumble = fl & 8 ? 1 : 0; p.hammerOut = fl & 16 ? 1 : null; p.mods.orb = fl & 32 ? 1 : 0; p.frozenT = fl & 64 ? 1 : 0; p.burnT = fl & 128 ? 2 : 0; p.ff = fl & 256 ? 1 : 0;
+        p.mf = a[6]; p.pct = a[7]; const fl = a[8]; p.dead = !!(fl & 1); p.buriedT = fl & 512 ? 1 : 0; p.out = !!(fl & 2); p.air = fl & 4 ? 1 : 0; p.tumble = fl & 8 ? 1 : 0; p.hammerOut = fl & 16 ? 1 : null; p.mods.orb = fl & 32 ? 1 : 0; p.frozenT = fl & 64 ? 1 : 0; p.burnT = fl & 128 ? 2 : 0; p.ff = fl & 256 ? 1 : 0;
         p.shieldHP = a[9]; p.chgT = a[10]; p.sf = a[11]; p.mods.size = a[12] / 100; p.intang = a[13]; p.vy = a[14]; p.jumps = a[15]; p.boons = a[16] ? a[16].split('.') : []; p.rollDir = a[17] || 1; p.wallSide = a[18] || 0; p.meter = a[19] || 0; p.combo = a[20] || 0; p.lastHitF = World.frame - (a[21] ?? 99);
         if (p.dead) { p.x = p.tx; p.y = p.ty; }
       });
@@ -196,7 +197,7 @@ const Net = {
         if (e.isRival) { e.state = STATES[a[14]] || 'idle'; e.move = a[15] ? e.def.moves[a[15]] : null; if (e.state === 'move' && !e.move) e.state = 'idle'; e.mf = a[16]; e.mft = a[16]; e.pct = a[17]; e.sf = a[18]; e.jumps = a[19]; e.chgT = a[20]; e.vy = a[21]; e.limit = a[22]; e.hammerOut = a[23] ? 1 : null; e.ff = a[24]; e.rollDir = a[25] || 1; e.dead = false; e.spawnT = a[13] || 0; const fl = a[8]; e.flash = fl & 2 ? 2 : 0; e.tumble = fl & 4 && e.state === 'hitstun' ? 1 : 0; e.air = fl & 8 ? 1 : 0; e.frozenT = fl & 128 ? 1 : 0; e.burnT = fl & 256 ? 2 : 0; e.shockT = fl & 512 ? 2 : 0; next.push(e); continue; }
         e.atkName = a[5]; e.atk = a[5] ? e.def.atks[a[5]] : null; e.af = a[6]; e.maxHp = 100; e.hp = a[7];
         const fl = a[8]; e.dying = fl & 1 ? (a[12] || 1) : 0; e.flash = fl & 2 ? 2 : 0; e.hitstun = fl & 4 ? 1 : 0; e.air = fl & 8 ? 1 : 0; e.stunGuard = fl & 16 ? 1 : 0; e.minion = fl & 32 ? 1 : 0; e.vx = fl & 64 ? 1 : 0;
-        e.aim = a[10] === -999 ? null : a[10] / 100; e.ward = a[11]; e.spawnT = a[13] || 0; e.frozenT = fl & 128 ? 1 : 0; e.burnT = fl & 256 ? 2 : 0; e.shockT = fl & 512 ? 2 : 0; e.dead = false; next.push(e);
+        e.aim = a[10] === -999 ? null : a[10] / 100; e.ward = a[11]; e.spawnT = a[13] || 0; e.frozenT = fl & 128 ? 1 : 0; e.burnT = fl & 256 ? 2 : 0; e.shockT = fl & 512 ? 2 : 0; e.buriedT = fl & 1024 ? 1 : 0; e.tripT = fl & 2048 ? 1 : 0; e.dead = false; next.push(e);
       }
       World.enemies = next; const b = next.find(e => e.id === s.hud[10]); G.bossRef = b || null;
     }

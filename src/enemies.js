@@ -113,6 +113,8 @@ class Enemy {
     if (this.grabbedBy) { const G0 = this.grabbedBy; if (G0.held !== this || G0.dead) this.grabbedBy = null; else { this.t++; this.flash = 0; return; } }
     this.t++; tickStatus(this); if (this.flash > 0) this.flash--; if (this.jumpCD > 0) this.jumpCD--; if (this.blinkCD > 0) this.blinkCD--;
     if (this.hitlag > 0) { this.hitlag--; return; }
+    if (this.tripT > 0) this.tripT--;
+    if (this.buriedT > 0) { this.buriedT--; this.kx = this.ky = this.vx = this.vy = 0; if (this.hitstun > 0) this.hitstun--; if (World.frame % 6 === 0) FX.dust(this.x + rr(-12, 12), this.y); if (this.buriedT === 0) { this.vy = -7; this.air = 1; this.y -= 2; FX.dust(this.x - 10, this.y); FX.dust(this.x + 10, this.y); } return; }
     if (this.spawnT > 0) { this.spawnT--; if (!this.def.fly) this.physics(); return; }
     if (this.dummy && Game.dummyMode !== 'CPU') { if (this.hitstun > 0) this.hitstun--; this.atk = null; this.vx *= 0.85; this.physics(); return; }
     if (this.asleep) { const T0 = this.target(); if (!T0 || Math.abs(T0.dx) > 760) { this.physics(); return; } this.asleep = false; }
@@ -167,6 +169,7 @@ class Enemy {
     if (this.dummy) { this.pct += dmg; this.flash = 6; } else { this.hp -= dmg; this.flash = 6; this.pct += dmg * (this.boss ? 0 : 100 / Math.max(20, this.maxHp / World.diff.hp)); }
     FX.text(info.x, info.y - 10, Math.round(dmg), '#fff', 12 + Math.min(10, dmg / 2));
     if (this.boss) { this.hitlag = 3; FX.hit(info.x, info.y, 20, info.fx); Audio2.play('hit', 0.3); if (this.def.onHurt) this.def.onHurt(this); if (this.hp <= 0) this.die(info); return 'hit'; }
+    this.buriedT = 0; this.tripT = 0;
     let kb = calcKB(this.pct, dmg, this.weight, info.bkb, info.kbg);
     const armored = this.atk && this.atk.armor && kb < (this.def.armorKB || 100) && this.hp > 0;
     if (armored) { this.hitlag = 4; FX.hit(info.x, info.y, 10, info.fx); Audio2.play('hit', 0); return 'hit'; }
@@ -305,7 +308,8 @@ class Rival extends Fighter {
     if (this.dead) return;
     if (this.grabbedBy && this.grabbedBy.held !== this) { this.grabbedBy = null; this.state = 'air'; this.air = 1; }
     if (this.pct >= this.limit) { this.collapse(); return; }
-    if (this.state === 'grabbed') { this.sf++; return; }
+    if (this.state === 'grabbed') { this.sf++; this.grabEsc = (this.grabEsc | 0) + 1; const g = this.grabbedBy; if (g && this.grabEsc > clamp(100 - this.pct * 0.6, 34, 100)) { g.releaseHeld(); g.state = 'idle'; g.vx = -g.face * 4; this.kx = g.face * 4.5; this.ky = -2; this.grabEsc = 0; FX.ring(this.x, this.y - 30, 30, '#ffffff'); FX.text(this.x, this.y - 80, 'GRAB RELEASE', '#ffffff', 12); Audio2.play('clink'); } return; }
+    this.grabEsc = 0;
     if (this.spawnT > 0) { this.spawnT--; this.physics(); return; }
     if (this.asleep) { const p = World.players.find(q => !q.dead && !q.out && Math.abs(q.x - this.x) < 760); if (!p) { this.physics(); return; } this.asleep = false; }
     if (this.flash > 0) this.flash--;

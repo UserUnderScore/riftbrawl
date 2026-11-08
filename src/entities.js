@@ -1,3 +1,4 @@
+const NO_INPUT = Object.freeze({ mx: 0, my: 0, cx: 0, cy: 0, a: 0, b: 0, j: 0, s: 0, m: 0, p: 0, back: 0, ap: 0, bp: 0, jp: 0, sp: 0, mp: 0, pp: 0, backp: 0, flick: 0, flickY: 0, kb: 1 });
 // ===== WORLD, PHYSICS, COMBAT, FIGHTER, PROJECTILES, FX =====
 const World = {
   stage: null, players: [], enemies: [], projs: [], items: [], barriers: null, frame: 0, shakeAmt: 0, slowT: 0, uid: 1,
@@ -84,9 +85,9 @@ class Fighter {
   setMove(name) {
     const mv = this.def.moves[name]; if (!mv) return;
     this.move = mv; this.mf = 0; this.mft = 0; this.state = 'move'; this.hitSet.clear(); this.mid++; this.chg = 0; this.chgT = 0; this.eat('ap', 'bp', 'cp', 'mp');
-    const sc = this.staleQ.filter(n => n === name).length; this.stale = Math.max(0.55, 1 - 0.07 * sc);
+    const sc = this.staleQ.filter(n => n === name).length; this.stale = sc === 0 ? 1.05 : Math.max(0.55, 1 - 0.07 * sc); this._glint = 0; // freshness bonus for unused moves
     if (mv.airOnce && this.air) this.usedAir[name] = 1;
-    if (!mv.special && !mv.jab) Audio2.play('swing');
+    if (!mv.special && !mv.jab && !mv.taunt && mv.hb.length) Audio2.play('swing');
   }
   teleport(x, y) {
     const ox = this.x, oy = this.y; this.x = x; this.y = y;
@@ -114,14 +115,19 @@ class Fighter {
   update() {
     if (this.out) return;
     if (this.dead) { this.respawnT--; if (this.respawnT <= 0) this.respawn(); return; }
-    const raw = this.input.cur;
+    const raw = Game.countT > 50 && this.team === 0 ? NO_INPUT : this.input.cur; // frozen during the 3-2-1 countdown
     if (raw.flick) this.lastFlick = { x: raw.flick, y: 0, t: World.frame };
     if (raw.flickY) this.lastFlick = { x: 0, y: raw.flickY, t: World.frame };
     // tech input: a shield press opens a 13-frame tech window, then a lockout (works during hitlag)
     if (raw.sp && this.techLock <= 0 && (this.state === 'hitstun' || this.hitlag > 0)) { this.techBuf = 13; this.techLock = 40; }
     if (this.techBuf > 0) this.techBuf--; if (this.techLock > 0) this.techLock--;
     this.pushBuf(raw);
-    if (this.hitlag > 0) { this.hitlag--; this.inp = raw; return; }
+    if (this.hitlag > 0) {
+      // Smash DI: a fresh stick input during hitlag nudges you a few pixels (max 3 per hit)
+      if (this.state === 'hitstun' && (raw.mx || raw.my) && (raw.mx !== this._sdiX || raw.my !== this._sdiY) && (this.sdiN | 0) < 3) { const ox = this.x, oy = this.y; this.x += raw.mx * 7; if (this.air) this.y += raw.my * 7; if (this.insideSolid()) { this.x = ox; this.y = oy; } else { this.sdiN = (this.sdiN | 0) + 1; FX.add({ k: 'dust', x: ox, y: oy - 30, vx: 0, vy: 0, life: 8, max: 8, c: 'rgba(255,255,255,0.5)', s: 4 }); } }
+      this._sdiX = raw.mx; this._sdiY = raw.my; this.hitlag--; this.inp = raw; return;
+    }
+    if (this.buriedT > 0) { this.buriedT -= (raw.ap || raw.bp || raw.jp) && this.team === 0 ? 4 : 1; this.vx = this.vy = this.kx = this.ky = 0; this.inp = raw; if (World.frame % 6 === 0) FX.dust(this.x + rr(-12, 12), this.y); if (this.buriedT <= 0) { this.buriedT = 0; this.vy = -8; this.air = 1; this.state = 'air'; this.sf = 0; this.y -= 2; FX.dust(this.x - 10, this.y); FX.dust(this.x + 10, this.y); Audio2.play('jump'); } return; }
     const inp = this.inp = this.merged(raw);
     if (this.coyote > 0) this.coyote--; if (this.wallT > 0) this.wallT--;
     this.sf++; tickStatus(this); if (this.intang > 0) this.intang--; if (this.ledgeCD > 0) this.ledgeCD--; if (this.drop > 0) this.drop--; if (this.jabT > 0) this.jabT--;
@@ -132,10 +138,14 @@ class Fighter {
     if (this.team === 0 && raw.s && raw.bp && this.meter >= 100 && (this.actionable() || this.state === 'shield')) { startBurst(this); return; }
     if (this.team === 0 && !this.isRival) itemInput(this, inp, raw);
     const smashDir = this.smashInput(raw) || inp._sd;
+    if (this.dStale > 0 && World.frame % 100 === 0) this.dStale--;
+    if (this.footCD > 0) this.footCD--;
+    if (this.team === 0 && !this.isRival && raw.tp && !this.air && ['idle', 'run', 'crouch', 'land0'].includes(this.state)) { const nm = raw.my < -0.5 ? 'tauntU' : raw.my > 0.5 ? 'tauntD' : Math.abs(raw.mx) > 0.5 ? 'tauntS' : 'tauntU'; if (this.def.moves[nm]) { if (nm === 'tauntS' && raw.mx) this.face = sign(raw.mx); this.setMove(nm); this.vx *= 0.3; } }
 
     switch (this.state) {
       case 'idle': case 'run': case 'crouch': {
         if (this.air) { this.state = 'air'; break; }
+        if (inp.jp && (inp.ap || inp.cp)) { this.state = 'squat'; this.sf = 0; this.shMacro = { ...inp }; this.eat('jp', 'ap'); break; } // jump + attack together = short-hop aerial
         if (this.groundAttack(inp, smashDir)) break;
         if (inp.jp || (!inp.kb && inp.flickY === -1)) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; }
         if (inp.s || inp.sp) { this.state = 'shield'; this.sf = 0; this.eat('sp'); Audio2.play('shield'); break; }
@@ -144,12 +154,18 @@ class Fighter {
           if (this.plat && !this.plat.solid && (inp.flickY === 1 || (this.sf > 12 && inp.my > 0.85))) { this.drop = 12; this.y += 3; this.air = 1; this.state = 'air'; this.sf = 0; }
           this.vx *= 0.8;
         } else {
-          if (Math.abs(inp.mx) > 0.2) { this.state = 'run'; this.face = sign(inp.mx); const t = inp.mx * st.run * spd; this.vx += clamp(t - this.vx, -st.acc * 1.5, st.acc * 1.5); if (this.sf % 12 === 0) FX.dust(this.x - this.face * 8, this.y); }
+          if (Math.abs(inp.mx) > 0.2) {
+            const d = sign(inp.mx);
+            if (this.state !== 'run') { this.runF = 0; this.skidT = 0; if (Math.abs(inp.mx) > 0.8) this.vx = d * Math.max(Math.abs(this.vx), st.run * spd * 0.9); } // initial dash burst
+            else if (d !== this.face && !this.skidT) { if ((this.runF | 0) < 12) { this.vx = d * st.run * spd * 0.9; this.runF = 0; FX.dust(this.x, this.y); } else this.skidT = 9; } // dash dance vs. skidding run turnaround
+            if (this.skidT > 0) { this.skidT--; this.vx *= 0.8; if (this.skidT % 2 === 0) FX.dust(this.x + this.face * 8, this.y); if (this.skidT === 0) { this.face = d; this.vx = d * st.run * spd * 0.55; this.runF = 6; } this.state = 'run'; }
+            else { this.state = 'run'; this.face = d; this.runF = (this.runF | 0) + 1; const t = inp.mx * st.run * spd; this.vx += clamp(t - this.vx, -st.acc * 1.5, st.acc * 1.5); if (this.sf % 12 === 0) FX.dust(this.x - this.face * 8, this.y); }
+          }
           else { this.state = 'idle'; this.vx *= 0.78; }
         }
         break;
       }
-      case 'squat': this.vx *= 0.9; if (this.sf >= 4) { const full = raw.j || (!raw.kb && raw.my < -0.5); this.vy = -(full ? st.jump : st.jump * 0.68); this.air = 1; this.coyote = 0; this.state = 'air'; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); FX.dust(this.x, this.y); } break;
+      case 'squat': this.vx *= 0.9; if (inp.ap || inp.cp) this.shMacro = { ...inp }; if (this.sf >= 4) { const full = !this.shMacro && (raw.j || (!raw.kb && raw.my < -0.5)); this.vy = -(full ? st.jump : st.jump * 0.68); this.shop = !full; this.air = 1; this.coyote = 0; this.state = 'air'; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); FX.dust(this.x, this.y); if (this.shMacro) { const m = this.shMacro; this.shMacro = null; m.ap = m.ap || (m.cp ? 0 : 1); this.airAttack(m, null); } } break;
       case 'land0': this.vx *= 0.8; if (this.groundAttack(inp, smashDir)) break; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 3) this.state = 'idle'; break;
       case 'land': this.vx *= 0.82; if (this.sf >= this.landLag) this.state = 'idle'; break;
       case 'shielddrop': this.vx *= 0.8; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 11) this.state = 'idle'; break;
@@ -175,11 +191,12 @@ class Fighter {
         if (this.airAttack(inp, smashDir)) break;
         const wantJ = inp.jp || (!inp.kb && inp.flickY === -1 && this.sf > 6);
         if (wantJ && this.coyote > 0) { this.coyote = 0; this.vy = -st.jump; this.ff = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); this.eat('jp'); break; }
+        if (wantJ && this.footstool()) { this.eat('jp'); break; }
         if (wantJ && this.wallT > 0 && !this.wallJumped && inp.mx * this.wallSide < -0.3) { this.wallJumped = 1; this.vy = -st.djump * 0.95; this.vx = -this.wallSide * 5.5; this.face = -this.wallSide; this.ff = 0; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x + this.wallSide * 10, this.y - 20); FX.ring(this.x + this.wallSide * 10, this.y - 30, 20, '#ffffff'); this.eat('jp'); break; }
-        if (wantJ && this.jumps > 0) { this.jumps--; this.vy = -st.djump; this.vx = inp.mx * st.air * spd; this.ff = 0; this.squashT = 8; Audio2.play('jump'); FX.ring(this.x, this.y, 18, '#ffffff'); this.sf = 0; this.eat('jp'); break; }
+        if (wantJ && this.jumps > 0) { this.jumps--; this.shop = false; this.vy = -st.djump; this.vx = inp.mx * st.air * spd; this.ff = 0; this.squashT = 8; Audio2.play('jump'); FX.ring(this.x, this.y, 18, '#ffffff'); this.sf = 0; this.eat('jp'); break; }
         if (inp.sp && !this.adodged) { this.startAirDodge(inp); this.eat('sp'); break; }
         this.airDrift(inp);
-        if (this.vy > 0 && inp.flickY === 1) this.ff = 1;
+        if (this.vy > 0 && inp.flickY === 1) this.fastFall();
         break;
       }
       case 'helpless': this.airDrift(inp, 0.6); if (!this.air) this.toLand(14); break;
@@ -189,24 +206,26 @@ class Fighter {
         if (this.shieldHP <= 0) { this.shieldBreak(); break; }
         if (this.air) { this.state = 'air'; break; }
         if (inp.jp || (!inp.kb && inp.flickY === -1)) { this.state = 'squat'; this.sf = 0; break; }
-        if (inp.flick || (inp.kb && Math.abs(inp.mx) > 0.5 && this.sf > 2 && this.sf < 99 && (inp.flick || this.prevMx === 0))) { const d = sign(inp.mx || inp.flick); this.state = 'roll'; this.sf = 0; this.rollDir = d; this.face = -d; break; }
-        if (inp.flickY === 1 || (inp.kb && inp.my > 0.5 && !this.prevMy)) { this.state = 'spot'; this.sf = 0; break; }
+        if (this.plat && !this.plat.solid && inp.my > 0.7 && Math.abs(inp.mx) > 0.35) { this.drop = 12; this.y += 3; this.air = 1; this.state = 'air'; this.sf = 0; FX.dust(this.x, this.y); break; } // shield drop
+        if (inp.flick || (inp.kb && Math.abs(inp.mx) > 0.5 && this.sf > 2 && this.sf < 99 && (inp.flick || this.prevMx === 0))) { const d = sign(inp.mx || inp.flick); this.state = 'roll'; this.sf = 0; this.rollDir = d; this.face = -d; this.dsp = this.dStale | 0; this.dStale = Math.min(6, (this.dStale | 0) + 1); break; }
+        if (inp.flickY === 1 || (inp.kb && inp.my > 0.5 && !this.prevMy)) { this.state = 'spot'; this.sf = 0; this.dsp = this.dStale | 0; this.dStale = Math.min(6, (this.dStale | 0) + 1); break; }
         if (inp.ap && this.sf > 1) { this.setMove('grab'); break; } // shield grab
         if (!raw.s && this.sf >= 3) { this.state = 'shielddrop'; this.sf = 0; }
         break;
       }
-      case 'roll': { const t = this.sf; this.intang = t > 3 && t < 18 ? 2 : this.intang; this.vx = t < 20 ? this.rollDir * 6.2 : this.vx * 0.7; if (t >= 28) { this.state = 'idle'; } if (this.air) this.state = 'air'; break; }
-      case 'spot': { this.vx *= 0.7; this.intang = this.sf > 2 && this.sf < 18 ? 2 : this.intang; if (this.sf >= 26) this.state = 'idle'; break; }
+      case 'roll': { const t = this.sf, ds = this.dsp | 0; this.intang = t > 3 && t < 18 - ds * 2 ? 2 : this.intang; this.vx = t < 20 ? this.rollDir * 6.2 * (1 - ds * 0.04) : this.vx * 0.7; if (t >= 28 + ds * 3) { this.state = 'idle'; } if (this.air) this.state = 'air'; break; }
+      case 'spot': { const ds = this.dsp | 0; this.vx *= 0.7; this.intang = this.sf > 2 && this.sf < 18 - ds * 2 ? 2 : this.intang; if (this.sf >= 26 + ds * 3) this.state = 'idle'; break; }
       case 'adodge': {
-        const t = this.sf; this.intang = t > 2 && t < 22 ? 2 : this.intang;
+        const t = this.sf, ds = this.dsp | 0; this.intang = t > 2 && t < 22 - ds * 2 ? 2 : this.intang;
         if (this.adDir) { this.vx *= 0.9; this.vy *= 0.9; } else { this.vx *= 0.95; }
-        if (!this.air) { this.toLand(this.adDir ? 10 : 4); break; }
-        if (t >= 34) { this.state = 'air'; this.sf = 0; }
+        if (!this.air) { const v = this.vx; this.toLand(this.adDir ? 10 : 4); if (this.adDir && Math.abs(v) > 1.5) { this.vx = v * 1.25; this.waveT = 10; FX.dust(this.x, this.y); FX.dust(this.x - sign(v) * 12, this.y); } break; } // wavedash / waveland
+        if (t >= 34 + ds * 3) { this.state = 'air'; this.sf = 0; }
         break;
       }
       case 'shieldbreak': { this.vx *= 0.9; if (this.sf % 20 === 0) FX.text(this.x, this.y - 70, '?!', '#ffe14a', 14); if (this.sf >= 150) { this.state = 'idle'; this.shieldHP = 25; } break; }
       case 'hitstun': {
         this.hitstun--;
+        if (this.hitstun > 0 && this.air && this.tumble && this.team === 0) { if (this.sf >= 40 && inp.sp && !this.adodged && groundBelow(this.x, this.y, 90) === null) { this.hitstun = 0; this.tumble = 0; this.startAirDodge(inp); this.eat('sp'); break; } if (this.sf >= 45 && (inp.ap || inp.cp)) { this.hitstun = 0; this.tumble = 0; this.state = 'air'; this.sf = 0; if (this.airAttack(inp, null)) break; } }
         if (this.hitstun <= 0) { this.state = this.air ? 'air' : 'idle'; this.sf = 0; this.tumble = 0; }
         if (this.air && this.hitstun < 10) this.airDrift(inp, 0.5);
         break;
@@ -225,7 +244,7 @@ class Fighter {
         if (this.sf > 110) { this.releaseHeld(); this.state = 'idle'; }
         break;
       }
-      case 'grabbed': { this.vx = this.vy = 0; if (!this.grabbedBy || this.grabbedBy.held !== this) { this.grabbedBy = null; this.state = 'air'; this.air = 1; } break; }
+      case 'grabbed': { this.vx = this.vy = 0; if (!this.grabbedBy || this.grabbedBy.held !== this) { this.grabbedBy = null; this.state = 'air'; this.air = 1; this.grabEsc = 0; break; } this.grabEsc = (this.grabEsc | 0) + 1; if (this.grabEsc > clamp(100 - this.pct * 0.6, 34, 100)) { const g = this.grabbedBy; g.releaseHeld(); g.state = 'idle'; g.vx = -g.face * 4; this.kx = g.face * 4.5; this.ky = -2; this.grabEsc = 0; FX.ring(this.x, this.y - 30, 30, '#ffffff'); FX.text(this.x, this.y - 80, 'GRAB RELEASE', '#ffffff', 12); Audio2.play('clink'); } break; }
       case 'climb': { const C = this.climb, k = clamp(this.sf / 13, 0, 1), e = 1 - Math.pow(1 - k, 3); this.x = lerp(C.x0, C.x1, clamp((e - 0.3) / 0.7, 0, 1)); this.y = lerp(C.y0, C.y1, clamp(e / 0.6, 0, 1)) - Math.sin(k * Math.PI) * 10; this.vx = this.vy = 0; if (this.sf >= 14) { this.x = C.x1; this.y = C.y1; this.state = 'land0'; this.sf = 0; FX.dust(this.x, this.y); } break; }
     }
     this.prevMx = inp.mx; this.prevMy = inp.my;
@@ -247,7 +266,7 @@ class Fighter {
     return null;
   }
   groundAttack(inp, smashDir) {
-    if (inp.ap && inp.s) { this.setMove('grab'); this.vx *= 0.4; return true; }
+    if (inp.ap && inp.s) { if (this.state === 'run' && Math.abs(this.vx) > this.st.run * 0.6 && this.def.moves.dashgrab) { this.setMove('dashgrab'); return true; } this.setMove('grab'); this.vx *= 0.4; return true; }
     if (smashDir) { if (smashDir === 'u') this.setMove('usmash'); else if (smashDir === 'd') this.setMove('dsmash'); else { this.face = smashDir === 'r' ? 1 : -1; this.setMove('fsmash'); } this.vx *= 0.3; return true; }
     if (inp.bp) return this.special(inp);
     if (inp.ap) {
@@ -277,6 +296,8 @@ class Fighter {
     if (mv.airOnce && this.air && this.usedAir[nm]) return false;
     if (nm === 'nspec' && this.def.id === 3 && this.hammerOut) return false;
     if (this.air && mv.airTo) nm = mv.airTo;
+    // turnaround special on the ground: hold back on neutral/down special to turn around first
+    if ((nm === 'nspec' || nm === 'dspec') && !this.air && Math.abs(inp.mx) > 0.5 && sign(inp.mx) !== this.face && Math.abs(inp.my) > 0.5) this.face = sign(inp.mx);
     this.setMove(nm); return true;
   }
   startAirDodge(inp) {
@@ -295,11 +316,12 @@ class Fighter {
     if (holdAt !== undefined && this.mf === holdAt) {
       const held = mv.charge ? (inp.a || inp.m || Math.hypot(inp.cx, inp.cy) > 0.5) : inp[mv.hold.btn];
       const max = mv.charge ? 60 : mv.hold.max;
-      if (held && this.chgT < max) { this.chgT += mv.charge ? this.mods.smashChg : 1; this.chg = Math.min(1, this.chgT / max); if (this.chgT % 6 === 0) { FX.spark(this.x + rr(-14, 14), this.y - rr(10, 60), '#fff6a0'); Audio2.play('charge', this.chg); } if (!this.air) this.vx *= 0.85; else this.vy = Math.min(this.vy, 1.5); if (inp.sp && mv.hold) { this.state = this.air ? 'air' : 'idle'; this.move = null; } return; }
+      if (held && this.chgT < max) { this.chgT += mv.charge ? this.mods.smashChg : 1; this.chg = Math.min(1, this.chgT / max); if (this.chg >= 1 && !this._glint) { this._glint = 1; FX.glint(this.x + this.face * 14, this.y - 60); Audio2.play('ready', 0.4); } if (this.chgT % 6 === 0) { FX.spark(this.x + rr(-14, 14), this.y - rr(10, 60), '#fff6a0'); Audio2.play('charge', this.chg); } if (!this.air) this.vx *= 0.85; else this.vy = Math.min(this.vy, 1.5); if (inp.sp && mv.hold) { this.state = this.air ? 'air' : 'idle'; this.move = null; } return; }
     }
     // counter window
     const sp = mv.special ? 1 : this.mods.atk;
     this.mft += sp; const prev = this.mf; this.mf = Math.floor(this.mft);
+    if ((mv.name === 'nspec' || mv.name === 'dspec' || mv.name === 'quakeDrop') && this.mf <= 5 && this._brev !== this.mid && Math.abs(inp.mx) > 0.6 && sign(inp.mx) !== this.face) { this._brev = this.mid; this.face = sign(inp.mx); if (this.air) this.vx = -this.vx * 0.9; FX.add({ k: 'ring', x: this.x, y: this.y - 30, r0: 4, r: 22, life: 8, max: 8, c: 'rgba(255,255,255,0.7)' }); } // B-reverse
     for (let t = prev + 1; t <= this.mf; t++) if (mv.go) { mv.go(this, t); if (this.move !== mv) return; }
     if (mv.thr && this.held) { const T = this.held; const k = clamp(this.mf / mv.thr.at, 0, 1); const P0 = mv.thr.path; const seg = k < 0.5 ? [P0[0], P0[1], k * 2] : [P0[1], P0[2], (k - 0.5) * 2]; this.placeHeld(lerp(seg[0][0], seg[1][0], seg[2]), lerp(seg[0][1], seg[1][1], seg[2]));
       if (this.mf >= mv.thr.at && !this.thrDone) { this.thrDone = 1; this.throwHeld(mv.thr); } }
@@ -309,7 +331,7 @@ class Fighter {
     if (mv.jab && this.mf >= 4) { this.jabNext = mv.jab === 1 ? 'jab2' : 'jab3'; this.jabT = 18; }
     if (!this.air && !mv.air && !mv.special && !mv.dash) this.vx *= 0.82;
     if (this.air && !mv.special) this.airDrift(inp, 0.8);
-    if (mv.air && this.vy > 0 && inp.flickY === 1) this.ff = 1;
+    if (mv.air && this.vy > 0 && inp.flickY === 1) this.fastFall();
     if (mv.air && !this.air) { // landed during aerial: autocancel windows before the first / after the last hitbox
       const s0 = Math.min(...mv.hb.map(h => h.s)), e0 = Math.max(...mv.hb.map(h => h.e)); const ac = this.mf < s0 - 1 || this.mf > e0 + 3;
       if (mv.onLand) mv.onLand(this); if (ac) FX.dust(this.x, this.y); this.toLand(ac ? 3 : Math.round((mv.lag || 6) * this.mods.lagMul)); return;
@@ -345,7 +367,20 @@ class Fighter {
     else { this.state = 'ceiltech'; this.intang = 14; }
   }
   knockdown(vx) { this.state = 'down'; this.sf = 0; this.vx = vx * 0.35; this.kx = this.ky = this.vy = 0; this.hitstun = 0; this.tumble = 0; this.air = 0; this.bounced = 0; this.jumps = this.maxJumps; this.adodged = 0; this.wallJumped = 0; FX.dust(this.x - 12, this.y); FX.dust(this.x + 12, this.y); Audio2.play('thud'); World.shake(3); }
-  shieldBreak() { this.state = 'shieldbreak'; this.sf = 0; this.vy = -9; this.air = 1; this.shieldHP = 0; FX.burst(this.x, this.y - 30, '#9ae7ff', 20); Audio2.play('bighit'); }
+  fastFall() { if (this.ff) return; this.ff = 1; FX.ffspark(this.x, this.y - 34); }
+  footstool() { // jump off an enemy's head: a free jump for you, the enemy gets shoved down and briefly stunned
+    if (this.team !== 0 || this.footCD > 0 || this.vy < -2) return false;
+    for (const e of World.enemies) {
+      if (e.dead || e.dying || e.boss || e.spawnT > 0 || e.grabbedBy) continue; const top = e.isRival ? e.y - 64 : e.y - e.h;
+      if (Math.abs(e.x - this.x) < (e.isRival ? 20 : e.w / 2) + 12 && this.y > top - 16 && this.y < top + 22) {
+        this.vy = -this.st.jump * 0.95; this.ff = 0; this.footCD = 24; this.squashT = 8; this.sf = 0;
+        e.ky = e.air ? 9 : 0; e.kx = 0; if (e.isRival) { if (e.state !== 'hitstun') { e.state = 'hitstun'; e.move = null; } e.hitstun = Math.max(e.hitstun | 0, 22); e.sf = 0; } else { e.hitstun = Math.max(e.hitstun | 0, 26); e.atk = null; e.squashT = 10; }
+        FX.ring(this.x, this.y, 26, '#ffffff'); FX.dust(this.x, this.y); FX.text(this.x, this.y - 70, 'FOOTSTOOL!', '#ffe9a0', 13); Audio2.play('thud'); Audio2.play('jump'); return true;
+      }
+    }
+    return false;
+  }
+  shieldBreak() { this.state = 'shieldbreak'; this.sf = 0; this.vy = -11; this.air = 1; this.shieldHP = 0; FX.burst(this.x, this.y - 30, '#9ae7ff', 24); FX.ring(this.x, this.y - 30, 70, '#9ae7ff'); FX.text(this.x, this.y - 90, 'SHIELD BREAK!', '#9ae7ff', 16); Audio2.play('bighit'); World.shake(6); }
   physics() {
     const st = this.st;
     const g = st.grav * (World.mod.lowgrav ? 0.6 : 1);
@@ -376,7 +411,7 @@ class Fighter {
       else if (this.state === 'hitstun' && (this.tumble || vyBefore > 6)) { this.plat = r.plat; this.knockdown(vxBefore); }
       else {
         this.vy = 0; this.ky = 0; this.plat = r.plat;
-        if (wasAir) { this.air = 0; this.jumps = this.maxJumps; this.adodged = 0; this.usedAir = {}; this.ff = 0; this.wallJumped = 0; this.landT = 8; if (this.mods.landShock && this.y - this.fallStart > 120) this.landShock(); }
+        if (wasAir) { this.air = 0; this.shop = false; this.jumps = this.maxJumps; this.adodged = 0; this.usedAir = {}; this.ff = 0; this.wallJumped = 0; this.landT = 8; if (this.mods.landShock && this.y - this.fallStart > 120) this.landShock(); }
       }
     } else {
       const gp = onGround(this);
@@ -391,7 +426,7 @@ class Fighter {
     for (const L of World.stage.ledges) {
       const hx = L.x + L.dir * 10;
       if (Math.abs(this.x - hx) < 18 && this.y - 66 < L.y && this.y - 30 > L.y) {
-        if (World.players.some(p => p !== this && p.state === 'ledge' && p.ledge === L)) continue;
+        const occ = World.players.find(p => p !== this && p.state === 'ledge' && p.ledge === L); if (occ) { if (this.team !== 0) continue; occ.state = 'air'; occ.ledge = null; occ.air = 1; occ.vx = L.dir * 3.5; occ.vy = -3; occ.ledgeCD = 40; occ.intang = Math.max(occ.intang, 16); occ.sf = 0; FX.ring(occ.x, occ.y - 30, 24, '#ffffff'); FX.text(occ.x, occ.y - 80, 'TRUMPED!', '#ffffff', 12); }
         this.state = 'ledge'; this.ledge = L; this.sf = 0; this.move = null; this.face = -L.dir; this.x = L.x + L.dir * 10; this.y = L.y + 50;
         this.vx = this.vy = this.kx = this.ky = 0; this.intang = 40; this.jumps = this.maxJumps; this.adodged = 0; this.usedAir = {}; this.ff = 0; Audio2.play('land'); return;
       }
@@ -453,6 +488,7 @@ class Fighter {
     let kb = calcKB(this.pct * (this.team === 0 ? 1.6 : 1.3), dmg, this.weight, info.bkb, info.kbg * (this.team === 0 && info.att && info.att.team !== 0 ? 1.15 : 1));
     if (this.team === 0 && this.pct > 0) this.meter = Math.min(100, this.meter + dmg * 0.5);
     if (this.state === 'move' && ((this.move.armor && this.mf >= this.move.armor[0] && this.mf <= this.move.armor[1] && kb < 130) || (this.mods.armorAll && (this.move.smash || this.move.special) && kb < 100))) { this.hitlag = 4; FX.burst(info.x, info.y, '#ffffff', 4); Audio2.play('hit', 0); return 'armor'; }
+    if (this.state === 'crouch' && !this.air) kb *= 0.85; // crouch cancel
     this.launch(kb, info);
     return 'hit';
   }
@@ -463,6 +499,11 @@ class Fighter {
     return 'parry';
   }
   launch(kb, info) {
+    this.sdiN = 0; this.buriedT = 0;
+    if (this.state === 'down' && kb < 70 && !this.air) { // jab reset: weak hits on a knocked-down fighter pop them up, stunned
+      this.state = 'hitstun'; this.hitstun = 16; this.sf = 0; this.kx = sign(this.x - (info.ax ?? info.x)) * 1.5; this.ky = -1.5; this.tumble = 0; this.hitlag = hitlagFor(info.dmg); this.move = null;
+      FX.hit(info.x, info.y, kb, info.fx); FX.text(this.x, this.y - 60, 'JAB RESET', '#ffe9a0', 12); Audio2.play('hit', 0.4); return;
+    }
     if (this.item) dropItem(this, true);
     if (this.held) this.releaseHeld(); if (this.grabbedBy) { const g0 = this.grabbedBy; if (g0.held === this) g0.held = null; this.grabbedBy = null; }
     let ang = deg(info.ang);
@@ -474,6 +515,7 @@ class Fighter {
     if (!this.air && this.ky > 0) this.ky = -this.ky * 0.6;
     if (this.ky < -1 || kb > 50) { this.air = 1; this.y -= 1; }
     this.hitstun = Math.floor(kb * 0.4) + (info.stun || 0); this.state = 'hitstun'; this.sf = 0; this.move = null; this.tumble = kb > 80 ? 1 : 0;
+    if (this.ky > 5 && Math.abs(this.ky) > Math.abs(this.kx)) meteorFX(this.x, this.y - 30);
     this.hitlag = hitlagFor(info.dmg); this.ledge = null;
     FX.hit(info.x, info.y, kb, info.fx); World.shake(Math.min(10, kb / 25));
     Audio2.play(kb > 120 ? 'bighit' : 'hit', Math.min(1, kb / 120));
@@ -482,7 +524,11 @@ class Fighter {
     if (this.dead || this.out) return;
     if (this.mods.phoenix && !this.phoenixUsed) { this.phoenixUsed = true; FX.text(this.x, this.y - 60, 'PHOENIX!', '#ff9a3c', 20); FX.burst(this.x, this.y, '#ff9a3c', 30); this.respawn(true); return; }
     if (this.held) this.releaseHeld(); if (this.item) dropItem(this);
-    FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); World.shake(12); if (this.team === 0) this.falls = (this.falls || 0) + 1;
+    const c = World.cam, r = Math.random(), sx = clamp((this.x - c.x) * c.z + W / 2, 80, W - 80), sy = clamp((this.y - c.y) * c.z + H / 2, 60, H - 60);
+    if (type === 'top' && r < 0.45) { FX.specialKO('starko', this.def.id, this.face, sx, sy, this.x < c.x ? -1 : 1); Audio2.play('ko'); } // Star KO
+    else if (type === 'top' && r < 0.7) FX.specialKO('screenko', this.def.id, this.face, sx, sy, 0); // Screen KO
+    else { FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); World.shake(12); }
+    if (this.team === 0) this.falls = (this.falls || 0) + 1;
     this.dead = true; this.respawnT = 100; this.kx = this.ky = this.vx = this.vy = 0;
     Game.teamStocks--; if (Game.teamStocks < 0) { this.out = true; Game.teamStocks = 0; }
   }
@@ -607,6 +653,24 @@ function tickStatus(t) {
 // --- Combat resolution each frame ---
 function resolveCombat() {
   const players = World.players.filter(p => !p.dead && !p.out), enemies = World.enemies.filter(e => !e.dead);
+  // clank: grounded attacks that collide trade off (within 9 damage both rebound, otherwise the weaker one is cancelled)
+  for (const p of players) {
+    if (p.state !== 'move' || p.air || !p.move || p.move.special || p._clank === p.mid) continue; const phb = p.hitboxes().filter(h => h.main && !h.h.grab); if (!phb.length) continue;
+    for (const e of enemies) {
+      if (e.boss || e.dead || e.dying || e.air) continue; const ehb = e.hitboxes(); if (!ehb.length) continue; let hit = null;
+      for (const a of phb) { for (const b of ehb) if (Math.hypot(a.x - b.x, a.y - b.y) < (a.r + b.r) * 0.8) { hit = [a, b]; break; } if (hit) break; }
+      if (!hit) continue; const [a, b] = hit, dp = a.h.d * (p.stale || 1), de = b.d || 0; p._clank = p.mid;
+      const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2; FX.add({ k: 'glint', x: cx, y: cy, life: 14, max: 14, c: '#ffffff' }); FX.burst(cx, cy, '#ffffff', 10); Audio2.play('clink'); World.shake(3);
+      if (dp - de < 9) { p.move = null; p.state = 'land'; p.landLag = 14; p.sf = 0; p.hitlag = 8; p.vx = -p.face * 3; FX.text(cx, cy - 30, 'CLANK!', '#ffffff', 13); }
+      if (de - dp < 9) { if (e.isRival) { e.move = null; e.state = 'land'; e.landLag = 16; e.sf = 0; e.hitlag = 8; } else { e.atk = null; e.hitlag = 10; e.cd = Math.max(e.cd | 0, 40); } }
+      break;
+    }
+  }
+  // attacks swat weak enemy projectiles out of the air
+  for (const p of players) {
+    if (p.state !== 'move') continue; const phb = p.hitboxes(); if (!phb.length) continue;
+    for (const pr of World.projs) { if (pr.team === 0 || pr.life <= 0 || ['pillar', 'eshock', 'blast', 'ebomb', 'swordwave'].includes(pr.type)) continue; for (const a of phb) { if (a.h.grab || (pr.dmg || 0) > a.h.d * 1.5 + 4) continue; if (Math.hypot(a.x - pr.x, a.y - pr.y) < a.r + (pr.r || 8)) { pr.life = 0; FX.burst(pr.x, pr.y, '#ffffff', 8); FX.add({ k: 'glint', x: pr.x, y: pr.y, life: 12, max: 12, c: '#ffffff' }); Audio2.play('clink'); break; } } }
+  }
   // melee: players -> enemies
   for (const p of players) {
     for (const hb of p.hitboxes()) {
@@ -619,8 +683,13 @@ function resolveCombat() {
         if (h.chg) dmg += h.chg * p.chg;
         if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5;
         let ang = p.face > 0 ? h.a : 180 - h.a; if (h.spike && p.mods.meteor) dmg *= 1.3;
-        const res = e.takeHit({ dmg, ang, bkb: h.bkb + (h.chgKb || 0) * p.chg, kbg: h.kbg * p.mods.kb, att: p, x: hb.x, y: hb.y, ax: p.x, fx: h.fx || h.el, stun: h.stun || 0, fromX: p.x, fromY: p.y - 30 });
-        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); if (h.bounce && p.air) { p.vy = -8.5; p.ff = 0; p.jumps = Math.max(p.jumps, 1); } if (p.move && p.move.heavy) { World.shake(Math.min(14, 4 + dmg * 0.45)); World.zp = Math.max(World.zp || 0, 0.035); e.hitlag = Math.round((e.hitlag || 0) * 1.25); p.hitlag = Math.round(p.hitlag * 1.25); } } }
+        if (p.move && p.move.air && p.shop) dmg *= 0.85; // short-hop aerial damage multiplier (Ultimate)
+        const rage = p.team === 0 ? 1 + clamp((p.pct - 35) / 115, 0, 1) * 0.1 : 1; // rage: more knockback the more damage you have
+        const gnd = !e.air;
+        const res = e.takeHit({ dmg, ang, bkb: h.bkb + (h.chgKb || 0) * p.chg, kbg: h.kbg * p.mods.kb * rage, att: p, x: hb.x, y: hb.y, ax: p.x, fx: h.fx || h.el, stun: h.stun || 0, fromX: p.x, fromY: p.y - 30 });
+        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); if (h.bounce && p.air) { p.vy = -8.5; p.ff = 0; p.jumps = Math.max(p.jumps, 1); }
+          if (h.bury && gnd && !e.boss) buryTarget(e); else if (h.trip && gnd && !e.boss) tripTarget(e, p);
+          if (!e.boss || e.hp <= 0) criticalCheck(p, e, h); if (p.move && p.move.heavy) { World.shake(Math.min(14, 4 + dmg * 0.45)); World.zp = Math.max(World.zp || 0, 0.035); e.hitlag = Math.round((e.hitlag || 0) * 1.25); p.hitlag = Math.round(p.hitlag * 1.25); } } }
       }
     }
   }
@@ -694,6 +763,10 @@ const FX = {
   ko(x, y, c) { this.add({ k: 'kob', x, y, life: 64, max: 64, c }); this.burst(x, y, c, 30); World.flashT = 7; World.zp = 0.07; },
   after(x, y, face, c) { this.add({ k: 'after', x, y, face, life: 12, max: 12, c }); },
   trail(x, y, c, s) { this.add({ k: 'dust', x, y, vx: 0, vy: 0, life: 14, max: 14, c, s }); },
+  specialKO(k, fid, face, sx, sy, side) { this.add({ k, fid, face, sx, sy, side, life: k === 'starko' ? 90 : 80, max: k === 'starko' ? 90 : 80 }); },
+  meteor(x, y) { this.add({ k: 'meteor', x, y, life: 16, max: 16, c: '#ffffff' }); for (let i = 0; i < 6; i++) this.add({ k: 'speed', x: x + rr(-20, 20), y: y - rr(10, 50), vx: 0, vy: 8, len: rr(20, 40), life: 10, max: 10, c: 'rgba(255,220,160,0.9)' }); },
+  glint(x, y) { this.add({ k: 'glint', x, y, life: 18, max: 18, c: '#ffffff' }); },
+  ffspark(x, y) { this.add({ k: 'ffspark', x, y, life: 12, max: 12, c: '#ffffff' }); },
   tech(x, y) { this.add({ k: 'techf', x, y, life: 16, max: 16, c: '#ffffff' }); this.burst(x, y, '#ffffff', 10); },
   parry(x, y) { this.add({ k: 'techf', x, y, life: 22, max: 22, c: '#9ae7ff' }); this.add({ k: 'ring', x, y, r0: 10, r: 110, life: 20, max: 20, c: '#9ae7ff' }); this.burst(x, y, '#cfffff', 16); },
   zap(x1, y1, x2, y2) { this.add({ k: 'zap', x: x1, y: y1, x2, y2, life: 10, max: 10, c: '#bfe3ff' }); },
@@ -708,4 +781,25 @@ function updateParticles() {
     if (p.k === 'text') p.y += p.vy;
     if (p.life <= 0) Particles.splice(i, 1);
   }
+}
+
+// ---------- obscure Smash mechanics helpers ----------
+function meteorFX(x, y) { FX.meteor(x, y); }
+function buryTarget(e) { // ground-pound style hits plant grounded targets in the floor
+  e.air = 0; const gy = groundBelow(e.x, e.y - 4, 30); if (gy !== null) e.y = gy;
+  const T = Math.min(110, Math.round(40 + (e.pct || 0) * 0.35)); e.buriedT = T; e.kx = e.ky = e.vx = e.vy = 0;
+  if (e.isRival) { e.state = 'hitstun'; e.hitstun = T + 2; e.move = null; } else { e.hitstun = Math.max(e.hitstun | 0, T); e.atk = null; }
+  FX.dust(e.x - 14, e.y); FX.dust(e.x + 14, e.y); for (let i = 0; i < 4; i++) FX.add({ k: 'crack', x: e.x, y: e.y, a: rr(-Math.PI, 0), len: rr(14, 30), life: 40, max: 40, seed: Math.random() * 99 });
+  FX.text(e.x, e.y - 70, 'BURIED!', '#e0b070', 13); Audio2.play('thud'); World.shake(5);
+}
+function tripTarget(e, p) { // low sweeps trip grounded foes onto the floor
+  e.air = 0; const gy = groundBelow(e.x, e.y - 4, 30); if (gy !== null) e.y = gy; e.kx = e.ky = 0;
+  if (e.isRival) { e.hitlag = 0; e.knockdown(p.face * 2); } else { e.tripT = 40; e.hitstun = Math.max(e.hitstun | 0, 40); e.atk = null; e.kx *= 0.3; e.ky = 0; }
+  FX.text(e.x, e.y - 50, 'TRIP!', '#ffe9a0', 12);
+}
+function criticalCheck(p, e, h) { // Ultimate-style finishing-blow zoom on huge launches of tough foes
+  const sp = Math.hypot(e.kx || 0, e.ky || 0); if (sp < 21 || !(e.isRival || e.boss || e.elite)) return;
+  if (World.frame - (World._critF || -999) < 200) return; World._critF = World.frame;
+  World.slowmo(26); World.zp = Math.max(World.zp || 0, 0.16); World.flashT = 7; World.critT = 26; World.critAt = { x: e.x, y: e.y - 30 };
+  FX.add({ k: 'ring', x: e.x, y: e.y - 30, r0: 10, r: 200, life: 24, max: 24, c: '#7fd8ff' }); Audio2.play('crowd'); Audio2.play('bighit');
 }

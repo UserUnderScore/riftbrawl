@@ -51,11 +51,16 @@ function fighterPose(f) {
   switch (f.state) {
     case 'move': return kfPose(f.move.kf, f.mf + (f.mft - f.mf || 0));
     case 'run': {
+      if (f.skidT > 0) return P(-3, -21, -0.32, -10, 8, 10, 8, 16, 23, -4, 25, 120);
+      if (Math.abs(f.dxr || 0) < 3.4 && !f.turnT) { const ph = f.runPh || 0, c = Math.sin(ph); return P(0, -25 - Math.abs(Math.cos(ph)) * 1.2, 0.07, 5 - c * 7, 18, -4 + c * 7, 18, c * 9, 25 - Math.max(0, Math.cos(ph)) * 4, -c * 9, 25 - Math.max(0, -Math.cos(ph)) * 4, 70); } // walk
       if (f.turnT > 0) return P(-3, -23, -0.3, -10, 6, -14, 4, 14, 22, -8, 24, 120);
       const ph = f.runPh || 0, c = Math.sin(ph), c2 = Math.cos(ph), sp = clamp(Math.abs(f.dxr || 0) / 6.5, 0.35, 1);
       return P(0, -24 - Math.abs(c2) * 2.5 * sp, 0.08 + 0.24 * sp, 4 - c * 13 * sp, 13 - Math.abs(c) * 3, -2 + c * 13 * sp, 14 - Math.abs(c) * 2, c * 14 * sp, 23 - Math.max(0, c2) * 10 * sp, -c * 14 * sp, 23 - Math.max(0, -c2) * 10 * sp, 40 + c * 25);
     }
-    case 'idle': { if (Math.abs(f.dxr || 0) > 2.2 && !f.air) { const k = clamp(Math.abs(f.dxr) / 7, 0.4, 1), bk = sign(f.dxr) === f.face ? 1 : -1; return P(-2 * bk, -21 - 2 * (1 - k), -0.22 * bk * k, -8 * bk, 12, 10 * bk, 10, 14 * bk * k, 23, -4 * bk, 24, 100); }
+    case 'idle': {
+      if (f._teeter) { const w = Math.sin(t * 0.32); return P(-2, -25, -0.25 + w * 0.12, 10 + w * 10, -14 - w * 6, -10 + w * 10, -12 + w * 6, 6, 25, -8, 24, 40 + w * 40); } // teetering on a ledge
+      if (f._fidget) return f._fidget;
+      if (Math.abs(f.dxr || 0) > 2.2 && !f.air) { const k = clamp(Math.abs(f.dxr) / 7, 0.4, 1), bk = sign(f.dxr) === f.face ? 1 : -1; return P(-2 * bk, -21 - 2 * (1 - k), -0.22 * bk * k, -8 * bk, 12, 10 * bk, 10, 14 * bk * k, 23, -4 * bk, 24, 100); }
       const b = Math.sin(t * 0.06 + f.slot) * 1; const sway = Math.sin(t * 0.03 + f.slot) * 1.5; return P(sway * 0.3, -25 + b, 0.05, 7, 18 - b * 1.4, -5, 18 - b, 7 - sway * 0.3, 25 - b, -6 - sway * 0.3, 25 - b, 70 + b * 4); }
     case 'land0': return P(0, -17, 0.25, 12, 10, -6, 12, 10, 17, -10, 17, 40);
     case 'crouch': return POSE.crouch;
@@ -131,6 +136,14 @@ function drawFighter(g, f) {
   if (f.state === 'idle' && !f.air && Math.abs(f.dxr) > 2.2 && World.frame % 3 === 0) FX.add({ k: 'dust', x: f.x + sign(f.dxr) * 10 + rr(-4, 4), y: f.y - 2, vx: sign(f.dxr) * rr(0.5, 1.5), vy: rr(-1, -0.3), life: 18, max: 18, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) });
   if (f.state === 'run' && f.lastState && f.lastState !== 'run' && !f.air) { for (let i = 0; i < 4; i++) FX.add({ k: 'dust', x: f.x - f.face * (8 + i * 5), y: f.y - 2, vx: -f.face * rr(1, 2.5), vy: rr(-1.4, -0.3), life: 20, max: 20, c: 'rgba(255,255,255,0.6)', s: rr(4, 7) }); }
   if (f.lastFace !== undefined && f.lastFace !== f.face && f.state === 'run') { f.turnT = 7; for (let i = 0; i < 3; i++) FX.add({ k: 'dust', x: f.x + f.face * 6, y: f.y - 2, vx: f.face * rr(0.5, 2), vy: rr(-1.2, -0.3), life: 16, max: 16, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) }); } f.lastFace = f.face; if (f.turnT > 0) f.turnT--;
+  // teeter: standing still with the toes over a platform edge
+  f._teeter = false; f._fidget = null;
+  if (f.state === 'idle' && !f.air && Math.abs(f.dxr || 0) < 0.5) {
+    const st = World.stage; if (st) for (const sf of [...st.solids, ...st.plats]) { if (Math.abs(sf.y - f.y) > 2 || f.x < sf.x - 2 || f.x > sf.x + sf.w + 2) continue; const toEdge = f.face > 0 ? sf.x + sf.w - f.x : f.x - sf.x; if (toEdge < 13) f._teeter = true; break; }
+    f._idleF = (f._idleF || 0) + 1; const k = f._idleF % 420;
+    if (!f._teeter && k > 300 && k < 372) f._fidget = idleFidget(f, k - 300);
+  } else f._idleF = 0;
+  if (!rival && f.pct > 100 && World.frame % 9 === 0 && !f.dead) FX.add({ k: 'dust', x: f.x + rr(-12, 12), y: f.y - rr(20, 60), vx: rr(-0.3, 0.3), vy: -rr(0.6, 1.4), life: 26, max: 26, c: 'rgba(255,90,70,0.35)', s: rr(4, 7) }); // rage steam
   const target = fighterPose(f).slice(); const holding = World.items.some(it => it.type === 'bomb' && (it.holder === f || (it.hs && it.hs === (f.slot + 1) && !f.isRival)));
   if (holding && ['idle', 'run', 'air', 'crouch', 'land', 'land0', 'squat', 'shield', 'shielddrop'].includes(f.state)) { target[3] = 13; target[4] = -2; target[5] = 9; target[6] = 2; }
   f._holding = holding;
@@ -166,6 +179,7 @@ function drawFighter(g, f) {
   f._gh = f._gh.filter(gh => gh.life > 0);
   drawSwingTrails(g, f);
   g.save();
+  if (f.buriedT > 0) { g.beginPath(); g.rect(f.x - 300, f.y - 500, 600, 500); g.clip(); g.translate(0, 36 * s); } // buried: sunk into the floor
   if (SX !== 1 || SY !== 1) { g.translate(f.x, f.y); g.scale(SX, SY); g.translate(-f.x, -f.y); }
   if (rival && f.spawnT > 0) { const k = 1 - f.spawnT / 40; g.globalAlpha = k; }
   if (f.intang > 0 && f.state !== 'roll' && f.state !== 'spot' && f.state !== 'adodge' && World.frame % 6 < 3 && f.intang > 20) g.globalAlpha = 0.5;
@@ -183,6 +197,8 @@ function drawFighter(g, f) {
   if (rival || (f.state === 'move' && f.chgT > 0)) { const c = rival ? def.color : '#ffe27a'; const k = rival ? 0.28 : 0.35 + 0.25 * Math.sin(World.frame * 0.5); g.save(); g.globalCompositeOperation = 'lighter'; const gg = g.createRadialGradient(f.x, f.y - 30 * s, 4, f.x, f.y - 30 * s, 46 * s); gg.addColorStop(0, rgba(c, k)); gg.addColorStop(1, rgba(c, 0)); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 30 * s, 46 * s, 0, TAU); g.fill(); g.restore(); }
   const wpn = def.weapon !== 'none' && !(def.id === 3 && f.hammerOut) ? (J) => drawWeaponHD(g, def.weapon, J.h1[0], J.h1[1], f.face, pose[11], s, { glow: rival ? def.color : '#9dff8a' }) : null;
   const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0 });
+  if (f.state === 'shieldbreak' && J && J.hd) { for (let k = 0; k < 3; k++) { const a = World.frame * 0.12 + k * TAU / 3; drawStar5(g, J.hd[0] + Math.cos(a) * 18 * s, J.hd[1] - 14 * s + Math.sin(a) * 5 * s, 5 * s, '#ffe14a'); } if (World.frame % 40 === 0) Audio2.play('dizzy'); }
+  if (f.state === 'revive') { g.save(); g.globalCompositeOperation = 'lighter'; const py = f.y + 2, pw = 40 * s; const gg = g.createLinearGradient(0, py - 4, 0, py + 10); gg.addColorStop(0, rgba(def.color, 0.9)); gg.addColorStop(1, rgba(def.color, 0)); g.fillStyle = gg; g.beginPath(); g.ellipse(f.x, py + 3, pw, 7, 0, 0, TAU); g.fill(); g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 2; g.beginPath(); g.ellipse(f.x, py, pw, 6, 0, 0, TAU); g.stroke(); g.restore(); } // revival platform
   if (f.state === 'move' && f.move.name === 'nspec' && def.id === 2 && f.chgT > 0) { g.save(); g.globalCompositeOperation = 'lighter'; const r = 8 + f.chg * 14; const gg = g.createRadialGradient(J.h1[0] + f.face * 12, J.h1[1], 1, J.h1[0] + f.face * 12, J.h1[1], r * 1.6); gg.addColorStop(0, 'rgba(230,255,220,0.95)'); gg.addColorStop(0.5, 'rgba(120,255,120,0.6)'); gg.addColorStop(1, 'rgba(120,255,120,0)'); g.fillStyle = gg; g.beginPath(); g.arc(J.h1[0] + f.face * 12, J.h1[1], r * 1.6, 0, TAU); g.fill(); g.restore(); }
   g.restore();
   if (f.frozenT > 0) { g.fillStyle = 'rgba(190,240,255,0.35)'; g.strokeStyle = 'rgba(230,250,255,0.8)'; g.lineWidth = 2; g.fillRect(f.x - 16, f.y - 62, 32, 62); g.strokeRect(f.x - 16, f.y - 62, 32, 62); }
@@ -214,6 +230,8 @@ function drawEnemy(g, e) {
   const walk = Math.sin(t * 0.3) * (Math.abs(e.vx) > 0.3 && !e.air ? 1 : 0);
   const T = e.boss ? null : (World.players.find(p => !p.dead && !p.out) || null); const lx = T ? clamp((T.x - x) / 200, -1, 1) : f, ly = T ? clamp((T.y - 40 - (y - e.h)) / 200, -1, 1) : 0;
   g.save();
+  if (e.buriedT > 0) { g.beginPath(); g.rect(x - 400, y - 600, 800, 600); g.clip(); g.translate(0, e.h * 0.55); }
+  if (e.tripT > 0) { g.translate(x, y - 6); g.rotate(-f * Math.PI / 2 * 0.9); g.translate(-x, -y + e.h * 0.3); }
   if (e.dying) g.globalAlpha = Math.max(0, 1 - e.dying / 40);
   if (e.spawnT > 0) { const k = 1 - e.spawnT / 40; g.globalAlpha = k; g.translate(x, y); g.scale(0.4 + 0.6 * k, 0.4 + 0.6 * k); g.translate(-x, -y); }
   if (!e.boss && e.atk) { const tl = e.atk.tele || 0; let ax = 1, ay = 1; if (tl && e.af < tl) { const k = e.af / tl; ax = 1 + 0.14 * k; ay = 1 - 0.11 * k; } else if (e.af - tl < 5) { const k = 1 - (e.af - tl) / 5; ax = 1 - 0.1 * k; ay = 1 + 0.12 * k; } if (ax !== 1) { g.translate(x, y); g.scale(ax, ay); g.translate(-x, -y); } }
@@ -410,6 +428,9 @@ function drawParticles(g) {
         g.strokeStyle = rgba(p.c, a); g.lineWidth = 3; for (let i = 0; i < 6; i++) { const an = p.a * 9 + i / 6 * TAU; g.beginPath(); g.moveTo(p.x + Math.cos(an) * r * 1.1, p.y + Math.sin(an) * r * 1.1); g.lineTo(p.x + Math.cos(an) * r * (1.6 + k), p.y + Math.sin(an) * r * (1.6 + k)); g.stroke(); }
         g.restore(); break; }
       case 'kob': break;
+      case 'ffspark': { g.save(); g.globalCompositeOperation = 'lighter'; const k = 1 - a, r = 6 + k * 20; g.strokeStyle = p.c; g.globalAlpha = a; g.lineWidth = 2.5; g.beginPath(); g.moveTo(p.x - r, p.y); g.lineTo(p.x + r, p.y); g.moveTo(p.x, p.y - r * 1.4); g.lineTo(p.x, p.y + r * 1.4); g.stroke(); g.restore(); break; }
+      case 'glint': { g.save(); g.globalCompositeOperation = 'lighter'; const k = Math.sin((1 - a) * Math.PI), r = 6 + k * 26; g.fillStyle = '#ffffff'; g.globalAlpha = k; g.beginPath(); g.moveTo(p.x, p.y - r); g.quadraticCurveTo(p.x, p.y, p.x + r * 0.5, p.y); g.quadraticCurveTo(p.x, p.y, p.x, p.y + r); g.quadraticCurveTo(p.x, p.y, p.x - r * 0.5, p.y); g.quadraticCurveTo(p.x, p.y, p.x, p.y - r); g.fill(); g.restore(); break; }
+      case 'meteor': { g.save(); g.globalCompositeOperation = 'lighter'; const k = 1 - a; g.strokeStyle = '#fff3c4'; g.globalAlpha = a; g.lineWidth = 5 * a + 1; for (const s0 of [-1, 1]) { g.beginPath(); g.moveTo(p.x + s0 * (10 + k * 40), p.y - 30 - k * 20); g.lineTo(p.x, p.y + k * 30); g.stroke(); } g.beginPath(); g.arc(p.x, p.y, 10 + k * 30, 0, TAU); g.stroke(); g.restore(); break; }
       case 'speed': { g.save(); g.globalAlpha = a * 0.9; g.strokeStyle = p.c; g.lineWidth = 2.2; g.lineCap = 'round'; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - Math.sign(p.vx || 1) * p.len * a, p.y); g.stroke(); g.restore(); break; }
       case 'crack': { g.save(); g.globalAlpha = Math.min(1, a * 1.6) * 0.85; g.strokeStyle = '#2a1d14'; g.lineWidth = 2.4; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(p.x, p.y); let cx = p.x, cy = p.y; const n = 4, grow = Math.min(1, (p.max - p.life) / 5); for (let i = 1; i <= n; i++) { const t = i / n, ang = p.a + Math.sin(p.seed + i * 2.3) * 0.5; cx = p.x + Math.cos(p.a) * p.len * t * grow + Math.cos(ang) * 3; cy = p.y + Math.min(6, Math.abs(Math.sin(p.a)) * p.len * t * grow * 0.25) + Math.sin(p.seed + i) * 1.5; g.lineTo(cx, cy); } g.stroke(); g.restore(); break; }
       case 'techf': { const k = 1 - a; g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = a; g.strokeStyle = p.c; g.lineWidth = 4 * a + 1; g.beginPath(); g.arc(p.x, p.y, 12 + k * 46, 0, TAU); g.stroke(); g.fillStyle = p.c; for (let i = 0; i < 8; i++) { const an = i / 8 * TAU + k; const r1 = 10 + k * 30, r2 = 22 + k * 60; g.beginPath(); g.moveTo(p.x + Math.cos(an - 0.08) * r1, p.y + Math.sin(an - 0.08) * r1); g.lineTo(p.x + Math.cos(an) * r2, p.y + Math.sin(an) * r2); g.lineTo(p.x + Math.cos(an + 0.08) * r1, p.y + Math.sin(an + 0.08) * r1); g.fill(); } g.restore(); break; }
@@ -651,5 +672,33 @@ function strikeFX(f, mv) {
     f._ss = { t: 7, sx: 1.1, sy: 0.93 };
     for (let i = 0; i < 6; i++) FX.add({ k: 'speed', x: f.x - f.face * rr(0, 30), y: f.y - rr(8, 64), vx: -f.face * rr(5, 10), vy: 0, life: 10, max: 10, len: rr(18, 40), c: 'rgba(255,255,255,0.85)' });
     FX.add({ k: 'ring', x, y, r0: 4, r: 26, life: 8, max: 8, c: 'rgba(255,255,255,0.7)' });
+  }
+}
+
+// idle fidget animations (play after standing still for a few seconds)
+function idleFidget(f, k) {
+  const id = f.def.id, w = Math.sin(k / 72 * Math.PI), b = Math.sin(k * 0.35);
+  if (id === 0) return P(0, -25, 0.12, 22 * (k % 18 < 9 ? 1 : 0.4), -4, 22 * (k % 18 < 9 ? 0.4 : 1) - 8, 2, 7, 25, -7, 25, 0); // Rook: quick shadow-jabs
+  if (id === 1) return P(0, -25, 0.05, 14, 2 - w * 6, -6, 14, 7, 25, -7, 25, 20 + k * 20); // Vela: twirls her sword
+  if (id === 2) return P(0, -25 + w * 2, 0.05, 10, 6 - w * 18, -8, 10, 7, 25, -7, 25, -60 + b * 20); // Pip: raises the staff, sparkling
+  return P(-2, -25, -0.12 * w, 8, -18 * w, -14, 10 + 4 * w, 8, 25, -8, 25, -90 * w + 70 * (1 - w)); // Grom: rests the hammer on his shoulder
+}
+
+function drawStar5(g, x, y, r, c) { g.save(); g.fillStyle = c; g.strokeStyle = OL; g.lineWidth = 1.5; g.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr2 = i % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr2, y + Math.sin(a) * rr2); } g.closePath(); g.fill(); g.stroke(); g.restore(); }
+// Star KO (fly off into the background and twinkle) and Screen KO (smack into the camera and slide down)
+function drawSpecialKOs(g) {
+  for (const p of Particles) {
+    if (p.k !== 'starko' && p.k !== 'screenko') continue; const k = 1 - p.life / p.max;
+    if (p.k === 'starko') {
+      const tx = W * 0.5 + p.side * 160, ty = 120, e = 1 - Math.pow(1 - k, 2);
+      const x = lerp(p.sx, tx, e), y = lerp(p.sy, ty, e) - Math.sin(k * Math.PI) * 60, sc = 1.2 * (1 - e) + 0.05;
+      if (k < 0.82) { g.save(); g.translate(x, y); g.rotate(k * 14 * p.face); const pose = POSE.tumble; drawFighterArt(p.fid, 0, 28 * sc, p.face, sc, pose); g.restore(); }
+      else { const kk = (k - 0.82) / 0.18, r = 4 + Math.sin(kk * Math.PI) * 26; g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = '#fff'; g.globalAlpha = Math.sin(kk * Math.PI); g.beginPath(); for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + kk, rr2 = i % 2 ? r * 0.25 : r; g.lineTo(tx + Math.cos(a) * rr2, ty + Math.sin(a) * rr2); } g.fill(); g.restore(); if (!p.tw) { p.tw = 1; Audio2.play('twinkle'); } }
+    } else {
+      const x = p.sx, sc = 3.2, slide = Math.max(0, k - 0.3) / 0.7, y = 240 + slide * slide * 640;
+      if (k < 0.05 && !p.hit) { p.hit = 1; Audio2.play('splat'); World.shake(10); }
+      g.save(); g.globalAlpha = 0.9; g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 3; for (let i = 0; i < 9; i++) { const a = i / 9 * TAU + 0.3; g.beginPath(); g.moveTo(x + Math.cos(a) * 30, 240 + Math.sin(a) * 30); g.lineTo(x + Math.cos(a) * (110 + (i % 3) * 30), 240 + Math.sin(a) * (110 + (i % 3) * 30)); g.stroke(); } g.restore();
+      g.save(); g.translate(x, y); g.rotate(Math.sin(k * 6) * 0.05); drawFighterArt(p.fid, 0, 60 * sc, p.face, sc, P(0, -26, 0, 20, -16, -20, -16, 14, 18, -14, 18, 0)); g.restore();
+    }
   }
 }

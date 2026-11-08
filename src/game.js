@@ -74,12 +74,12 @@ const Game = {
   startRun() {
     this.meta = Meta.levels(); const gmu = (Net.guestState && Net.guestState.mu) || null;
     this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0, cleared: 0, bosses: 0, bonus: 0, path: 'road', rerolls: { 0: this.meta.reroll || 0, 1: this.slots[1] && this.slots[1].dev === 'net' ? ((gmu && gmu.reroll) || 0) : (this.meta.reroll || 0) } };
-    World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null;
+    World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null; this.gameT = 0; this.gameNext = null; this.countT = 0; this.crownDown = 0;
     World.players = this.slots.map((s, i) => new Fighter(FIGHTERS[this.csel[i]], i, s.input));
     World.players.forEach((p, i) => applyMeta(p, this.slots[i] && this.slots[i].dev === 'net' ? gmu : this.meta));
     this.teamStocks = (World.players.length > 1 ? 4 : 3) + (this.meta.vigor || 0);
     if (this.mode === 'training') return this.loadTraining();
-    this.loadStage(0, 'road');
+    this.loadStage(0, 'road'); this.countT = 200; this.gameT = 0; this.gameNext = null; this._gameSplashed = 0; World.critT = 0;
   },
   loadTraining() {
     const R = this.run; R.training = true; R.idx = 0; R.path = 'road'; World.stage = genStage(R.seed, 0, 'training', { players: 1 }); World.stage.B = BIOMES.garden; World.stage.biome = 'garden'; this.applyStageState([]);
@@ -89,7 +89,7 @@ const Game = {
     World.cam.x = 550; World.cam.y = 420; this.arenaI = -1; this.bossRef = null; this.bossIntro = null; this.co = null; this.stageT = 0;
     this.banner = { t: 0, title: 'TRAINING', sub: 'Practice freely: dummies respawn, lives are infinite', mods: [] }; this.setScene('play');
   },
-  spawnDummy(t, x) { const e = spawnEnemy(t, x, 560); if (!e) return; e.dummy = 1; e.dummyType = t; e.dummyX = x; e.maxHp = 9999; e.hp = 9999; e.asleep = false; e.cd = 1e9; if (e.isRival) { e.limit = 999; } },
+  spawnDummy(t, x) { const e = spawnEnemy(t, x, 560); if (!e) return; e.pct = this.dummyPct | 0; e.dummy = 1; e.dummyType = t; e.dummyX = x; e.maxHp = 9999; e.hp = 9999; e.asleep = false; e.cd = 1e9; if (e.isRival) { e.limit = 999; } },
   loadStage(idx, path = 'road') {
     const R = this.run; R.idx = idx; R.stageSeed = (R.seed + idx * 7919) >>> 0; R.path = path;
     const kind = stageKind(idx), rr0 = SRng(R.stageSeed ^ 0xabc);
@@ -130,6 +130,9 @@ const Game = {
   // --- per-frame simulation (host / local) ---
   simStep() {
     if (World.freezeT > 0) { burstFreezeStep(); return; }
+    if (this.countT > 0) { const k = this.countT--; if (k === 200 || k === 150 || k === 100) { Audio2.play('count'); announce(['3', '2', '1'][(200 - k) / 50]); } if (k === 50) { Audio2.play('go'); announce('Go!'); } }
+    if (this.gameT > 0) { this.gameT--; World.frame++; updateParticles(); if (this.gameT === 0 && this.gameNext) { const fn = this.gameNext; this.gameNext = null; fn(); } return; }
+    if (World.critT > 0) World.critT--;
     const R = this.run; R.time++; this.stageT++;
     World.frame++;
     for (const p of World.players) p.update();
@@ -142,7 +145,7 @@ const Game = {
     this.stageLogic();
     this.blastZones();
     updateParticles();
-    if (this.crownDown) { this.crownDown--; if (this.crownDown === 0) { this.setScene('victory'); this.victoryIdx = 0; } }
+    if (this.crownDown) { this.crownDown--; if (this.crownDown === 0) { this.gameT = 120; this.gameNext = () => { this.setScene('victory'); this.victoryIdx = 0; }; Audio2.play('game'); announce('Game!'); Audio2.play('crowd'); } }
     // game over?
     if (World.players.every(p => p.out || (p.dead && this.teamStocks <= 0 && p.respawnT > 0 && false))) this.gameOver();
     if (World.players.every(p => p.out)) this.gameOver();
@@ -216,7 +219,7 @@ const Game = {
     const st = World.stage, c = World.cam, B = World.barriers;
     const top = c.y - H / (2 * c.z) - 380;
     const L = B ? B.l - 430 : st.x0 - 300, Rr = B ? B.r + 430 : st.x1 + 300;
-    for (const p of World.players) { if (p.dead || p.out) continue; if (p.y > st.killY || (p.y < top && p.state === 'hitstun') || p.y < -2000 || p.x < L || p.x > Rr) p.ko(); }
+    for (const p of World.players) { if (p.dead || p.out) continue; if (p.y > st.killY || (p.y < top && p.state === 'hitstun') || p.y < -2000 || p.x < L || p.x > Rr) p.ko(p.y < top ? 'top' : ''); }
     for (const e of World.enemies) { if (e.dead || e.boss) continue; if (e.y > st.killY || (e.y < top && (e.hitstun > 0 || e.dying)) || e.x < L || e.x > Rr) e.ko(); }
     // offscreen co-op warp
     const alive = World.players.filter(p => !p.dead && !p.out);
@@ -241,7 +244,8 @@ const Game = {
     else this.loadStage(next, 'road');
   },
   gameOver() {
-    if (this.scene === 'over') return;
+    if (this.scene === 'over' || this.gameT > 0) return;
+    if (this.scene === 'play' && !this._gameSplashed) { this._gameSplashed = 1; this.gameT = 120; this.gameNext = () => this.gameOver(); Audio2.play('game'); announce('Game!'); return; } // GAME! freeze before results
     const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0, cleared: R.cleared, bosses: R.bosses, bonus: R.bonus, ps: this.playerStats() }; awardShards(this.overStats);
     if (this.overStats.endless > this.best.endless) { this.best.endless = this.overStats.endless; store('sse_best', this.best); }
     this.setScene('over');
@@ -252,6 +256,7 @@ const Game = {
     const ps = World.players.filter(p => !p.dead && !p.out); if (!ps.length) return;
     let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9; for (const p of ps) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y - 40); maxY = Math.max(maxY, p.y); }
     if (this.bossRef && !this.bossRef.dead) { const b = this.bossRef; minX = Math.min(minX, b.x); maxX = Math.max(maxX, b.x); minY = Math.min(minY, b.y - b.h); }
+    if (World.critT > 0 && World.critAt) { const A = World.critAt; c.x = lerp(c.x, A.x, 0.18); c.y = lerp(c.y, A.y, 0.18); c.z = lerp(c.z, 1.45, 0.15); return; } // critical-hit zoom
     if (this.bossIntro && this.bossIntro.t < 130 && this.bossRef) { const b = this.bossRef; c.x = lerp(c.x, b.x, 0.08); c.y = lerp(c.y, b.y - b.h * 0.6, 0.08); c.z = lerp(c.z, 1.25, 0.06); return; }
     let tz = clamp(Math.min(W / (maxX - minX + 460), H / (maxY - minY + 380)), 0.78, 1.32);
     const B = World.barriers;
@@ -318,6 +323,7 @@ function sceneUpdate() {
       const pp = World.players.some(p => p.input.cur && p.input.cur.pp && p.input !== Net.remote) || KeysPressed['Escape'];
       if (pp) { G.paused = true; G.pauseIdx = 0; Audio2.play('blip'); break; }
       if (World.slowT > 0) { World.slowT--; if (World.slowT % 2 === 0) break; }
+      if (World.stage && World.stage.training && (G.trainSpeed | 0) > 1) { G._ts = (G._ts | 0) + 1; if (G._ts % G.trainSpeed) break; } // training slow-motion
       if (G.bossIntro && G.bossIntro.t < 130) { G.bossIntro.t++; World.frame++; updateParticles(); for (const e of World.enemies) if (e.boss) { e.t++; e.physics(); } break; }
       G.simStep(); if (G.banner) G.banner.t++;
       break;
@@ -366,7 +372,7 @@ function updateCharSel() {
     if (!G.cready[i]) {
       if (d === 'left') { G.csel[i] = (G.csel[i] + 3) % 4; Audio2.play('blip'); }
       if (d === 'right') { G.csel[i] = (G.csel[i] + 1) % 4; Audio2.play('blip'); }
-      if (menuOK(s)) { G.cready[i] = true; Audio2.play('ready'); }
+      if (menuOK(s)) { G.cready[i] = true; Audio2.play('ready'); const nm = FIGHTERS[G.csel[i]].name; announce(nm[0] + nm.slice(1).toLowerCase() + '!'); }
       if (menuBack(s) && G.t > 10) { if (i === 0) { Net.leave(); G.setScene('mode'); return; } else { G.slots.splice(i, 1); } }
     } else if (menuBack(s)) G.cready[i] = false;
   });
@@ -379,7 +385,7 @@ function updateCharSel() {
 }
 const PAUSE_OPTS = ['RESUME', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT RUN'];
 const DUMMY_MODES = ['STAND', 'SHIELD', 'JUMP', 'CPU'];
-function pauseOpts() { if (!World.stage || !World.stage.training) return PAUSE_OPTS; return ['RESUME', 'HITBOXES: ' + (Game.showHB ? 'ON' : 'OFF'), 'DUMMY: ' + (Game.dummyMode || 'STAND'), 'RESET POSITIONS', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT TRAINING']; }
+function pauseOpts() { if (!World.stage || !World.stage.training) return PAUSE_OPTS; return ['RESUME', 'HITBOXES: ' + (Game.showHB ? 'ON' : 'OFF'), 'DUMMY: ' + (Game.dummyMode || 'STAND'), 'SPEED: ' + ({ 1: '1x', 2: '1/2x', 4: '1/4x' }[Game.trainSpeed | 0 || 1]), 'DUMMY %: ' + (Game.dummyPct | 0), 'RESET POSITIONS', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT TRAINING']; }
 function trainingReset() { const ps = World.players; ps.forEach((p, i) => { if (p.dead || p.out) return; p.x = 380 - i * 60; p.y = 600; p.vx = p.vy = p.kx = p.ky = 0; p.pct = 0; p.state = 'idle'; p.air = 0; p.hitstun = 0; p.move = null; p.combo = 0; p.bestCombo = 0; p.meter = 100; }); for (const e of World.enemies) if (e.dummy) { e.dead = true; e._removed = true; } World.enemies = World.enemies.filter(e => !e.dummy); Game.dmyT = {}; for (const t of ['shade', 'rival0', 'lancer']) Game.spawnDummy(t, { shade: 620, rival0: 820, lancer: 960 }[t]); Audio2.play('confirm'); }
 function updatePause() {
   const G = Game; const PO = pauseOpts(); const n = PO.length; const d = anyDir(); if (d === 'up') { G.pauseIdx = (G.pauseIdx + n - 1) % n; Audio2.play('cursor'); } if (d === 'down') { G.pauseIdx = (G.pauseIdx + 1) % n; Audio2.play('cursor'); }
@@ -388,7 +394,7 @@ function updatePause() {
   if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; }
   const lab = PO[G.pauseIdx];
   if (VOL_ROWS[lab]) { if (G.clickPick !== undefined) G.clickPick = undefined; if (anyOK()) volAdjust(lab, 1); }
-  else if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.paused = false; if (lab === 'SHOW CONTROLS') { G.paused = false; G.showControls = 240; } if (lab === 'QUIT RUN' || lab === 'QUIT TRAINING') { G.paused = false; Net.leave(); G.setScene('title'); } if (lab.startsWith('HITBOXES')) { G.showHB = !G.showHB; Audio2.play('confirm'); } if (lab.startsWith('DUMMY')) { const k = DUMMY_MODES.indexOf(G.dummyMode || 'STAND'); G.dummyMode = DUMMY_MODES[(k + 1) % 4]; Audio2.play('confirm'); for (const e of World.enemies) if (e.dummy) e.cd = 60; } if (lab === 'RESET POSITIONS') { trainingReset(); G.paused = false; } }
+  else if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.paused = false; if (lab === 'SHOW CONTROLS') { G.paused = false; G.showControls = 240; } if (lab === 'QUIT RUN' || lab === 'QUIT TRAINING') { G.paused = false; Net.leave(); G.setScene('title'); } if (lab.startsWith('HITBOXES')) { G.showHB = !G.showHB; Audio2.play('confirm'); } if (lab.startsWith('DUMMY')) { const k = DUMMY_MODES.indexOf(G.dummyMode || 'STAND'); G.dummyMode = DUMMY_MODES[(k + 1) % 4]; Audio2.play('confirm'); for (const e of World.enemies) if (e.dummy) e.cd = 60; } if (lab === 'RESET POSITIONS') { trainingReset(); G.paused = false; } if (lab.startsWith('SPEED')) { G.trainSpeed = { 1: 2, 2: 4, 4: 1 }[G.trainSpeed | 0 || 1]; Audio2.play('confirm'); } if (lab.startsWith('DUMMY %')) { G.dummyPct = ((G.dummyPct | 0) + 50) % 200; for (const e of World.enemies) if (e.dummy) e.pct = G.dummyPct; Audio2.play('confirm'); } }
   else if (anyBack() || KeysPressed['Escape'] || localSources().some(s => s.cur.pp)) G.paused = false;
 }
 function updateBoon() {
@@ -443,7 +449,7 @@ function drawWorld() {
   drawAmbient(ctx, st);
   if (World.mod.dark) drawDarkness();
   drawBarrierOverlay();
-  drawKOBlasts(ctx);
+  drawKOBlasts(ctx); drawSpecialKOs(ctx);
   drawOffscreen();
 }
 let darkCv = null;

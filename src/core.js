@@ -49,8 +49,8 @@ addEventListener('blur', () => { for (const k in Keys) Keys[k] = false; });
 addEventListener('mousedown', () => Audio2.unlock());
 
 const KB_LAYOUTS = {
-  kb1: { l: ['KeyA'], r: ['KeyD'], u: ['KeyW'], d: ['KeyS'], a: ['KeyJ'], b: ['KeyK'], j: ['Space'], s: ['KeyL', 'ShiftLeft'], m: ['KeyI'], p: ['Escape', 'Enter'] },
-  kb2: { l: ['ArrowLeft'], r: ['ArrowRight'], u: ['ArrowUp'], d: ['ArrowDown'], a: ['Comma', 'Numpad1'], b: ['Period', 'Numpad2'], j: ['ShiftRight', 'Numpad0'], s: ['Slash', 'Numpad3'], m: ['Semicolon', 'Numpad4'], p: ['Backspace', 'NumpadEnter'] },
+  kb1: { l: ['KeyA'], r: ['KeyD'], u: ['KeyW'], d: ['KeyS'], a: ['KeyJ'], b: ['KeyK'], j: ['Space'], s: ['KeyL', 'ShiftLeft'], m: ['KeyI'], p: ['Escape', 'Enter'], t: ['KeyT'] },
+  kb2: { l: ['ArrowLeft'], r: ['ArrowRight'], u: ['ArrowUp'], d: ['ArrowDown'], a: ['Comma', 'Numpad1'], b: ['Period', 'Numpad2'], j: ['ShiftRight', 'Numpad0'], s: ['Slash', 'Numpad3'], m: ['Semicolon', 'Numpad4'], p: ['Backspace', 'NumpadEnter'], t: ['Quote', 'Numpad5'] },
 };
 // Positional mapping (standard gamepad): 0=bottom(B on Switch) 1=right(A) 2=left(Y) 3=top(X)
 // Smash defaults on Pro Controller: A(right)=attack, B(bottom)=special, X/Y=jump, L/R/ZL/ZR=shield
@@ -81,6 +81,7 @@ class InputSource {
       o.mx = (any(L.r) ? 1 : 0) - (any(L.l) ? 1 : 0);
       o.my = (any(L.d) ? 1 : 0) - (any(L.u) ? 1 : 0);
       for (const k of ['a', 'b', 'j', 's', 'm', 'p']) o[k] = any(L[k]) ? 1 : 0;
+      o.t = any(L.t || []) ? 1 : 0;
       o.kb = 1;
     } else if (this.dev.startsWith('pad')) {
       const idx = +this.dev.slice(3);
@@ -95,10 +96,11 @@ class InputSource {
         let cx = ax(2), cy = ax(3); if (Math.hypot(cx, cy) < 0.45) { cx = 0; cy = 0; }
         o.cx = cx; o.cy = cy;
         for (const k of ['a', 'b', 'j', 's', 'm', 'p', 'back']) o[k] = (padMap[k] || []).some(btn) ? 1 : 0;
+        o.t = o.back; // the − button taunts during play
         o.kb = 0;
       }
     }
-    for (const k of ['a', 'b', 'j', 's', 'm', 'p', 'back']) o[k + 'p'] = o[k] && !this.prev[k] ? 1 : 0;
+    for (const k of ['a', 'b', 'j', 's', 'm', 'p', 'back', 't']) o[k + 'p'] = o[k] && !this.prev[k] ? 1 : 0;
     // c-stick edge
     const cmag = Math.hypot(o.cx, o.cy), pc = Math.hypot(this.prev.cx || 0, this.prev.cy || 0);
     o.cp = cmag > 0.6 && pc <= 0.6 ? 1 : 0;
@@ -131,7 +133,7 @@ class RemoteInput {
     if (!Array.isArray(arr) || arr.length < 15) return;
     const keys = ['a', 'b', 'j', 's', 'm', 'p', 'c'];
     if (this.last) keys.forEach((k, i) => { if (arr[5 + i] !== this.last[5 + i]) this.pend[k] = 1; });
-    if (arr[12]) this.pend.flick = arr[12]; if (arr[13]) this.pend.flickY = arr[13];
+    if (arr[12]) this.pend.flick = arr[12]; if (arr[13]) this.pend.flickY = arr[13]; if (this.last && arr[14] !== this.last[14]) this.pend.t = 1;
     this.last = arr;
   }
   poll() {
@@ -141,7 +143,7 @@ class RemoteInput {
       const f = a[4] | 0; o.a = f & 1; o.b = (f >> 1) & 1; o.j = (f >> 2) & 1; o.s = (f >> 3) & 1; o.m = (f >> 4) & 1; o.p = (f >> 5) & 1; o.kb = (f >> 6) & 1;
     }
     for (const k of ['a', 'b', 'j', 's', 'm', 'p']) { o[k + 'p'] = this.pend[k]; this.pend[k] = 0; }
-    o.cp = this.pend.c; this.pend.c = 0;
+    o.cp = this.pend.c; this.pend.c = 0; o.tp = this.pend.t || 0; this.pend.t = 0;
     o.flick = this.pend.flick; o.flickY = this.pend.flickY; this.pend.flick = 0; this.pend.flickY = 0;
     this.cur = o; return o;
   }
@@ -178,6 +180,17 @@ const Audio2 = {
       case 'confirm': this.sweep(400, 4500, 0.16, 0.2); this.chime([1568, 2349], 40, 0.1, 0.4); this.tone(140, 0.14, 'sine', 0.22, 0.5); break;
       case 'hit': this.noise(0.08 + k * 0.04, 0.25 + k * 0.1, 900 + k * 900); this.tone(180 - k * 30, 0.1, 'square', 0.12, 0.5); break;
       case 'bighit': this.noise(0.25, 0.45, 2500); this.tone(110, 0.3, 'sawtooth', 0.2, 0.3); break;
+      case 'crowd': { // stadium cheer: two formant-filtered noise swells
+        if (!this.ctx || this.muted) break; const c = this.ctx, t = c.currentTime, dur = 1.8, n = Math.floor(c.sampleRate * dur); const buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 + 0.35 * Math.sin(i / c.sampleRate * 2 * Math.PI * (7 + Math.random())));
+        for (const [fq, v] of [[650, 0.5], [1500, 0.32], [2600, 0.16]]) { const s = c.createBufferSource(); s.buffer = buf; const f = c.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = fq; f.Q.value = 1.4; const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v * 0.5 * k, t + 0.25); g.gain.linearRampToValueAtTime(v * 0.35 * k, t + 0.9); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(f); f.connect(g); g.connect(this.master); s.start(t); }
+        break; }
+      case 'count': this.tone(880, 0.16, 'square', 0.12); this.tone(440, 0.2, 'triangle', 0.12); break;
+      case 'go': this.chime([1047, 1319, 1568, 2093], 0, 0.12, 0.7); this.sweep(300, 6000, 0.35, 0.25); this.tone(130, 0.5, 'sawtooth', 0.18, 0.5); break;
+      case 'game': this.chime([523, 659, 784, 1047], 0, 0.14, 1.2); this.tone(65, 0.9, 'sawtooth', 0.22, 0.6); this.noise(0.6, 0.35, 3000); break;
+      case 'twinkle': this.chime([2093, 2637, 3136], 70, 0.08, 0.5); break;
+      case 'splat': this.noise(0.18, 0.5, 900); this.tone(90, 0.25, 'square', 0.22, 0.4); break;
+      case 'dizzy': this.chime([1568, 1760, 1568, 1760], 90, 0.04, 0.2); break;
+      case 'taunt': this.chime([784, 988, 1175], 60, 0.09, 0.35); break;
       case 'swing': this.noise(0.06, 0.08, 3000); break;
       case 'jump': this.tone(300, 0.08, 'square', 0.07, 1.8); break;
       case 'land': this.noise(0.05, 0.08, 500); break;
@@ -202,3 +215,13 @@ const Audio2 = {
     }
   }
 };
+
+// Announcer voice (uses the browser's speech synthesis, pitched down; silent when SFX volume is 0)
+function announce(t) {
+  try {
+    if (!window.speechSynthesis || Audio2.muted || Audio2.vol <= 0.01) return;
+    speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.rate = 0.92; u.pitch = 0.5; u.volume = Math.min(1, Audio2.vol * 1.7);
+    const vs = speechSynthesis.getVoices(); const v = vs.find(v => /^en/i.test(v.lang) && /male|david|daniel|alex|fred|george|guy/i.test(v.name) && !/female/i.test(v.name)) || vs.find(v => /^en/i.test(v.lang)); if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  } catch (e) { }
+}
