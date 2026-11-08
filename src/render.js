@@ -147,6 +147,14 @@ function drawFighter(g, f) {
   const target = fighterPose(f).slice(); const holding = World.items.some(it => it.type === 'bomb' && (it.holder === f || (it.hs && it.hs === (f.slot + 1) && !f.isRival)));
   if (holding && ['idle', 'run', 'air', 'crouch', 'land', 'land0', 'squat', 'shield', 'shielddrop'].includes(f.state)) { target[3] = 13; target[4] = -2; target[5] = 9; target[6] = 2; }
   f._holding = holding;
+  // stage-start entrances (synced to the 3-2-1 countdown): Rook & Grom drop in, Vela flashes in with a slash, Pip pops out of a sparkle
+  let entY = 0, entA = 1, entS = 1; const ct = Game.countT | 0;
+  if (!rival && ct > 140 && World.stage && !World.stage.training) {
+    const k = clamp((200 - ct) / 55, 0, 1), id = def.id;
+    if (id === 0 || id === 3) { const fall = clamp(k / 0.5, 0, 1); entY = -(1 - fall * fall) * 420; if (fall < 1) { const jp = POSE.jump; for (let i = 0; i < 12; i++) target[i] = jp[i]; } else if (!f._entLand) { f._entLand = 1; f._ss = { t: 10, sx: id === 3 ? 1.35 : 1.2, sy: id === 3 ? 0.7 : 0.82 }; FX.dust(f.x - 14, f.y); FX.dust(f.x + 14, f.y); FX.ring(f.x, f.y, id === 3 ? 70 : 40, '#ffffff'); if (id === 3) { World.shake(10); Audio2.play('boom', 0.7); for (let i = 0; i < 6; i++) FX.add({ k: 'crack', x: f.x, y: f.y, a: rr(-Math.PI, 0), len: rr(16, 40), life: 60, max: 60, seed: Math.random() * 99 }); } else { World.shake(4); Audio2.play('thud'); } } }
+    else if (id === 1) { entA = k < 0.35 ? 0 : 1; if (k >= 0.35 && !f._entLand) { f._entLand = 1; FX.add({ k: 'slash', x: f.x, y: f.y - 34, a: -0.6, r: 60, life: 12, max: 12, c: '#9cc8ff' }); FX.add({ k: 'slash', x: f.x, y: f.y - 34, a: 0.9, r: 60, life: 12, max: 12, c: '#ffffff' }); FX.burst(f.x, f.y - 34, '#cfe6ff', 14); Audio2.play('swing'); f._ss = { t: 8, sx: 0.85, sy: 1.15 }; } }
+    else { entS = easeBack(clamp((k - 0.15) / 0.4, 0, 1)); entA = entS > 0.01 ? 1 : 0; if (k < 0.6 && World.frame % 2 === 0) FX.add({ k: 'spark', x: f.x + rr(-24, 24), y: f.y - rr(0, 70), vx: 0, vy: -0.8, life: 18, max: 18, c: ['#7dff8a', '#ffe14a', '#c77dff'][World.frame % 3], s: 3 }); if (k >= 0.15 && !f._entLand) { f._entLand = 1; FX.ring(f.x, f.y - 30, 50, '#7dff8a'); Audio2.play('portal'); } }
+  } else if (ct <= 140) f._entLand = 0;
   // ---- move feel: heavy wind-up tremble & impacts, agile afterimages & speed lines ----
   let tremble = 0, antic = 0, agileGhost = false;
   if (f.state === 'move' && f.move && f.move.hb && f.move.hb.length) {
@@ -179,6 +187,7 @@ function drawFighter(g, f) {
   f._gh = f._gh.filter(gh => gh.life > 0);
   drawSwingTrails(g, f);
   g.save();
+  if (entY || entA < 1 || entS !== 1) { g.translate(0, entY); g.globalAlpha *= entA; g.translate(f.x, f.y); g.scale(Math.max(0.001, entS), Math.max(0.001, entS)); g.translate(-f.x, -f.y); }
   if (f.buriedT > 0) { g.beginPath(); g.rect(f.x - 300, f.y - 500, 600, 500); g.clip(); g.translate(0, 36 * s); } // buried: sunk into the floor
   if (SX !== 1 || SY !== 1) { g.translate(f.x, f.y); g.scale(SX, SY); g.translate(-f.x, -f.y); }
   if (rival && f.spawnT > 0) { const k = 1 - f.spawnT / 40; g.globalAlpha = k; }
@@ -202,12 +211,13 @@ function drawFighter(g, f) {
   if (f.state === 'move' && f.move.name === 'nspec' && def.id === 2 && f.chgT > 0) { g.save(); g.globalCompositeOperation = 'lighter'; const r = 8 + f.chg * 14; const gg = g.createRadialGradient(J.h1[0] + f.face * 12, J.h1[1], 1, J.h1[0] + f.face * 12, J.h1[1], r * 1.6); gg.addColorStop(0, 'rgba(230,255,220,0.95)'); gg.addColorStop(0.5, 'rgba(120,255,120,0.6)'); gg.addColorStop(1, 'rgba(120,255,120,0)'); g.fillStyle = gg; g.beginPath(); g.arc(J.h1[0] + f.face * 12, J.h1[1], r * 1.6, 0, TAU); g.fill(); g.restore(); }
   g.restore();
   if (f.frozenT > 0) { g.fillStyle = 'rgba(190,240,255,0.35)'; g.strokeStyle = 'rgba(230,250,255,0.8)'; g.lineWidth = 2; g.fillRect(f.x - 16, f.y - 62, 32, 62); g.strokeRect(f.x - 16, f.y - 62, 32, 62); }
-  if (f.state === 'shield') { const r = 16 + 22 * (f.shieldHP / 50); g.fillStyle = rival ? 'rgba(200,120,255,0.3)' : 'rgba(120,220,255,0.35)'; g.strokeStyle = 'rgba(200,245,255,0.8)'; g.lineWidth = 2; g.beginPath(); g.arc(f.x, f.y - 30, r, 0, TAU); g.fill(); g.stroke(); }
+  if (f.state === 'shield') { const r = 16 + 22 * (f.shieldHP / 50), ti = f.inp || {}, ox = clamp(ti.mx || 0, -1, 1) * 7, oy = clamp(ti.my || 0, -1, 1) * 7; const sg = g.createRadialGradient(f.x + ox - r * 0.3, f.y - 30 + oy - r * 0.3, 2, f.x + ox, f.y - 30 + oy, r); sg.addColorStop(0, rival ? 'rgba(230,180,255,0.45)' : 'rgba(200,250,255,0.5)'); sg.addColorStop(1, rival ? 'rgba(200,120,255,0.28)' : 'rgba(120,220,255,0.3)'); g.fillStyle = sg; g.strokeStyle = 'rgba(200,245,255,0.85)'; g.lineWidth = 2; g.beginPath(); g.arc(f.x + ox, f.y - 30 + oy, r, 0, TAU); g.fill(); g.stroke(); } // shield tilts with the stick
   if (f.mods && f.mods.orb && !rival) { const ox = f.x + Math.cos(f.orbA) * 46, oy = f.y - 30 + Math.sin(f.orbA) * 46; g.fillStyle = '#ffe9a0'; g.beginPath(); g.arc(ox, oy, 7, 0, TAU); g.fill(); }
   if (f.state === 'move') for (const hb of Fighter.prototype.hitboxes.call(f)) { if (hb.h.orb || !hb.main) continue; if (hb.h.el) drawElementHB(g, hb, hb.h.el); else if (false) { g.strokeStyle = rival ? 'rgba(220,160,255,0.55)' : 'rgba(255,255,255,0.55)'; g.lineWidth = 3; g.beginPath(); g.arc(hb.x, hb.y, hb.r * 0.9, 0, TAU); g.stroke(); } }
   if (rival) { const pc = Math.floor(f.pct) + '%'; g.font = '900 13px Rubik,system-ui,sans-serif'; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = '#000'; g.strokeText(pc, f.x, f.y - 90 * s); g.fillStyle = pctColor(f.pct * 160 / f.limit); g.fillText(pc, f.x, f.y - 90 * s); return; }
   g.fillStyle = def.color; g.font = 'bold 13px Rubik,system-ui,sans-serif'; g.textAlign = 'center';
-  const ty = f.y - (def.id === 2 ? 108 : def.id === 3 ? 98 : 88) * s; g.lineWidth = 3; g.strokeStyle = OL; g.strokeText('P' + (f.slot + 1), f.x, ty); g.fillText('P' + (f.slot + 1), f.x, ty); g.beginPath(); g.moveTo(f.x - 6, ty + 5); g.lineTo(f.x + 6, ty + 5); g.lineTo(f.x, ty + 11); g.closePath(); g.stroke(); g.fill();
+  if (entA < 1 || entS < 0.5) return;
+  const ty = f.y + entY - (def.id === 2 ? 108 : def.id === 3 ? 98 : 88) * s; g.lineWidth = 3; g.strokeStyle = OL; g.strokeText('P' + (f.slot + 1), f.x, ty); g.fillText('P' + (f.slot + 1), f.x, ty); g.beginPath(); g.moveTo(f.x - 6, ty + 5); g.lineTo(f.x + 6, ty + 5); g.lineTo(f.x, ty + 11); g.closePath(); g.stroke(); g.fill();
 }
 
 // ----- enemies (chunky cartoon "subspace" creatures) -----

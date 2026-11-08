@@ -165,7 +165,7 @@ class Fighter {
         }
         break;
       }
-      case 'squat': this.vx *= 0.9; if (inp.ap || inp.cp) this.shMacro = { ...inp }; if (this.sf >= 4) { const full = !this.shMacro && (raw.j || (!raw.kb && raw.my < -0.5)); this.vy = -(full ? st.jump : st.jump * 0.68); this.shop = !full; this.air = 1; this.coyote = 0; this.state = 'air'; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); FX.dust(this.x, this.y); if (this.shMacro) { const m = this.shMacro; this.shMacro = null; m.ap = m.ap || (m.cp ? 0 : 1); this.airAttack(m, null); } } break;
+      case 'squat': this.vx *= 0.9; if (inp.ap && inp.s) { this.setMove('grab'); this.eat('jp'); break; } if (smashDir === 'u') { this.setMove('usmash'); break; } // jump-cancelled grab / up smash if (inp.ap || inp.cp) this.shMacro = { ...inp }; if (this.sf >= 4) { const full = !this.shMacro && (raw.j || (!raw.kb && raw.my < -0.5)); this.vy = -(full ? st.jump : st.jump * 0.68); this.shop = !full; this.air = 1; this.coyote = 0; this.state = 'air'; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); FX.dust(this.x, this.y); if (this.shMacro) { const m = this.shMacro; this.shMacro = null; m.ap = m.ap || (m.cp ? 0 : 1); this.airAttack(m, null); } } break;
       case 'land0': this.vx *= 0.8; if (this.groundAttack(inp, smashDir)) break; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 3) this.state = 'idle'; break;
       case 'land': this.vx *= 0.82; if (this.sf >= this.landLag) this.state = 'idle'; break;
       case 'shielddrop': this.vx *= 0.8; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 11) this.state = 'idle'; break;
@@ -210,6 +210,8 @@ class Fighter {
         if (inp.flick || (inp.kb && Math.abs(inp.mx) > 0.5 && this.sf > 2 && this.sf < 99 && (inp.flick || this.prevMx === 0))) { const d = sign(inp.mx || inp.flick); this.state = 'roll'; this.sf = 0; this.rollDir = d; this.face = -d; this.dsp = this.dStale | 0; this.dStale = Math.min(6, (this.dStale | 0) + 1); break; }
         if (inp.flickY === 1 || (inp.kb && inp.my > 0.5 && !this.prevMy)) { this.state = 'spot'; this.sf = 0; this.dsp = this.dStale | 0; this.dStale = Math.min(6, (this.dStale | 0) + 1); break; }
         if (inp.ap && this.sf > 1) { this.setMove('grab'); break; } // shield grab
+        if (inp.bp && inp.my < -0.5) { this.state = 'idle'; this.special(inp); break; } // up special out of shield
+        if (smashDir === 'u' || (inp.cp && inp.cy < -0.5)) { this.setMove('usmash'); break; } // up smash out of shield
         if (!raw.s && this.sf >= 3) { this.state = 'shielddrop'; this.sf = 0; }
         break;
       }
@@ -411,7 +413,7 @@ class Fighter {
       else if (this.state === 'hitstun' && (this.tumble || vyBefore > 6)) { this.plat = r.plat; this.knockdown(vxBefore); }
       else {
         this.vy = 0; this.ky = 0; this.plat = r.plat;
-        if (wasAir) { this.air = 0; this.shop = false; this.jumps = this.maxJumps; this.adodged = 0; this.usedAir = {}; this.ff = 0; this.wallJumped = 0; this.landT = 8; if (this.mods.landShock && this.y - this.fallStart > 120) this.landShock(); }
+        if (wasAir) { this.air = 0; this.shop = false; this.ledgeN = 0; this.jumps = this.maxJumps; this.adodged = 0; this.usedAir = {}; this.ff = 0; this.wallJumped = 0; this.landT = 8; if (this.mods.landShock && this.y - this.fallStart > 120) this.landShock(); }
       }
     } else {
       const gp = onGround(this);
@@ -427,6 +429,7 @@ class Fighter {
       const hx = L.x + L.dir * 10;
       if (Math.abs(this.x - hx) < 18 && this.y - 66 < L.y && this.y - 30 > L.y) {
         const occ = World.players.find(p => p !== this && p.state === 'ledge' && p.ledge === L); if (occ) { if (this.team !== 0) continue; occ.state = 'air'; occ.ledge = null; occ.air = 1; occ.vx = L.dir * 3.5; occ.vy = -3; occ.ledgeCD = 40; occ.intang = Math.max(occ.intang, 16); occ.sf = 0; FX.ring(occ.x, occ.y - 30, 24, '#ffffff'); FX.text(occ.x, occ.y - 80, 'TRUMPED!', '#ffffff', 12); }
+        this.ledgeN = (this.ledgeN | 0) + 1; this.intang = Math.max(this.intang, Math.max(4, 34 - (this.ledgeN - 1) * 10)); Audio2.play('grab', 0.4); // ledge-grab intangibility shrinks on repeated regrabs
         this.state = 'ledge'; this.ledge = L; this.sf = 0; this.move = null; this.face = -L.dir; this.x = L.x + L.dir * 10; this.y = L.y + 50;
         this.vx = this.vy = this.kx = this.ky = 0; this.intang = 40; this.jumps = this.maxJumps; this.adodged = 0; this.usedAir = {}; this.ff = 0; Audio2.play('land'); return;
       }
@@ -530,7 +533,7 @@ class Fighter {
     else { FX.ko(this.x, this.y, this.def.color); Audio2.play('ko'); World.shake(12); }
     if (this.team === 0) this.falls = (this.falls || 0) + 1;
     this.dead = true; this.respawnT = 100; this.kx = this.ky = this.vx = this.vy = 0;
-    Game.teamStocks--; if (Game.teamStocks < 0) { this.out = true; Game.teamStocks = 0; }
+    Game.teamStocks--; if (Game.teamStocks < 0) { this.out = true; Game.teamStocks = 0; } else if (Game.teamStocks === 0 && !(World.stage && World.stage.training)) Game.callout('LAST STOCK!', '#ff4f6a', 40);
   }
   respawn(keepPct) {
     const c = World.cam; const B = World.barriers;

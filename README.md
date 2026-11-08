@@ -79,6 +79,47 @@ Other rules:
 ### Rift Burst
 Your meter fills as you deal damage. When it is full, press **SHIELD + SPECIAL** for a screen-wide super with a cut-in.
 
+## Smash Ultimate mechanics
+- **Movement:**
+  - Initial dash, dash dancing, and a skidding run turnaround.
+  - Walking when you tilt the stick slightly.
+  - Teetering at ledge edges, and idle fidgets.
+  - Fast-fall sparkle.
+  - Wavedashing / wavelanding (air dodge into the floor).
+  - Shield-drop through platforms (shield + down-diagonal).
+  - **Footstools:** jump on an enemy's head.
+  - **Ledges:** grabbing one gives brief intangibility that shrinks on regrabs, and grabbing an occupied one "trumps" the player hanging there.
+- **Offense:**
+  - Short-hop aerials (JUMP + ATTACK together), which deal 0.85× damage like in Ultimate.
+  - B-reverse.
+  - Dash grab.
+  - Up-special and up-smash out of shield, plus jump-cancelled grabs and up smashes.
+  - Rage: more knockback at high damage.
+  - A freshness bonus for unused moves.
+  - Grounded attacks **clank** when they collide, and attacks swat weak projectiles.
+- **Defense:**
+  - Smash DI during hitlag.
+  - Crouch canceling.
+  - Hitstun canceling.
+  - Dodge staling.
+  - Grab release.
+  - Jab resets.
+- **Special hits:**
+  - Grom's down tilt **buries** grounded foes, and Rook's and Vela's down tilts **trip** them.
+  - Meteor smashes spark.
+  - Huge hits on tough foes get a **critical-hit zoom**.
+- **Presentation:**
+  - A 3-2-1-GO! countdown with character entrances.
+  - A GAME! splash.
+  - **Star KOs** and **Screen KOs** off the top.
+  - A magnifying bubble when you're off-screen.
+  - A charge glint on full-charged smashes.
+  - Rage steam, dizzy stars on shield break, and a revival platform.
+  - Shield bubbles that tilt with the stick.
+  - Damage % with decimals.
+  - A crowd cheer and an announcer voice (both use your SFX volume).
+- **Taunts:** T (P1), ' (P2) or the minus button. Hold up, side or down for different taunts.
+
 ## Items
 - **Food** drops after waves and lowers your damage %.
 - **Rift Crates** are scattered through stages. Break them for food or bombs.
@@ -93,6 +134,8 @@ Your meter fills as you deal damage. When it is full, press **SHIELD + SPECIAL**
 Pick **TRAINING** to practice against dummies, with infinite stocks and a combo counter. Pause to use these options:
 - **HITBOXES: ON**: shows hitboxes (red), hurtboxes (yellow, or green while invincible) and launch trajectory lines
 - **DUMMY:** STAND / SHIELD / JUMP / CPU
+- **SPEED:** 1x / 1/2x / 1/4x
+- **DUMMY %:** sets the dummies' starting damage
 - **RESET POSITIONS**
 
 ## Controls

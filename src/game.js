@@ -478,7 +478,13 @@ function drawOffscreen() {
   const c = World.cam;
   for (const p of World.players) {
     if (p.dead || p.out) continue; const x = (p.x - c.x) * c.z + W / 2, y = (p.y - 30 - c.y) * c.z + H / 2;
-    if (x < 0 || x > W || y < 0 || y > H) { const cx = clamp(x, 40, W - 40), cy = clamp(y, 40, H - 140); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.arc(cx, cy, 26, 0, TAU); ctx.fill(); ctx.strokeStyle = p.def.color; ctx.lineWidth = 4; ctx.stroke(); UI.text('P' + (p.slot + 1), cx, cy + 6, 16, p.def.color); }
+    if (x < 0 || x > W || y < 0 || y > H) { // Smash-style magnifying bubble with a live mini view of the fighter
+      const cx = clamp(x, 52, W - 52), cy = clamp(y, 52, H - 150), dist = Math.hypot(x - cx, y - cy), r = clamp(44 - dist * 0.04, 26, 44);
+      ctx.save(); ctx.fillStyle = 'rgba(10,6,24,0.72)'; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill(); ctx.clip();
+      const pose = p.rp || STAND; drawFighterArt(p.def.id, cx, cy + r * 0.62, p.face, r / 44 * 0.62, pose); ctx.restore();
+      ctx.lineWidth = 4; ctx.strokeStyle = p.def.color; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.beginPath(); ctx.arc(cx, cy, r - 4, -2.4, -1.2); ctx.stroke();
+      const a = Math.atan2(y - cy, x - cx); ctx.fillStyle = p.def.color; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * (r + 12), cy + Math.sin(a) * (r + 12)); ctx.lineTo(cx + Math.cos(a + 0.35) * r, cy + Math.sin(a + 0.35) * r); ctx.lineTo(cx + Math.cos(a - 0.35) * r, cy + Math.sin(a - 0.35) * r); ctx.fill();
+      T('P' + (p.slot + 1), cx, cy - r - 6, 14, p.def.color, { stroke: 4, shadow: false }); }
   }
 }
 function pctColor(p) { const t = clamp(p / 160, 0, 1); const r = 255, g = Math.round(255 - t * 200), b = Math.round(255 - t * 230); return `rgb(${r},${g},${b})`; }
