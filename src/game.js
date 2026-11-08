@@ -381,7 +381,7 @@ function updateCharSel() {
   if (G.mode === 'host' && !Net.guestPeer) { G.slots.length = 1; }
   if (G.mode === 'host' && Net.guestPeer && G.slots.length < 2) { G.slots[1] = { input: Net.remote, dev: 'net' }; G.csel[1] = 1; G.cready[1] = false; }
   const all = G.slots.length && G.slots.every((_, i) => G.cready[i]) && (G.mode !== 'local' || G.slots.length >= 1);
-  if (all && G.t > 20) { if (G.mode === 'local' && G.slots.length < 2 && !G.soloOK) { } G.startRun(); }
+  if (all && G.t > 20) { G.readyT = (G.readyT | 0) + 1; if (G.readyT === 1) { Audio2.play('confirm'); Audio2.play('crowd', 0.6); } if (G.readyT > 50) { G.readyT = 0; G.startRun(); } } else G.readyT = 0; // READY TO FIGHT banner
 }
 const PAUSE_OPTS = ['RESUME', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT RUN'];
 const DUMMY_MODES = ['STAND', 'SHIELD', 'JUMP', 'CPU'];

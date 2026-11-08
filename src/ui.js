@@ -294,6 +294,7 @@ function drawCharSel() {
     clickRegions().push({ x, y: ty, w: tw, h: 120, fn: () => { Game.clickChar = i; } });
   });
   T('◀ ▶ choose     ATTACK / JUMP confirm     SPECIAL back', W / 2, H - 16, 15, '#cfc6e6', { stroke: 4 });
+  if (G.readyT > 0) { const k = easeOut(clamp(G.readyT / 10, 0, 1)); ctx.save(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.setTransform(HD.k, 0, 0, HD.k, 0, 0); ctx.translate((1 - k) * -W, 0); const y = H / 2 - 50; const gr = ctx.createLinearGradient(0, y, 0, y + 100); gr.addColorStop(0, '#ff4fd8'); gr.addColorStop(1, '#8a3cff'); ctx.fillStyle = gr; slant(-20, y, W + 40, 100, 24); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 5; ctx.stroke(); T('READY TO FIGHT!', W / 2 + Math.sin(G.readyT * 0.3) * 2, y + 72, 64, null, { stroke: 11, grad: ['#ffffff', '#ffe27a'] }); ctx.restore(); }
 }
 const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: '✚', shield: '⬢', spec: '✦', smash: '✸', take: '◆', lag: '⤓', kb: '✹', aerial: '✈', land: '☄', thorns: '✶', stock: '♥', atk: '⚡', orb: '◉', steal: '♦', exec: '☠', meteor: '☄', phoenix: '❂', chain: 'ϟ', giant: '▲', glass: '◇' };
 function drawBoon() {
@@ -380,12 +381,13 @@ function sceneDraw() {
 function drawResultCards(s) {
   const ps = s.ps, n = ps.length, cw = n >= 4 ? 236 : 270, ch = 236, gap = 22, x0 = W / 2 - (n * cw + (n - 1) * gap) / 2, y0 = 392;
   const mvp = ps.reduce((b, q, i) => (q[1] + q[2] * 40 > ps[b][1] + ps[b][2] * 40 ? i : b), 0);
+  if (UIW.st === 14) { Audio2.play(s.win ? 'fanfare' : 'sting'); const nm = (FIGHTERS[ps[mvp][0]] || FIGHTERS[0]).name; announce(s.win ? (n > 1 ? 'The winner is... ' + nm[0] + nm.slice(1).toLowerCase() + '!' : 'Victory!') : 'Defeated.'); }
   ps.forEach((q, i) => {
     const F = FIGHTERS[q[0]] || FIGHTERS[0], ein = easeBack(clamp((UIW.st - 10 - i * 7) / 20, 0, 1)); if (ein <= 0) return;
     const x = x0 + i * (cw + gap), y = y0 + (1 - ein) * 260;
     ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1);
     // fighter standing on the floor beside the row, celebrating or slumped
-    if (n <= 2) { const pose = menuIdlePose(q[0], World.frame + i * 13); if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose); }
+    if (n <= 2) { let pose = menuIdlePose(q[0], World.frame + i * 13); const vm = s.win && FIGHTERS[q[0]].moves[['tauntU', 'tauntS', 'tauntD'][(q[0] + i) % 3]]; if (vm) pose = kfPose(vm.kf, Math.min(vm.d - 14, (World.frame * 0.6 + i * 17) % (vm.d + 30))).slice(); else if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose); }
     glass(x, y, cw, ch, F.color, 16, 0.92);
     drawPortrait(ctx, q[0], x + 40, y + 40, 26);
     T('P' + (i + 1), x + 76, y + 30, 14, F.color, { align: 'left', stroke: 4 }); T(F.name.toUpperCase(), x + 76, y + 56, 24, '#fff', { align: 'left', stroke: 5 });

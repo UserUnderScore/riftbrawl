@@ -169,7 +169,7 @@ class Fighter {
       case 'land0': this.vx *= 0.8; if (this.groundAttack(inp, smashDir)) break; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 3) this.state = 'idle'; break;
       case 'land': this.vx *= 0.82; if (this.sf >= this.landLag) this.state = 'idle'; break;
       case 'shielddrop': this.vx *= 0.8; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 11) this.state = 'idle'; break;
-      case 'revive': { this.vx = this.vy = 0; const moved = Math.hypot(raw.mx, raw.my) > 0.4 || raw.ap || raw.bp || raw.jp || raw.sp || this.sf > 200; this.intang = Math.max(this.intang, 2); if (moved && this.sf > 20) { this.state = 'air'; this.air = 1; this.sf = 0; this.intang = 100; this.buf = {}; } break; }
+      case 'revive': { this.vx = this.vy = 0; if (this.revY !== undefined && this.sf <= 34) { this.y = lerp(this.revY - 240, this.revY, 1 - Math.pow(1 - this.sf / 34, 3)); if (this.sf === 34) this.revY = undefined; } const moved = Math.hypot(raw.mx, raw.my) > 0.4 || raw.ap || raw.bp || raw.jp || raw.sp || this.sf > 200; this.intang = Math.max(this.intang, 2); if (moved && this.sf > 20) { this.state = 'air'; this.air = 1; this.sf = 0; this.intang = 100; this.buf = {}; } break; }
       case 'tech': this.vx *= 0.7; if (this.sf <= 20) this.intang = Math.max(this.intang, 2); if (this.sf >= 26) this.state = 'idle'; break;
       case 'techroll': if (this.sf <= 20) this.intang = Math.max(this.intang, 2); this.vx = this.sf < 26 ? this.rollDir * 5.6 : this.vx * 0.7; if (this.sf >= 36) this.state = 'idle'; break;
       case 'walltech': this.vx = this.vy = 0; if (this.sf <= 14) this.intang = Math.max(this.intang, 2); if (raw.jp && this.sf > 2) { this.state = 'air'; this.sf = 0; this.vy = -st.djump; this.vx = -this.wallSide * 4.5; this.face = -this.wallSide; Audio2.play('jump'); FX.dust(this.x + this.wallSide * 10, this.y - 20); this.eat('jp'); break; } if (this.sf >= 16) { this.state = 'air'; this.sf = 0; this.vx = -this.wallSide * 2; } break;
@@ -224,7 +224,7 @@ class Fighter {
         if (t >= 34 + ds * 3) { this.state = 'air'; this.sf = 0; }
         break;
       }
-      case 'shieldbreak': { this.vx *= 0.9; if (this.sf % 20 === 0) FX.text(this.x, this.y - 70, '?!', '#ffe14a', 14); if (this.sf >= 150) { this.state = 'idle'; this.shieldHP = 25; } break; }
+      case 'shieldbreak': { this.vx *= 0.9; if (raw.ap || raw.bp || raw.jp || raw.sp) this.sf += 5; /* mash to recover faster */ if (this.sf % 20 === 0) FX.text(this.x, this.y - 70, '?!', '#ffe14a', 14); if (this.sf >= 150) { this.state = 'idle'; this.shieldHP = 25; } break; }
       case 'hitstun': {
         this.hitstun--;
         if (this.hitstun > 0 && this.air && this.tumble && this.team === 0) { if (this.sf >= 40 && inp.sp && !this.adodged && groundBelow(this.x, this.y, 90) === null) { this.hitstun = 0; this.tumble = 0; this.startAirDodge(inp); this.eat('sp'); break; } if (this.sf >= 45 && (inp.ap || inp.cp)) { this.hitstun = 0; this.tumble = 0; this.state = 'air'; this.sf = 0; if (this.airAttack(inp, null)) break; } }
@@ -422,7 +422,7 @@ class Fighter {
     }
     if (!this.air) this.fallStart = this.y; else this.fallStart = Math.min(this.fallStart, this.y);
     // ledge grab
-    if (this.air && this.ledgeCD === 0 && ['air', 'helpless', 'move'].includes(this.state) && this.vy >= -1 && !(this.state === 'move' && !this.move.helpless && !this.move.untilLand)) this.tryLedge();
+    if (this.air && this.ledgeCD === 0 && (['air', 'helpless', 'move'].includes(this.state) || (this.state === 'adodge' && this.sf > 18)) && this.vy >= -1 && !(this.state === 'move' && !this.move.helpless && !this.move.untilLand)) this.tryLedge();
   }
   tryLedge() {
     for (const L of World.stage.ledges) {
@@ -543,6 +543,7 @@ class Fighter {
     const gy = groundBelow(x, c.y - 300, 900); this.x = x; this.y = (gy !== null ? Math.min(gy - 150, c.y - 60) : c.y - 160); this.vx = this.vy = this.kx = this.ky = 0; this.air = 1; this.sf = 0; this.move = null; this.buf = {};
     if (!keepPct) this.pct = 0; this.dead = false; this.intang = 150; this.hitstun = 0; this.jumps = this.maxJumps; this.shieldHP = 50 * this.mods.shield; this.state = keepPct ? 'air' : 'revive';
     for (let i = 0; i < 20 && this.insideSolid(); i++) this.y -= 20;
+    if (!keepPct) { this.revY = this.y; this.y -= 240; } // the revival platform descends from the top
     FX.ring(this.x, this.y, 50, '#ffffff'); FX.burst(this.x, this.y - 30, this.def.color, 16);
   }
 }
@@ -690,7 +691,7 @@ function resolveCombat() {
         const rage = p.team === 0 ? 1 + clamp((p.pct - 35) / 115, 0, 1) * 0.1 : 1; // rage: more knockback the more damage you have
         const gnd = !e.air;
         const res = e.takeHit({ dmg, ang, bkb: h.bkb + (h.chgKb || 0) * p.chg, kbg: h.kbg * p.mods.kb * rage, att: p, x: hb.x, y: hb.y, ax: p.x, fx: h.fx || h.el, stun: h.stun || 0, fromX: p.x, fromY: p.y - 30 });
-        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); if (h.bounce && p.air) { p.vy = -8.5; p.ff = 0; p.jumps = Math.max(p.jumps, 1); }
+        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit' && h.el === 'shock') { e.hitlag = Math.round((e.hitlag || 0) * 1.5); p.hitlag = Math.round((p.hitlag || 0) * 1.5); } if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); if (h.bounce && p.air) { p.vy = -8.5; p.ff = 0; p.jumps = Math.max(p.jumps, 1); }
           if (h.bury && gnd && !e.boss) buryTarget(e); else if (h.trip && gnd && !e.boss) tripTarget(e, p);
           if (!e.boss || e.hp <= 0) criticalCheck(p, e, h); if (p.move && p.move.heavy) { World.shake(Math.min(14, 4 + dmg * 0.45)); World.zp = Math.max(World.zp || 0, 0.035); e.hitlag = Math.round((e.hitlag || 0) * 1.25); p.hitlag = Math.round(p.hitlag * 1.25); } } }
       }

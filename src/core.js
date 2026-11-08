@@ -187,6 +187,8 @@ const Audio2 = {
       case 'count': this.tone(880, 0.16, 'square', 0.12); this.tone(440, 0.2, 'triangle', 0.12); break;
       case 'go': this.chime([1047, 1319, 1568, 2093], 0, 0.12, 0.7); this.sweep(300, 6000, 0.35, 0.25); this.tone(130, 0.5, 'sawtooth', 0.18, 0.5); break;
       case 'game': this.chime([523, 659, 784, 1047], 0, 0.14, 1.2); this.tone(65, 0.9, 'sawtooth', 0.22, 0.6); this.noise(0.6, 0.35, 3000); break;
+      case 'fanfare': { const seq = [[523, 0], [659, 110], [784, 220], [1047, 330], [988, 560], [1047, 680], [1319, 820]]; for (const [f, d] of seq) setTimeout(() => { this.tone(f, 0.34, 'square', 0.07); this.tone(f / 2, 0.34, 'triangle', 0.08); this.tone(f * 1.5, 0.2, 'sine', 0.03); }, d); setTimeout(() => this.chime([1047, 1319, 1568, 2093], 40, 0.08, 0.9), 820); break; }
+      case 'sting': { const seq = [[392, 0], [370, 220], [349, 440], [262, 700]]; for (const [f, d] of seq) setTimeout(() => { this.tone(f, 0.4, 'triangle', 0.1); this.tone(f / 2, 0.45, 'sine', 0.1); }, d); break; }
       case 'twinkle': this.chime([2093, 2637, 3136], 70, 0.08, 0.5); break;
       case 'splat': this.noise(0.18, 0.5, 900); this.tone(90, 0.25, 'square', 0.22, 0.4); break;
       case 'dizzy': this.chime([1568, 1760, 1568, 1760], 90, 0.04, 0.2); break;
