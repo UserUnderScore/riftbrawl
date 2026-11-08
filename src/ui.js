@@ -1,3 +1,4 @@
+const GAME_VERSION = '11.08-d';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -341,6 +342,7 @@ function sceneDraw() {
       drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); drawLogo(W / 2, 220, 120);
       T('A CO-OP ROGUELIKE PLATFORM FIGHTER', W / 2, 268, 20, '#ff9ae8', { stroke: 5 });
       if (G.t % 70 < 50) T('PRESS ANY BUTTON', W / 2, 352, 32, '#fff', { stroke: 7 });
+      T('version ' + GAME_VERSION, 16, H - 14, 13, '#cfc6e6', { align: 'left', stroke: 3, shadow: false });
       if (!Audio2.ctx || Audio2.ctx.state !== 'running') T('♪ Click or press a key to turn on music & sound', W / 2, 440, 15, '#ffe9a0', { stroke: 4 });
       T(gamepadBlocked ? 'Controllers unavailable in this view — open the page full-screen to use one' : (getPads().length ? 'Controller detected: ' + shortPadName(getPads()[0].id) : 'Keyboard ready · plug in a controller and press a button'), W / 2, 390, 15, '#cfc6e6', { stroke: 4 });
       if (G.best.time) T('Best clear ' + fmtTime(G.best.time) + (G.best.endless ? '  ·  Endless best ' + G.best.endless : ''), W / 2, 414, 14, '#bfb4d8', { stroke: 3 });
@@ -356,8 +358,8 @@ function sceneDraw() {
     }
     case 'controls': drawTitleBG(); drawControlsPanel(120, 110); T('press any button to return', W / 2, 650, 15, '#cfc6e6', { stroke: 4 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break;
     case 'remap': { drawTitleBG(); const R = G.remap; glass(W / 2 - 360, 120, 720, 400, '#ff4fd8', 24); T('CONTROLLER SETUP', W / 2, 180, 40, '#fff', { stroke: 8 }); if (!getPads().length) T('No controller detected. Connect one and press a button first.', W / 2, 300, 18, '#ffe9a0', { stroke: 4 }); else { T('Press the button you want for:', W / 2, 270, 20, '#e8e2f5', { stroke: 4 }); T(REMAP_STEPS[Math.min(R.step, REMAP_STEPS.length - 1)][1], W / 2, 350, 64, null, { stroke: 10, grad: ['#fff', '#ff4fd8'] }); T('Smash default: ATTACK = A (right), SPECIAL = B (bottom), JUMP = X, SHIELD = R', W / 2, 420, 15, '#cfc6e6', { stroke: 3 }); T('Esc: cancel   ·   Backspace: reset to default', W / 2, 460, 14, '#bfb4d8', { stroke: 3 }); } break; }
-    case 'lobby': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#ffd23c', 26); T('HOSTING ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T('Read this room code to your partner:', W / 2, 238, 20, '#e8e2f5', { stroke: 4 }); T(Net.code || '····', W / 2, 350, 110, null, { stroke: 14, grad: ['#fff7c2', '#ffb02c'] }); T(Net.status, W / 2, 410, 18, Net.ok ? '#7dff8a' : '#ff8a8a', { stroke: 4 }); T('They open this same game, pick ONLINE: JOIN, and enter the code.', W / 2, 450, 16, '#cfc6e6', { stroke: 3 }); T('SPECIAL / Esc to go back', W / 2, 500, 14, '#bfb4d8', { stroke: 3 }); break;
-    case 'join': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#5ab4ff', 26); T('JOIN ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T("Type your partner's 4-letter code, then press Enter", W / 2, 240, 18, '#e8e2f5', { stroke: 4 }); TWrap(Net.status, W / 2, 452, 17, Net.ok ? '#7dff8a' : '#ffe9a0', 700); break;
+    case 'lobby': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#ffd23c', 26); T('HOSTING ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T('Read this room code to your partner:', W / 2, 238, 20, '#e8e2f5', { stroke: 4 }); T(Net.code || '····', W / 2, 350, 110, null, { stroke: 14, grad: ['#fff7c2', '#ffb02c'] }); T(Net.status, W / 2, 410, 18, Net.ok ? '#7dff8a' : '#ff8a8a', { stroke: 4 }); T('They open this same game, pick ONLINE: JOIN, and enter the code.', W / 2, 450, 16, '#cfc6e6', { stroke: 3 }); T('SPECIAL / Esc to go back', W / 2, 500, 14, '#bfb4d8', { stroke: 3 }); T('version ' + GAME_VERSION, W / 2, 560, 13, '#cfc6e6', { stroke: 3, shadow: false }); break;
+    case 'join': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#5ab4ff', 26); T('JOIN ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T("Type your partner's 4-letter code, then press Enter", W / 2, 240, 18, '#e8e2f5', { stroke: 4 }); TWrap(Net.status, W / 2, 452, 17, Net.ok ? '#7dff8a' : '#ffe9a0', 700); T('version ' + GAME_VERSION + ' — both players must show the same version', W / 2, 518, 13, '#cfc6e6', { stroke: 3, shadow: false }); break;
     case 'charsel': drawCharSel(); break;
     case 'play': drawWorld(); drawHUD(); if (G.paused || (Net.isGuest && Net.hostPaused)) drawPause(); if (Net.isGuest && G.localPause) drawPause(true); break;
     case 'boon': drawBoon(); break;

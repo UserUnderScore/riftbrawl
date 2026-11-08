@@ -2843,14 +2843,12 @@ const PeerRoom = {
   },
   async cfg() {
     const q = new URLSearchParams(location.search);
-    const ice = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:global.stun.twilio.com:3478' }];
-    const oc = await this.turnCreds('openrelayprojectsecret'); // Open Relay Project's published static-auth secret
-    if (oc) ice.push({ urls: ['turn:staticauth.openrelay.metered.ca:80', 'turn:staticauth.openrelay.metered.ca:443', 'turn:staticauth.openrelay.metered.ca:443?transport=tcp', 'turns:staticauth.openrelay.metered.ca:443?transport=tcp'], username: oc.username, credential: oc.credential });
+    const ice = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }]; // same as the original working setup
     // optional custom relay: ?turn=turn:host:port&turnuser=u&turncred=p   or   ?metered=APPNAME:APIKEY (free Metered account)
     if (q.get('turn')) ice.push({ urls: q.get('turn').split(','), username: q.get('turnuser') || '', credential: q.get('turncred') || '' });
     const met = q.get('metered') || (() => { try { return localStorage.getItem('rb_metered'); } catch (e) { return null; } })();
     if (met && met.includes(':')) { try { if (q.get('metered')) localStorage.setItem('rb_metered', met); const [app, key] = met.split(':'); const r = await fetch('https://' + app + '.metered.live/api/v1/turn/credentials?apiKey=' + encodeURIComponent(key)); const j = await r.json(); if (Array.isArray(j)) ice.push(...j); } catch (e) { } }
-    const c = { debug: 0, config: { iceServers: ice, iceCandidatePoolSize: 4 } };
+    const c = { debug: 0, config: { iceServers: ice } };
     if (q.get('icefail') === '1') c.config = { iceServers: [], iceTransportPolicy: 'relay' }; // test hook: simulate a network that blocks direct links
     if (q.get('peerhost')) { c.host = q.get('peerhost'); c.port = +(q.get('peerport') || 9000); c.path = q.get('peerpath') || '/'; c.secure = q.get('peersecure') === '1'; }
     return c;
@@ -2894,7 +2892,7 @@ const PeerRoom = {
       const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(api); } };
       const fail = (code, message) => { if (!done) { done = true; clearTimeout(timer); try { peer && peer.destroy(); } catch (e) { } for (const r of relays) try { r.close(); } catch (e) { } reject({ code, message }); } };
       let iceState = '', relayTried = false, hostSeen = false, tryRelay = () => { };
-      const timer = setTimeout(() => fail('timeout', opt.host ? 'Could not reach any matchmaking server. Check your internet and reload.' : hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No answer from a host with that code. Make sure the host is still on the lobby screen.'), opt.host ? 20000 : 40000);
+      const timer = setTimeout(() => fail('timeout', opt.host ? 'Could not reach any matchmaking server. Check your internet and reload.' : hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No answer from a host with that code. Make sure the host is still on the lobby screen.'), opt.host ? 20000 : 50000);
 
       // ---------- relay (MQTT over WebSocket) ----------
       const relayConn = (cl, pubTopic, peerId) => {
@@ -2920,11 +2918,11 @@ const PeerRoom = {
       } else {
         tryRelay = why => {
           if (relayTried || done) return; relayTried = true; status(why || 'Trying the relay connection…'); let picked = null;
-          setTimeout(() => { if (!picked) fail(hostSeen ? 'no_link' : 'no_host', hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No host found with that code. Check the letters, and make sure the host is still on the lobby screen.'); }, 15000);
+          setTimeout(() => { if (!picked && !done) fail(hostSeen ? 'no_link' : 'no_host', hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No host found with that code. Check the letters, and make sure the host is still on the lobby screen.'); }, 20000);
           startRelay(cl => {
             cl.sub(topic + '/h', raw => {
               let m; try { m = JSON.parse(raw); } catch (e) { return; } if (!m || m.to !== myId) return;
-              if (!picked) { picked = cl; hostSeen = true; const c = relayConn(cl, topic + '/g', m.from); attach(c); finish(); }
+              if (!picked && !done) { picked = cl; hostSeen = true; const c = relayConn(cl, topic + '/g', m.from); attach(c); finish(); }
               if (conn && conn.relay && conn.rid === m.from) { conn.last = performance.now(); if (m.d) conn.emit('data', m.d); }
             });
             const hello = () => { if (!picked && !done) { cl.pub(topic + '/g', JSON.stringify({ from: myId, hi: 1 })); setTimeout(hello, 1500); } };
@@ -2937,12 +2935,12 @@ const PeerRoom = {
           const tryConnect = () => {
             if (done) return; tries++; status(tries === 1 ? 'Looking for the host…' : 'Still connecting…');
             const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); attach(c);
-            const watch = setInterval(() => { const pc = c.peerConnection; if (!pc) return; const st = pc.iceConnectionState; if (st && st !== iceState) { iceState = st; if (st === 'checking') { hostSeen = true; status('Found the host — linking networks…'); } if (st === 'failed' || st === 'disconnected') tryRelay('Direct link blocked by your network — switching to the relay…'); } }, 250);
+            const watch = setInterval(() => { const pc = c.peerConnection; if (!pc) return; const st = pc.iceConnectionState; if (st && st !== iceState) { iceState = st; if (st === 'checking') { hostSeen = true; status('Found the host — linking networks…'); } if (st === 'failed') tryRelay('Direct link blocked by your network — switching to the relay…'); } }, 250);
             c.on('open', () => { clearInterval(watch); if (!done) { if (conn !== c) attach(c); finish(); } });
-            setTimeout(() => { clearInterval(watch); if (done || c.open) return; if (tries < 2 && (!relayTried || hostSeen)) tryConnect(); }, 9000);
+            setTimeout(() => clearInterval(watch), 60000);
           };
           peer.on('open', tryConnect);
-          setTimeout(() => tryRelay(hostSeen ? 'Direct link is slow — also trying the relay…' : 'Trying the relay connection…'), 7000);
+          setTimeout(() => tryRelay(hostSeen ? 'Direct link is slow — also trying the backup relay…' : 'Trying the backup relay…'), 14000);
         }
       }
       if (peer) {
@@ -3021,7 +3019,7 @@ const Net = {
         catch (e) { if (e && e.code === 'taken' && tries < 4) { this.code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[ri(0, 23)]).join(''); continue; } throw e; }
       }
       this.ok = true; this.status = 'Room open — waiting for your partner to join…';
-      this.r.presence({ role: 'host', v: 1 }).catch(() => { });
+      this.r.presence({ role: 'host', v: 1, gv: GAME_VERSION }).catch(() => { });
       this.r.onPeers(ch => {
         const g = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'guest');
         if (g && !this.guestPeer) { UI.toast('Partner joined!'); Audio2.play('select'); }
@@ -3032,7 +3030,7 @@ const Net = {
     this.wrapFX();
   },
   async join(code) {
-    this.leave(); this.code = code; this.status = 'Connecting to ' + code + '…'; this.ok = false;
+    this.leave(); this.code = code; this.status = 'Connecting to ' + code + '…'; this.ok = false; this._vw = 0;
     const room = await this.getRoom(); if (!room) return;
     try {
       this.r = await room.join('rb-' + code.toLowerCase(), { host: false, onStatus: m => { if (!this.isGuest) this.status = m; } });
@@ -3040,7 +3038,7 @@ const Net = {
       this.r.presence({ role: 'guest', in: [] }).catch(() => { });
       showJoinBox(false); Game.scene = 'wait';
       this.local = Devices.get(Game.primary || 'kb1');
-      this.r.onPeers(ch => { const h = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'host'); if (!h && this.hostP) { UI.toast('Host left the game'); this.leave(); Game.setScene('title'); } this.hostP = h ? h.peer : null; });
+      this.r.onPeers(ch => { const h = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'host'); if (!h && this.hostP) { UI.toast('Host left the game'); this.leave(); Game.setScene('title'); } this.hostP = h ? h.peer : null; if (h && h.presence && h.presence.gv !== GAME_VERSION && !this._vw) { this._vw = 1; UI.toast('Host is on a different version (' + (h.presence.gv || 'older') + '). Both players: press Ctrl+Shift+R to refresh.'); } });
       setTimeout(() => { if (this.isGuest && !this.hostP) this.status = 'No host found with code ' + code + ' (yet). Double-check the code.'; }, 6000);
     } catch (e) { this.status = 'Could not join: ' + ((e && (e.message || e.code)) || 'error'); }
   },
@@ -4060,6 +4058,7 @@ function drawCrate(g, it) {
   g.restore();
 }
 
+const GAME_VERSION = '11.08-d';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -4403,6 +4402,7 @@ function sceneDraw() {
       drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); drawLogo(W / 2, 220, 120);
       T('A CO-OP ROGUELIKE PLATFORM FIGHTER', W / 2, 268, 20, '#ff9ae8', { stroke: 5 });
       if (G.t % 70 < 50) T('PRESS ANY BUTTON', W / 2, 352, 32, '#fff', { stroke: 7 });
+      T('version ' + GAME_VERSION, 16, H - 14, 13, '#cfc6e6', { align: 'left', stroke: 3, shadow: false });
       if (!Audio2.ctx || Audio2.ctx.state !== 'running') T('♪ Click or press a key to turn on music & sound', W / 2, 440, 15, '#ffe9a0', { stroke: 4 });
       T(gamepadBlocked ? 'Controllers unavailable in this view — open the page full-screen to use one' : (getPads().length ? 'Controller detected: ' + shortPadName(getPads()[0].id) : 'Keyboard ready · plug in a controller and press a button'), W / 2, 390, 15, '#cfc6e6', { stroke: 4 });
       if (G.best.time) T('Best clear ' + fmtTime(G.best.time) + (G.best.endless ? '  ·  Endless best ' + G.best.endless : ''), W / 2, 414, 14, '#bfb4d8', { stroke: 3 });
@@ -4418,8 +4418,8 @@ function sceneDraw() {
     }
     case 'controls': drawTitleBG(); drawControlsPanel(120, 110); T('press any button to return', W / 2, 650, 15, '#cfc6e6', { stroke: 4 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break;
     case 'remap': { drawTitleBG(); const R = G.remap; glass(W / 2 - 360, 120, 720, 400, '#ff4fd8', 24); T('CONTROLLER SETUP', W / 2, 180, 40, '#fff', { stroke: 8 }); if (!getPads().length) T('No controller detected. Connect one and press a button first.', W / 2, 300, 18, '#ffe9a0', { stroke: 4 }); else { T('Press the button you want for:', W / 2, 270, 20, '#e8e2f5', { stroke: 4 }); T(REMAP_STEPS[Math.min(R.step, REMAP_STEPS.length - 1)][1], W / 2, 350, 64, null, { stroke: 10, grad: ['#fff', '#ff4fd8'] }); T('Smash default: ATTACK = A (right), SPECIAL = B (bottom), JUMP = X, SHIELD = R', W / 2, 420, 15, '#cfc6e6', { stroke: 3 }); T('Esc: cancel   ·   Backspace: reset to default', W / 2, 460, 14, '#bfb4d8', { stroke: 3 }); } break; }
-    case 'lobby': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#ffd23c', 26); T('HOSTING ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T('Read this room code to your partner:', W / 2, 238, 20, '#e8e2f5', { stroke: 4 }); T(Net.code || '····', W / 2, 350, 110, null, { stroke: 14, grad: ['#fff7c2', '#ffb02c'] }); T(Net.status, W / 2, 410, 18, Net.ok ? '#7dff8a' : '#ff8a8a', { stroke: 4 }); T('They open this same game, pick ONLINE: JOIN, and enter the code.', W / 2, 450, 16, '#cfc6e6', { stroke: 3 }); T('SPECIAL / Esc to go back', W / 2, 500, 14, '#bfb4d8', { stroke: 3 }); break;
-    case 'join': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#5ab4ff', 26); T('JOIN ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T("Type your partner's 4-letter code, then press Enter", W / 2, 240, 18, '#e8e2f5', { stroke: 4 }); TWrap(Net.status, W / 2, 452, 17, Net.ok ? '#7dff8a' : '#ffe9a0', 700); break;
+    case 'lobby': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#ffd23c', 26); T('HOSTING ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T('Read this room code to your partner:', W / 2, 238, 20, '#e8e2f5', { stroke: 4 }); T(Net.code || '····', W / 2, 350, 110, null, { stroke: 14, grad: ['#fff7c2', '#ffb02c'] }); T(Net.status, W / 2, 410, 18, Net.ok ? '#7dff8a' : '#ff8a8a', { stroke: 4 }); T('They open this same game, pick ONLINE: JOIN, and enter the code.', W / 2, 450, 16, '#cfc6e6', { stroke: 3 }); T('SPECIAL / Esc to go back', W / 2, 500, 14, '#bfb4d8', { stroke: 3 }); T('version ' + GAME_VERSION, W / 2, 560, 13, '#cfc6e6', { stroke: 3, shadow: false }); break;
+    case 'join': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#5ab4ff', 26); T('JOIN ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T("Type your partner's 4-letter code, then press Enter", W / 2, 240, 18, '#e8e2f5', { stroke: 4 }); TWrap(Net.status, W / 2, 452, 17, Net.ok ? '#7dff8a' : '#ffe9a0', 700); T('version ' + GAME_VERSION + ' — both players must show the same version', W / 2, 518, 13, '#cfc6e6', { stroke: 3, shadow: false }); break;
     case 'charsel': drawCharSel(); break;
     case 'play': drawWorld(); drawHUD(); if (G.paused || (Net.isGuest && Net.hostPaused)) drawPause(); if (Net.isGuest && G.localPause) drawPause(true); break;
     case 'boon': drawBoon(); break;

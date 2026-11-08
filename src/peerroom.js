@@ -7,14 +7,12 @@ const PeerRoom = {
   },
   async cfg() {
     const q = new URLSearchParams(location.search);
-    const ice = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:global.stun.twilio.com:3478' }];
-    const oc = await this.turnCreds('openrelayprojectsecret'); // Open Relay Project's published static-auth secret
-    if (oc) ice.push({ urls: ['turn:staticauth.openrelay.metered.ca:80', 'turn:staticauth.openrelay.metered.ca:443', 'turn:staticauth.openrelay.metered.ca:443?transport=tcp', 'turns:staticauth.openrelay.metered.ca:443?transport=tcp'], username: oc.username, credential: oc.credential });
+    const ice = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }]; // same as the original working setup
     // optional custom relay: ?turn=turn:host:port&turnuser=u&turncred=p   or   ?metered=APPNAME:APIKEY (free Metered account)
     if (q.get('turn')) ice.push({ urls: q.get('turn').split(','), username: q.get('turnuser') || '', credential: q.get('turncred') || '' });
     const met = q.get('metered') || (() => { try { return localStorage.getItem('rb_metered'); } catch (e) { return null; } })();
     if (met && met.includes(':')) { try { if (q.get('metered')) localStorage.setItem('rb_metered', met); const [app, key] = met.split(':'); const r = await fetch('https://' + app + '.metered.live/api/v1/turn/credentials?apiKey=' + encodeURIComponent(key)); const j = await r.json(); if (Array.isArray(j)) ice.push(...j); } catch (e) { } }
-    const c = { debug: 0, config: { iceServers: ice, iceCandidatePoolSize: 4 } };
+    const c = { debug: 0, config: { iceServers: ice } };
     if (q.get('icefail') === '1') c.config = { iceServers: [], iceTransportPolicy: 'relay' }; // test hook: simulate a network that blocks direct links
     if (q.get('peerhost')) { c.host = q.get('peerhost'); c.port = +(q.get('peerport') || 9000); c.path = q.get('peerpath') || '/'; c.secure = q.get('peersecure') === '1'; }
     return c;
@@ -58,7 +56,7 @@ const PeerRoom = {
       const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(api); } };
       const fail = (code, message) => { if (!done) { done = true; clearTimeout(timer); try { peer && peer.destroy(); } catch (e) { } for (const r of relays) try { r.close(); } catch (e) { } reject({ code, message }); } };
       let iceState = '', relayTried = false, hostSeen = false, tryRelay = () => { };
-      const timer = setTimeout(() => fail('timeout', opt.host ? 'Could not reach any matchmaking server. Check your internet and reload.' : hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No answer from a host with that code. Make sure the host is still on the lobby screen.'), opt.host ? 20000 : 40000);
+      const timer = setTimeout(() => fail('timeout', opt.host ? 'Could not reach any matchmaking server. Check your internet and reload.' : hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No answer from a host with that code. Make sure the host is still on the lobby screen.'), opt.host ? 20000 : 50000);
 
       // ---------- relay (MQTT over WebSocket) ----------
       const relayConn = (cl, pubTopic, peerId) => {
@@ -84,11 +82,11 @@ const PeerRoom = {
       } else {
         tryRelay = why => {
           if (relayTried || done) return; relayTried = true; status(why || 'Trying the relay connection…'); let picked = null;
-          setTimeout(() => { if (!picked) fail(hostSeen ? 'no_link' : 'no_host', hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No host found with that code. Check the letters, and make sure the host is still on the lobby screen.'); }, 15000);
+          setTimeout(() => { if (!picked && !done) fail(hostSeen ? 'no_link' : 'no_host', hostSeen ? 'Found the host, but could not connect, even through the relay. Reload both pages and try again.' : 'No host found with that code. Check the letters, and make sure the host is still on the lobby screen.'); }, 20000);
           startRelay(cl => {
             cl.sub(topic + '/h', raw => {
               let m; try { m = JSON.parse(raw); } catch (e) { return; } if (!m || m.to !== myId) return;
-              if (!picked) { picked = cl; hostSeen = true; const c = relayConn(cl, topic + '/g', m.from); attach(c); finish(); }
+              if (!picked && !done) { picked = cl; hostSeen = true; const c = relayConn(cl, topic + '/g', m.from); attach(c); finish(); }
               if (conn && conn.relay && conn.rid === m.from) { conn.last = performance.now(); if (m.d) conn.emit('data', m.d); }
             });
             const hello = () => { if (!picked && !done) { cl.pub(topic + '/g', JSON.stringify({ from: myId, hi: 1 })); setTimeout(hello, 1500); } };
@@ -101,12 +99,12 @@ const PeerRoom = {
           const tryConnect = () => {
             if (done) return; tries++; status(tries === 1 ? 'Looking for the host…' : 'Still connecting…');
             const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); attach(c);
-            const watch = setInterval(() => { const pc = c.peerConnection; if (!pc) return; const st = pc.iceConnectionState; if (st && st !== iceState) { iceState = st; if (st === 'checking') { hostSeen = true; status('Found the host — linking networks…'); } if (st === 'failed' || st === 'disconnected') tryRelay('Direct link blocked by your network — switching to the relay…'); } }, 250);
+            const watch = setInterval(() => { const pc = c.peerConnection; if (!pc) return; const st = pc.iceConnectionState; if (st && st !== iceState) { iceState = st; if (st === 'checking') { hostSeen = true; status('Found the host — linking networks…'); } if (st === 'failed') tryRelay('Direct link blocked by your network — switching to the relay…'); } }, 250);
             c.on('open', () => { clearInterval(watch); if (!done) { if (conn !== c) attach(c); finish(); } });
-            setTimeout(() => { clearInterval(watch); if (done || c.open) return; if (tries < 2 && (!relayTried || hostSeen)) tryConnect(); }, 9000);
+            setTimeout(() => clearInterval(watch), 60000);
           };
           peer.on('open', tryConnect);
-          setTimeout(() => tryRelay(hostSeen ? 'Direct link is slow — also trying the relay…' : 'Trying the relay connection…'), 7000);
+          setTimeout(() => tryRelay(hostSeen ? 'Direct link is slow — also trying the backup relay…' : 'Trying the backup relay…'), 14000);
         }
       }
       if (peer) {

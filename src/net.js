@@ -24,7 +24,7 @@ const Net = {
         catch (e) { if (e && e.code === 'taken' && tries < 4) { this.code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[ri(0, 23)]).join(''); continue; } throw e; }
       }
       this.ok = true; this.status = 'Room open — waiting for your partner to join…';
-      this.r.presence({ role: 'host', v: 1 }).catch(() => { });
+      this.r.presence({ role: 'host', v: 1, gv: GAME_VERSION }).catch(() => { });
       this.r.onPeers(ch => {
         const g = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'guest');
         if (g && !this.guestPeer) { UI.toast('Partner joined!'); Audio2.play('select'); }
@@ -35,7 +35,7 @@ const Net = {
     this.wrapFX();
   },
   async join(code) {
-    this.leave(); this.code = code; this.status = 'Connecting to ' + code + '…'; this.ok = false;
+    this.leave(); this.code = code; this.status = 'Connecting to ' + code + '…'; this.ok = false; this._vw = 0;
     const room = await this.getRoom(); if (!room) return;
     try {
       this.r = await room.join('rb-' + code.toLowerCase(), { host: false, onStatus: m => { if (!this.isGuest) this.status = m; } });
@@ -43,7 +43,7 @@ const Net = {
       this.r.presence({ role: 'guest', in: [] }).catch(() => { });
       showJoinBox(false); Game.scene = 'wait';
       this.local = Devices.get(Game.primary || 'kb1');
-      this.r.onPeers(ch => { const h = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'host'); if (!h && this.hostP) { UI.toast('Host left the game'); this.leave(); Game.setScene('title'); } this.hostP = h ? h.peer : null; });
+      this.r.onPeers(ch => { const h = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'host'); if (!h && this.hostP) { UI.toast('Host left the game'); this.leave(); Game.setScene('title'); } this.hostP = h ? h.peer : null; if (h && h.presence && h.presence.gv !== GAME_VERSION && !this._vw) { this._vw = 1; UI.toast('Host is on a different version (' + (h.presence.gv || 'older') + '). Both players: press Ctrl+Shift+R to refresh.'); } });
       setTimeout(() => { if (this.isGuest && !this.hostP) this.status = 'No host found with code ' + code + ' (yet). Double-check the code.'; }, 6000);
     } catch (e) { this.status = 'Could not join: ' + ((e && (e.message || e.code)) || 'error'); }
   },
