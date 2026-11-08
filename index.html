@@ -2837,16 +2837,29 @@ function volSet(label, v) { if (label === 'SFX VOLUME') { setSfxVol(v); Audio2.p
 // ===== PeerJS transport (used when running outside Claude, e.g. GitHub Pages) =====
 // Mimics the small subset of the Claude `room` API that Net uses: join(name,{host}) -> {presence, peers, onPeers, leave}
 const PeerRoom = {
-  cfg() {
-    const q = new URLSearchParams(location.search); const c = { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:global.stun.twilio.com:3478' }] } };
+  // ICE: several public STUN servers + TURN relays so players behind strict NATs (phone hotspots, school/work Wi-Fi, CGNAT) can still link up.
+  async turnCreds(secret) { // coturn "TURN REST" credentials: user = expiry:id, pass = base64(HMAC-SHA1(secret, user))
+    try { const user = (Math.floor(Date.now() / 1000) + 24 * 3600) + ':riftbrawl'; const k = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']); const sig = await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(user)); return { username: user, credential: btoa(String.fromCharCode(...new Uint8Array(sig))) }; } catch (e) { return null; }
+  },
+  async cfg() {
+    const q = new URLSearchParams(location.search);
+    const ice = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }, { urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:global.stun.twilio.com:3478' }];
+    const oc = await this.turnCreds('openrelayprojectsecret'); // Open Relay Project's published static-auth secret
+    if (oc) ice.push({ urls: ['turn:staticauth.openrelay.metered.ca:80', 'turn:staticauth.openrelay.metered.ca:443', 'turn:staticauth.openrelay.metered.ca:443?transport=tcp', 'turns:staticauth.openrelay.metered.ca:443?transport=tcp'], username: oc.username, credential: oc.credential });
+    // optional custom relay: ?turn=turn:host:port&turnuser=u&turncred=p   or   ?metered=APPNAME:APIKEY (free Metered account)
+    if (q.get('turn')) ice.push({ urls: q.get('turn').split(','), username: q.get('turnuser') || '', credential: q.get('turncred') || '' });
+    const met = q.get('metered') || (() => { try { return localStorage.getItem('rb_metered'); } catch (e) { return null; } })();
+    if (met && met.includes(':')) { try { if (q.get('metered')) localStorage.setItem('rb_metered', met); const [app, key] = met.split(':'); const r = await fetch('https://' + app + '.metered.live/api/v1/turn/credentials?apiKey=' + encodeURIComponent(key)); const j = await r.json(); if (Array.isArray(j)) ice.push(...j); } catch (e) { } }
+    const c = { debug: 0, config: { iceServers: ice, iceCandidatePoolSize: 4 } };
     if (q.get('peerhost')) { c.host = q.get('peerhost'); c.port = +(q.get('peerport') || 9000); c.path = q.get('peerpath') || '/'; c.secure = q.get('peersecure') === '1'; }
     return c;
   },
   join(name, opt = {}) {
-    return new Promise((resolve, reject) => {
-      if (typeof Peer === 'undefined') { reject({ code: 'no_peerjs', message: 'Networking library failed to load' }); return; }
+    return this.cfg().then(cfg => new Promise((resolve, reject) => {
+      if (typeof Peer === 'undefined') { reject({ code: 'no_peerjs', message: 'Networking library failed to load. Reload the page.' }); return; }
       const hostId = 'riftbrawl-v1-' + name;
-      const peer = opt.host ? new Peer(hostId, this.cfg()) : new Peer(this.cfg());
+      const peer = opt.host ? new Peer(hostId, cfg) : new Peer(cfg);
+      const status = m => { try { opt.onStatus && opt.onStatus(m); } catch (e) { } };
       let conn = null, mine = Object.freeze({}), other = null, subs = [], snap = [], done = false, sendT = null, closed = false;
       const meP = () => ({ peer: peer.id || 'me', presence: mine, isMe: true, sameTab: true, kind: 'viewer', guest: false, by: null });
       const rebuild = () => { snap = Object.freeze([Object.freeze(meP()), ...(other ? [other] : [])]); };
@@ -2870,11 +2883,13 @@ const PeerRoom = {
       };
       rebuild();
       const fail = (code, message) => { if (!done) { done = true; try { peer.destroy(); } catch (e) { } reject({ code, message }); } };
-      const timer = setTimeout(() => fail('timeout', opt.host ? 'Could not reach the matchmaking server' : 'No host answered with that code'), 15000);
+      let iceState = '';
+      const timer = setTimeout(() => fail('timeout', opt.host ? 'Could not reach the matchmaking server. Check your internet and reload.' : iceState ? 'Found the host, but your two networks could not link up (' + iceState + '). Try turning off any VPN, or have the other player host.' : 'No answer from a host with that code. Make sure the host is still on the lobby screen.'), opt.host ? 15000 : 32000);
       peer.on('error', e => {
         const t = e && e.type;
         if (t === 'unavailable-id') fail('taken', 'That room code is in use');
-        else if (t === 'peer-unavailable') fail('no_host', 'No host found with that code');
+        else if (t === 'peer-unavailable') fail('no_host', 'No host found with that code. Check the letters, and make sure the host is still on the lobby screen.');
+        else if (t === 'server-error' || t === 'socket-error' || t === 'socket-closed') fail(t, 'Could not reach the matchmaking server (' + t + '). Check your internet and try again.');
         else if (!done) fail(t || 'error', 'Connection error: ' + (t || e));
         else if (t === 'network' || t === 'disconnected') { /* signalling lost; data channel may still be alive */ }
       });
@@ -2883,12 +2898,17 @@ const PeerRoom = {
         peer.on('open', () => { clearTimeout(timer); done = true; resolve(api); });
         peer.on('connection', c => { if (conn && conn.open) { c.on('open', () => c.close()); return; } attach(c); });
       } else {
-        peer.on('open', () => {
+        let tries = 0;
+        const tryConnect = () => {
+          if (done) return; tries++; status(tries === 1 ? 'Looking for the host…' : 'Still connecting… (attempt ' + tries + ')');
           const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); attach(c);
-          c.on('open', () => { clearTimeout(timer); if (!done) { done = true; resolve(api); } });
-        });
+          const watch = setInterval(() => { const pc = c.peerConnection; if (!pc) return; const st = pc.iceConnectionState; if (st && st !== iceState) { iceState = st; if (st === 'checking') status('Found the host — linking networks…'); if (st === 'failed') status('Direct link failed — trying a relay…'); } }, 250);
+          c.on('open', () => { clearInterval(watch); clearTimeout(retry); clearTimeout(timer); if (!done) { done = true; resolve(api); } });
+          const retry = setTimeout(() => { clearInterval(watch); if (done || c.open) return; if (tries < 3) { try { c.close(); } catch (e) { } tryConnect(); } }, 10000);
+        };
+        peer.on('open', tryConnect);
       }
-    });
+    }));
   },
 };
 
@@ -2932,7 +2952,7 @@ const Net = {
     this.leave(); this.code = code; this.status = 'Connecting to ' + code + '…'; this.ok = false;
     const room = await this.getRoom(); if (!room) return;
     try {
-      this.r = await room.join('rb-' + code.toLowerCase(), { host: false });
+      this.r = await room.join('rb-' + code.toLowerCase(), { host: false, onStatus: m => { if (!this.isGuest) this.status = m; } });
       this.ok = true; this.status = 'Connected — looking for host…'; this.isGuest = true; this.guestScene = 'wait'; this.sig = ''; this.lastSeq = 0;
       this.r.presence({ role: 'guest', in: [] }).catch(() => { });
       showJoinBox(false); Game.scene = 'wait';
@@ -4316,7 +4336,7 @@ function sceneDraw() {
     case 'controls': drawTitleBG(); drawControlsPanel(120, 110); T('press any button to return', W / 2, 650, 15, '#cfc6e6', { stroke: 4 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break;
     case 'remap': { drawTitleBG(); const R = G.remap; glass(W / 2 - 360, 120, 720, 400, '#ff4fd8', 24); T('CONTROLLER SETUP', W / 2, 180, 40, '#fff', { stroke: 8 }); if (!getPads().length) T('No controller detected. Connect one and press a button first.', W / 2, 300, 18, '#ffe9a0', { stroke: 4 }); else { T('Press the button you want for:', W / 2, 270, 20, '#e8e2f5', { stroke: 4 }); T(REMAP_STEPS[Math.min(R.step, REMAP_STEPS.length - 1)][1], W / 2, 350, 64, null, { stroke: 10, grad: ['#fff', '#ff4fd8'] }); T('Smash default: ATTACK = A (right), SPECIAL = B (bottom), JUMP = X, SHIELD = R', W / 2, 420, 15, '#cfc6e6', { stroke: 3 }); T('Esc: cancel   ·   Backspace: reset to default', W / 2, 460, 14, '#bfb4d8', { stroke: 3 }); } break; }
     case 'lobby': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#ffd23c', 26); T('HOSTING ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T('Read this room code to your partner:', W / 2, 238, 20, '#e8e2f5', { stroke: 4 }); T(Net.code || '····', W / 2, 350, 110, null, { stroke: 14, grad: ['#fff7c2', '#ffb02c'] }); T(Net.status, W / 2, 410, 18, Net.ok ? '#7dff8a' : '#ff8a8a', { stroke: 4 }); T('They open this same game, pick ONLINE: JOIN, and enter the code.', W / 2, 450, 16, '#cfc6e6', { stroke: 3 }); T('SPECIAL / Esc to go back', W / 2, 500, 14, '#bfb4d8', { stroke: 3 }); break;
-    case 'join': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#5ab4ff', 26); T('JOIN ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T("Type your partner's 4-letter code, then press Enter", W / 2, 240, 18, '#e8e2f5', { stroke: 4 }); T(Net.status, W / 2, 470, 17, Net.ok ? '#7dff8a' : '#ffe9a0', { stroke: 4 }); break;
+    case 'join': drawTitleBG(); glass(W / 2 - 380, 110, 760, 420, '#5ab4ff', 26); T('JOIN ONLINE CO-OP', W / 2, 180, 40, '#fff', { stroke: 8 }); T("Type your partner's 4-letter code, then press Enter", W / 2, 240, 18, '#e8e2f5', { stroke: 4 }); TWrap(Net.status, W / 2, 452, 17, Net.ok ? '#7dff8a' : '#ffe9a0', 700); break;
     case 'charsel': drawCharSel(); break;
     case 'play': drawWorld(); drawHUD(); if (G.paused || (Net.isGuest && Net.hostPaused)) drawPause(); if (Net.isGuest && G.localPause) drawPause(true); break;
     case 'boon': drawBoon(); break;
@@ -4351,6 +4371,12 @@ function drawResultCards(s) {
     rows.forEach(([k, v], r) => { const yy = y + 96 + r * 22; T(k, x + 22, yy, 13, '#bfb4d8', { align: 'left', stroke: 0, shadow: false, weight: 800 }); T(String(v), x + cw - 22, yy, 15, '#fff', { align: 'right', stroke: 3, shadow: false }); ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(x + 22, yy + 6, cw - 44, 1); });
     ctx.restore();
   });
+}
+
+function TWrap(text, x, y, size, col, maxW) {
+  text = String(text || ''); ctx.font = `italic 800 ${size}px ${FONT}`; const words = text.split(' '), lines = []; let ln = '';
+  for (const w of words) { const t = ln ? ln + ' ' + w : w; if (ctx.measureText(t).width > maxW && ln) { lines.push(ln); ln = w; } else ln = t; } if (ln) lines.push(ln);
+  lines.slice(0, 4).forEach((l, i) => T(l, x, y + i * (size + 7), size, col, { stroke: 4 }));
 }
 
 document.getElementById('fs').addEventListener('click',()=>{const el=document.documentElement;try{(el.requestFullscreen||el.webkitRequestFullscreen).call(el).catch(()=>{});}catch(e){}});

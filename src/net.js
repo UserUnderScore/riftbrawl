@@ -38,7 +38,7 @@ const Net = {
     this.leave(); this.code = code; this.status = 'Connecting to ' + code + '…'; this.ok = false;
     const room = await this.getRoom(); if (!room) return;
     try {
-      this.r = await room.join('rb-' + code.toLowerCase(), { host: false });
+      this.r = await room.join('rb-' + code.toLowerCase(), { host: false, onStatus: m => { if (!this.isGuest) this.status = m; } });
       this.ok = true; this.status = 'Connected — looking for host…'; this.isGuest = true; this.guestScene = 'wait'; this.sig = ''; this.lastSeq = 0;
       this.r.presence({ role: 'guest', in: [] }).catch(() => { });
       showJoinBox(false); Game.scene = 'wait';
