@@ -272,6 +272,7 @@ function updateItems() {
   for (const it of World.items) {
     if (it.type === 'bomb') { updateBomb(it); continue; }
     if (it.type === 'crate') { updateCrate(it); continue; }
+    if (it.type === 'riftball') { updateRiftBall(it); continue; }
     it.t++; it.vy = Math.min(8, it.vy + 0.4); const g = groundBelow(it.x, it.y - 4, 20); if (g !== null && it.y + it.vy >= g) { it.y = g; it.vy = 0; } else it.y += it.vy;
     for (const p of World.players) {
       if (p.dead || p.out) continue;

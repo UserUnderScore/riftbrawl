@@ -109,8 +109,9 @@ Your meter fills as you deal damage. When it is full, press **SHIELD + SPECIAL**
   - Meteor smashes spark.
   - Huge hits on tough foes get a **critical-hit zoom**.
 - **Presentation:**
+  - A READY TO FIGHT! banner.
   - A 3-2-1-GO! countdown with character entrances.
-  - A GAME! splash.
+  - A GAME! splash, and results with victory poses, a fanfare and the announcer naming the MVP.
   - **Star KOs** and **Screen KOs** off the top.
   - A magnifying bubble when you're off-screen.
   - A charge glint on full-charged smashes.
@@ -123,6 +124,7 @@ Your meter fills as you deal damage. When it is full, press **SHIELD + SPECIAL**
 ## Items
 - **Food** drops after waves and lowers your damage %.
 - **Rift Crates** are scattered through stages. Break them for food or bombs.
+- **Rift Ball** (rare, like a Smash Ball): a floating rainbow orb. Hit it until it breaks to get your Rift Burst instantly.
 - **Rift Bombs** work like this:
   - ATTACK picks one up. ATTACK again throws it.
   - Hold up or down to aim.

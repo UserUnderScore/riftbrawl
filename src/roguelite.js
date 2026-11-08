@@ -175,6 +175,7 @@ function placeCrates(st) {
   for (const A of st.arenas) if (!A.boss && Math.random() < 0.6) cand.push([rr(A.l + 90, A.r - 90), A.floor - 200]);
   const big = st.solids.filter(s => s.w > 260 && s.y < st.killY - 100); for (let i = 0; i < 2 && big.length; i++) { const s = pick(big); cand.push([s.x + rr(60, s.w - 60), s.y - 40]); }
   for (const [x, y] of cand) { const gy = groundBelow(x, y, 600); if (gy === null) continue; World.items.push({ type: 'crate', x, y: gy, vy: 0, t: 0, id: World.uid++, kind: 0, hp: 14, hitT: 0 }); }
+  const A0 = st.arenas.find(a => !a.boss); if (A0 && Math.random() < 0.3) World.items.push({ type: 'riftball', x: (A0.l + A0.r) / 2, y: A0.floor - 230, ax: (A0.l + A0.r) / 2, ay: A0.floor - 230, vy: 0, t: 0, id: World.uid++, kind: 0, hp: 32, hitT: 0 }); // rare Rift Ball (Smash Ball)
 }
 function updateCrate(it) {
   it.t++; if (it.hitT > 0) it.hitT--;
@@ -211,5 +212,34 @@ function drawCrate(g, it) {
   const pul = 0.6 + 0.4 * Math.sin(World.frame * 0.08 + (it.id || 0)); g.fillStyle = `rgba(255,90,220,${0.75 * pul})`; g.beginPath(); g.arc(0, -h / 2, 6, 0, TAU); g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.2; g.stroke();
   if (dmg > 0.2) { g.strokeStyle = '#3a220e'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(-8, -h); g.lineTo(-3, -h + 10); g.lineTo(-9, -h + 18); if (dmg > 0.55) { g.moveTo(w / 2, -12); g.lineTo(w / 2 - 9, -16); g.lineTo(w / 2 - 12, -26); } g.stroke(); }
   g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(-w / 2 + 3, -h + 3, w - 6, 4);
+  g.restore();
+}
+
+// ===================== RIFT BALL: a floating orb; break it to get your Rift Burst instantly (like a Smash Ball) =====================
+function updateRiftBall(it) {
+  it.t++; if (it.hitT > 0) it.hitT--;
+  const tt = it.t * 0.012; const tx = it.ax + Math.sin(tt * 1.3) * 260 + Math.sin(tt * 3.1) * 60, ty = it.ay + Math.sin(tt * 2.2) * 70;
+  if (it.t > 1800) { it.ay -= 4; } // drifts away if nobody breaks it
+  it.x += (tx - it.x) * 0.03 + (it.kx || 0); it.y += (ty - it.y) * 0.03 + (it.ky || 0); it.kx = (it.kx || 0) * 0.9; it.ky = (it.ky || 0) * 0.9;
+  if (it.y < World.cam.y - 900) { it.gone = 1; return; }
+  for (const p of World.players) {
+    if (p.dead || p.out || p.state !== 'move') continue;
+    for (const hb of p.hitboxes()) {
+      if (it['_k' + p.slot] === p.mid) break; if (Math.hypot(hb.x - it.x, hb.y - it.y) > hb.r + 22) continue;
+      it['_k' + p.slot] = p.mid; const d = (hb.h && hb.h.d) || 6; it.hp -= d; it.hitT = 9; it.kx = p.face * Math.min(9, d * 0.5); it.ky = -2;
+      FX.burst(it.x, it.y, `hsl(${(World.frame * 9) % 360},100%,70%)`, 10); Audio2.play('clink'); p.hitlag = Math.max(p.hitlag, 4);
+      if (it.hp <= 0) { it.gone = 1; p.meter = 100; FX.add({ k: 'ring', x: it.x, y: it.y, r0: 10, r: 160, life: 22, max: 22, c: '#ffffff' }); FX.burst(it.x, it.y, '#ffffff', 26); World.flashT = 6; World.shake(8); Audio2.play('ready'); Audio2.play('crowd'); Game.callout('RIFT BALL! BURST READY', '#ffe27a', 34); }
+      break;
+    }
+  }
+}
+function drawRiftBall(g, it) {
+  const t = World.frame, sh = it.hitT > 0 ? Math.sin(it.hitT * 2.4) * it.hitT * 0.4 : 0, x = it.x + sh, y = it.y, r = 20;
+  g.save(); g.globalCompositeOperation = 'lighter'; const gl = g.createRadialGradient(x, y, 4, x, y, 56); gl.addColorStop(0, `hsla(${(t * 5) % 360},100%,70%,0.6)`); gl.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gl; g.beginPath(); g.arc(x, y, 56, 0, TAU); g.fill(); g.restore();
+  g.save(); g.translate(x, y); g.rotate(t * 0.02);
+  for (let i = 0; i < 4; i++) { g.fillStyle = `hsl(${(t * 5 + i * 90) % 360},95%,58%)`; g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, r, i * Math.PI / 2, (i + 1) * Math.PI / 2); g.fill(); }
+  g.strokeStyle = OL; g.lineWidth = 3; g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke();
+  g.strokeStyle = '#ffffff'; g.lineWidth = 3.5; g.beginPath(); g.arc(0, 0, r * 0.62, 0, TAU); g.moveTo(-r, 0); g.lineTo(r, 0); g.moveTo(0, -r); g.lineTo(0, r); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.5)'; g.beginPath(); g.ellipse(-r * 0.35, -r * 0.4, r * 0.3, r * 0.18, -0.6, 0, TAU); g.fill();
   g.restore();
 }
