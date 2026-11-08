@@ -41,7 +41,20 @@ Each fighter has:
 - shield, roll, spot dodge and air dodge
 - ledge grab, plus ledge climb, roll and attack options
 
-Hitboxes follow the limbs and weapons that swing them (with sweep between frames), so attacks connect where they look like they should.
+Hitboxes are big and follow the limbs and weapons that swing them, sweeping between frames, so attacks connect where they look like they should.
+
+Every fighter has their own moveset and feel:
+- **Rook (agile):** a punch flurry, a step-in kick, a flying knee, a flip kick, a breakdance sweep, a tornado kick, a triple hook, and a stomp that bounces him off enemies.
+- **Vela (agile, long reach):**
+  - Sword attacks: a hundred-stab jab, a lunge with a tipper sweetspot, and the Crescent Cleave, Rising Moon and Sky Arc slashes.
+  - Plunge: a stall, then a dive downward.
+- **Pip:** every normal attack is an elemental spell (fire, ice, shock, wind or arcane).
+- **Grom (heavy):**
+  - Smash attacks have super armor during the wind-up, and slams crack the ground and send out shockwaves.
+  - Fair: an Overhead Smash that spikes enemies downward (a meteor).
+  - Dair: the Anvil Drop, which hits the ground with a quake.
+
+Heavy moves wind up, tremble, and hit with screen shake, dust, debris and longer hit-stop. Agile moves snap out with afterimages and speed lines.
 
 ## Smash techniques
 | Technique | How |

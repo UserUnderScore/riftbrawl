@@ -245,12 +245,13 @@ const POSE = {
   dead: P(0, -10, 1.5, 10, 10, -10, 10, 10, 10, -10, 10, 90),
   dodge: P(-2, -24, 0.4, 2, 14, -6, 14, 2, 22, -8, 18, 60),
 };
+const J_ = POSE.jump;
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 function kfPose(kf, f) {
   if (f <= kf[0][0]) return kf[0][1];
   for (let i = 0; i < kf.length - 1; i++) {
     const [fa, pa] = kf[i], [fb, pb] = kf[i + 1];
-    if (f <= fb) { let t = (f - fa) / Math.max(1, fb - fa); t = t * t * (3 - 2 * t); return mix(pa, pb, t); }
+    if (f <= fb) { let t = clamp((f - fa) / Math.max(1, fb - fa), 0, 1); const ez = kf[i + 1][2]; t = ez === 'snap' ? 1 - Math.pow(1 - t, 4) : ez === 'slow' ? Math.pow(t * t * (3 - 2 * t), 1.6) : t * t * (3 - 2 * t); return mix(pa, pb, t); }
   }
   return kf[kf.length - 1][1];
 }
@@ -358,29 +359,39 @@ const FIGHTERS = [
   },
 ];
 // Build complete move tables with per-fighter scaling
-const HB_SCALE = 1.35; // generous player hitboxes
+const HB_SCALE = 1.75; // very generous player hitboxes (attacks should connect where they look like they do)
+const HB_REACH = 1.12, HB_LINGER = 2; // push hitboxes a little further out and keep them active a couple frames longer
+function growHB(h) { return { ...h, x: h.x * HB_REACH, y: h.y < -20 ? h.y : h.y, r: h.r * HB_SCALE, e: h.e + (h.multi ? 0 : HB_LINGER) }; }
+function snapStrikes(mv) { // make the keyframe that lands on the first active frame a fast 'snap'
+  if (!mv.hb || !mv.hb.length || !mv.kf) return mv; const s0 = Math.min(...mv.hb.map(h => h.s)); let bi = -1, bd = 99;
+  mv.kf.forEach((k, i) => { if (i > 0 && Math.abs(k[0] - s0) < bd && k[0] <= s0 + 2) { bd = Math.abs(k[0] - s0); bi = i; } });
+  if (bi > 0 && !mv.kf[bi][2]) mv.kf = mv.kf.map((k, i) => i === bi ? [k[0], k[1], 'snap'] : k);
+  if (bi > 1 && !mv.kf[bi - 1][2] && (mv.smash || mv.heavy)) mv.kf = mv.kf.map((k, i) => i === bi - 1 ? [k[0], k[1], 'slow'] : k);
+  return mv;
+}
+const SIGNATURE = { 0: rookMoves, 1: velaMoves, 3: gromMoves, 2: pipMagic };
 for (const F of FIGHTERS) {
   const base = baseMoves(); const m = F.mul; F.moves = {};
   for (const [k, mv] of Object.entries(base)) {
     const nm = { ...mv, name: k }; if (mv.thr) nm.thr = { ...mv.thr, at: Math.round(mv.thr.at * m.spd) };
     nm.d = Math.round(mv.d * m.spd);
-    const sc = m.spd; nm.kf = mv.kf.map(([f, p]) => [Math.round(f * sc), p]);
+    const sc = m.spd; nm.kf = mv.kf.map(([f, p, e]) => [Math.round(f * sc), p, e]);
     if (mv.charge) nm.charge = Math.round(mv.charge * sc);
-    nm.hb = mv.hb.map(h => ({ ...h, s: Math.round(h.s * sc), e: Math.max(Math.round(h.s * sc) + 1, Math.round(h.e * sc)), x: h.x * m.reach, y: h.y, r: h.r * m.rad * (F.weapon === 'none' ? 1 : 1.08) * HB_SCALE, d: Math.round(h.d * m.dmg), bkb: h.bkb, kbg: h.kbg * m.kb }));
+    nm.hb = mv.hb.map(h => ({ ...h, s: Math.round(h.s * sc), e: Math.max(Math.round(h.s * sc) + 1, Math.round(h.e * sc)), x: h.x * m.reach, y: h.y, r: h.r * m.rad * (F.weapon === 'none' ? 1 : 1.08), d: Math.round(h.d * m.dmg), bkb: h.bkb, kbg: h.kbg * m.kb }));
     F.moves[k] = nm;
   }
-  // Signature tweaks
-  if (F.id === 1) { F.moves.dair.hb[0].a = -90; F.moves.utilt.hb[0].r *= 1.2; F.moves.fsmash.hb[0].d = 17; }
-  if (F.id === 2) Object.assign(F.moves, pipMagic());
-  if (F.id === 3) { F.moves.fsmash.hb[0].d = 24; F.moves.fsmash.hb[0].r *= 1.15; F.moves.dair.hb[0].d = 16; }
-  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = { ...mv, name: k, hb: (mv.hb || []).map(h => ({ ...h, r: h.r * HB_SCALE })), special: 1 };
+  // signature movesets replace the shared templates
+  Object.assign(F.moves, SIGNATURE[F.id]());
+  if (F.id === 3) for (const k of ['grab', 'getupatk']) F.moves[k].heavy = 1;
+  for (const [k, mv] of Object.entries(F.moves)) { mv.hb = mv.hb.map(h => h.grab ? { ...h, r: h.r * 1.35 } : growHB(h)); snapStrikes(mv); }
+  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = snapStrikes({ ...mv, name: k, hb: (mv.hb || []).map(growHB), special: 1 });
 }
 
 // ---- Pip's elemental spellbook: every normal is a short-range spell with an effect ----
 // el: fire = burn over time, ice = freeze (extra stun), shock = stun, wind = big push, arcane = raw power
 function pipMagic() {
   const S = STAND, k = HB_SCALE, M = {};
-  const mk = (name, d, kf, hb, extra = {}) => { M[name] = { name, d, kf, hb: hb.map(h => ({ ...h, r: h.r * k })), ...extra }; };
+  const mk = (name, d, kf, hb, extra = {}) => { M[name] = { name, d, kf, hb: hb.map(h => ({ ...h })), ...extra }; };
   const cast = (hx, hy, w, lean = 0.2) => P(2, -25, lean, hx, hy, -8, 10, 9, 25, -9, 25, w);
   mk('jab1', 12, [[0, S], [3, cast(24, -4, 0)], [7, cast(24, -4, 0)], [12, S]], [HB(3, 5, 30, -46, 11, 3, 30, 14, 20, { el: 'shock' })], { jab: 1, spell: 'Spark Jab' });
   mk('jab2', 12, [[0, S], [3, cast(24, 2, 10)], [7, cast(24, 2, 10)], [12, S]], [HB(3, 5, 30, -42, 11, 3, 35, 16, 20, { el: 'shock' })], { jab: 2, spell: 'Spark Jab' });
@@ -398,6 +409,110 @@ function pipMagic() {
   mk('uair', 26, [[0, POSE.jump], [5, P(0, -26, -0.2, 4, -28, -4, -26, 6, 18, -6, 18, -90)], [12, P(0, -26, -0.2, 4, -28, -4, -26, 6, 18, -6, 18, -90)], [26, POSE.jump]], [HB(5, 10, 0, -76, 20, 8, 85, 30, 95, { el: 'arcane' })], { air: 1, lag: 8, spell: 'Starburst' });
   mk('dair', 38, [[0, POSE.jump], [6, P(0, -30, 0, 10, -14, -10, -14, 6, 14, -6, 14, -90)], [12, P(0, -30, 0, 6, 26, -6, 26, 6, 14, -6, 14, 90)], [22, P(0, -30, 0, 6, 26, -6, 26, 6, 14, -6, 14, 90)], [38, POSE.jump]], [HB(6, 11, 0, 10, 26, 2, 90, 20, 0, { el: 'arcane', pull: 1 }), HB(12, 16, 0, 8, 20, 11, -80, 25, 85, { el: 'arcane', spike: 1 })], { air: 1, lag: 14, spell: 'Gravity Well' });
   return M;
+}
+
+// ===================== Signature movesets =====================
+// kf entries may carry a 3rd element: 'snap' (fast strike that settles) or 'slow' (heavy, weighted wind-up).
+// Moves flagged heavy get anticipation, impact shake, dust & cracks; agile moves get afterimages, speed lines & snappy stretch.
+function mkSet(fn) { const M = {}; fn((name, d, kf, hb, extra = {}) => { M[name] = { name, d, kf, hb: hb.map(h => ({ ...h })), ...extra }; }); return M; }
+function rookMoves() {
+  const S = STAND;
+  return mkSet(mk => {
+    const pA = P(4, -25, 0.2, 24, -4, -4, 10, 8, 25, -8, 25, 0), pB = P(4, -25, 0.2, -2, 10, 24, -2, 8, 25, -8, 25, 0);
+    mk('jab1', 12, [[0, S], [2, P(2, -25, 0.14, 23, -2, -6, 12, 7, 25, -7, 25, 0), 'snap'], [6, P(2, -25, 0.14, 23, -2, -6, 12, 7, 25, -7, 25, 0)], [12, S]], [HB(2, 5, 26, -47, 11, 3, 30, 14, 25)], { jab: 1, agile: 1 });
+    mk('jab2', 12, [[0, S], [2, P(4, -25, 0.2, -2, 8, 24, -2, 8, 25, -8, 25, 0), 'snap'], [6, P(4, -25, 0.2, -2, 8, 24, -2, 8, 25, -8, 25, 0)], [12, S]], [HB(2, 5, 27, -46, 11, 3, 35, 16, 25)], { jab: 2, agile: 1 });
+    mk('jab3', 34, [[0, S], [3, pA, 'snap'], [6, pB, 'snap'], [9, pA, 'snap'], [12, pB, 'snap'], [15, pA, 'snap'], [18, pB, 'snap'], [21, P(6, -28, -0.05, 20, -26, -6, 8, 10, 25, -8, 25, -90), 'snap'], [26, P(6, -28, -0.05, 20, -26, -6, 8, 10, 25, -8, 25, -90)], [34, S]],
+      [HB(3, 18, 28, -45, 13, 1.5, 70, 8, 0, { multi: 3 }), HB(21, 24, 30, -54, 15, 5, 55, 55, 100, { fx: 'fire' })], { agile: 1, title: 'Flurry' });
+    mk('ftilt', 24, [[0, S], [3, P(-2, -26, -0.2, -8, 4, -10, 6, 6, 25, -6, 25, 0)], [6, P(6, -27, -0.35, -10, 2, -12, 6, 32, -8, -4, 25, 0), 'snap'], [12, P(6, -27, -0.35, -10, 2, -12, 6, 32, -8, -4, 25, 0)], [24, S]],
+      [HB(6, 10, 38, -33, 13, 9, 38, 32, 95)], { agile: 1, go: (f, t) => { if (t === 4 && !f.air) f.vx = f.face * 5.5; } });
+    mk('dtilt', 18, [[0, POSE.crouch], [4, P(0, -12, 0.5, 10, 14, -6, 12, 34, 12, -12, 14, 10), 'snap'], [9, P(0, -12, 0.5, 10, 14, -6, 12, 34, 12, -12, 14, 10)], [18, POSE.crouch]], [HB(4, 8, 36, -5, 13, 6, 18, 40, 40)], { crouchEnd: 1, agile: 1 });
+    mk('dash', 30, [[0, S], [4, P(6, -34, 0.1, 8, -6, -12, 4, 22, -10, -8, 22, 0), 'snap'], [14, P(6, -34, 0.1, 8, -6, -12, 4, 22, -10, -8, 22, 0)], [30, S]],
+      [HB(4, 8, 24, -38, 15, 12, 45, 55, 88), HB(9, 15, 24, -38, 13, 6, 55, 40, 50)], { dash: 1, agile: 1, title: 'Flying Knee' });
+    mk('fsmash', 46, [[0, S], [8, P(-8, -23, -0.4, -18, 2, 10, 4, 14, 25, -14, 25, 0), 'slow'], [13, P(10, -24, 0.55, 34, -6, -14, 8, 22, 24, -18, 24, 0), 'snap'], [24, P(10, -24, 0.55, 34, -6, -14, 8, 22, 24, -18, 24, 0)], [46, S]],
+      [HB(13, 17, 46, -47, 16, 17, 38, 42, 102, { fx: 'fire' })], { charge: 8, smash: 1, heavy: 1, title: 'Haymaker', go: (f, t) => { if (t === 12 && !f.air) f.vx = f.face * 7; } });
+    mk('usmash', 42, [[0, S], [6, POSE.crouch], [10, P(0, -30, -0.6, -10, 8, -14, 4, 10, -34, -6, 20, 0), 'snap'], [16, P(0, -30, -1.3, -14, -4, -10, -8, 4, -36, -6, 14, 0)], [26, P(0, -27, -0.3, -10, 4, -12, 4, 6, 20, -6, 24, 0)], [42, S]],
+      [HB(10, 13, 10, -78, 15, 6, 88, 30, 50), HB(14, 18, 0, -86, 18, 11, 90, 38, 102)], { charge: 6, smash: 1, agile: 1, flip: [12, 26], title: 'Flip Kick' });
+    mk('dsmash', 44, [[0, S], [6, POSE.crouch], [11, P(0, -12, 0.6, 10, 16, -6, 16, 34, 6, -14, 10, 0), 'snap'], [15, P(0, -12, 0.6, 10, 16, -6, 16, -34, 6, 10, 10, 0), 'snap'], [26, P(0, -12, 0.6, 10, 16, -6, 16, -34, 6, 10, 10, 0)], [44, S]],
+      [HB(11, 14, 36, -6, 14, 12, 30, 35, 95), HB(15, 18, -36, -6, 14, 12, 150, 35, 95)], { charge: 6, smash: 1, agile: 1, title: 'Breakdance Sweep' });
+    mk('nair', 32, [[0, J_], [4, P(0, -26, 0, 18, -6, -18, -6, 22, 2, -22, 2, 0), 'snap'], [20, P(0, -26, 0, 18, -6, -18, -6, 22, 2, -22, 2, 0)], [32, J_]],
+      [HB(4, 18, 0, -30, 24, 2, 60, 15, 0, { multi: 4 }), HB(19, 22, 0, -30, 26, 5, 45, 40, 82)], { air: 1, lag: 8, agile: 1, spin: 1, title: 'Tornado Kick' });
+    mk('fair', 32, [[0, J_], [5, P(0, -26, 0.3, 24, -2, -8, 8, 10, 16, -10, 18, 0), 'snap'], [10, P(0, -26, 0.3, -4, 8, 24, -2, 10, 16, -10, 18, 0), 'snap'], [16, P(0, -26, 0.35, 26, 4, -6, 10, 10, 16, -10, 18, 0), 'snap'], [32, J_]],
+      [HB(5, 7, 28, -42, 13, 4, 75, 30, 15), HB(10, 12, 28, -42, 13, 4, 75, 30, 15), HB(16, 19, 30, -40, 16, 8, 40, 34, 98)], { air: 1, lag: 10, agile: 1, title: 'Triple Hook' });
+    mk('bair', 28, [[0, J_], [6, P(2, -26, 0.45, 10, 4, 6, 8, -34, -6, 6, 14, 120), 'snap'], [13, P(2, -26, 0.45, 10, 4, 6, 8, -34, -6, 6, 14, 120)], [28, J_]],
+      [HB(6, 10, -36, -30, 14, 14, 145, 34, 104)], { air: 1, lag: 10, heavy: 1, title: 'Mule Kick' });
+    mk('uair', 26, [[0, J_], [4, P(0, -26, -0.3, -10, 4, 10, 4, 10, -40, -6, 16, -90), 'snap'], [9, P(0, -26, -0.3, -10, 4, 10, 4, -8, -42, 6, 14, -90), 'snap'], [14, P(0, -26, -0.3, -10, 4, 10, 4, -8, -42, 6, 14, -90)], [26, J_]],
+      [HB(4, 7, 8, -72, 14, 4, 85, 40, 20), HB(9, 13, -4, -76, 16, 8, 88, 30, 100)], { air: 1, lag: 8, agile: 1, title: 'Scissor Kick' });
+    mk('dair', 36, [[0, J_], [7, P(0, -32, 0, 10, -14, -10, -14, 6, 4, -6, 6, -90), 'slow'], [11, P(0, -30, 0, 12, -4, -12, -4, 4, 34, -4, 32, 90), 'snap'], [22, P(0, -30, 0, 12, -4, -12, -4, 4, 34, -4, 32, 90)], [36, J_]],
+      [HB(11, 16, 0, 8, 16, 12, -85, 22, 86, { spike: 1, bounce: 1 })], { air: 1, lag: 14, heavy: 1, title: 'Stomp' });
+  });
+}
+function velaMoves() {
+  const S = STAND;
+  return mkSet(mk => {
+    const th1 = P(2, -25, 0.16, 20, -2, -6, 12, 7, 25, -7, 25, 0), th2 = P(4, -25, 0.2, 22, -6, -6, 12, 8, 25, -8, 25, -8), th3 = P(4, -25, 0.2, 22, 2, -6, 12, 8, 25, -8, 25, 8);
+    mk('jab1', 12, [[0, S], [2, th1, 'snap'], [6, th1], [12, S]], [HB(2, 5, 54, -47, 11, 3, 30, 14, 25, { fx: 'slash' })], { jab: 1, agile: 1 });
+    mk('jab2', 12, [[0, S], [2, P(3, -25, 0.15, 18, 4, -6, 10, 7, 25, -7, 25, -28), 'snap'], [6, P(3, -25, 0.15, 18, 4, -6, 10, 7, 25, -7, 25, -28)], [12, S]], [HB(2, 5, 50, -58, 12, 3, 40, 16, 25, { fx: 'slash' })], { jab: 2, agile: 1 });
+    mk('jab3', 34, [[0, S], [3, th2, 'snap'], [5, P(0, -25, 0.1, 10, 0, -6, 12, 8, 25, -8, 25, 0)], [7, th3, 'snap'], [9, P(0, -25, 0.1, 10, 0, -6, 12, 8, 25, -8, 25, 0)], [11, th1, 'snap'], [13, P(0, -25, 0.1, 10, 0, -6, 12, 8, 25, -8, 25, 0)], [15, th2, 'snap'], [18, P(-2, -25, -0.1, 0, -6, -6, 10, 8, 25, -8, 25, -20)], [21, P(10, -24, 0.45, 26, -2, -14, 6, 22, 25, -18, 25, 0), 'snap'], [26, P(10, -24, 0.45, 26, -2, -14, 6, 22, 25, -18, 25, 0)], [34, S]],
+      [HB(3, 17, 56, -46, 14, 1.5, 70, 8, 0, { multi: 3, fx: 'slash' }), HB(21, 24, 66, -46, 16, 5, 40, 55, 100, { fx: 'slash' })], { agile: 1, title: 'Hundred Stabs' });
+    mk('ftilt', 26, [[0, S], [4, P(-4, -24, -0.1, -6, 4, -10, 8, 8, 25, -8, 25, 0)], [7, P(12, -22, 0.45, 24, -2, -14, 6, 26, 25, -22, 25, 0), 'snap'], [14, P(12, -22, 0.45, 24, -2, -14, 6, 26, 25, -22, 25, 0)], [26, S]],
+      [HB(7, 10, 80, -44, 13, 12, 35, 36, 102, { fx: 'slash', grp: 0 }), HB(7, 10, 46, -44, 13, 7, 40, 30, 80, { grp: 0 })], { agile: 1, title: 'Lunge (tip = sweetspot)', go: (f, t) => { if (t === 6 && !f.air) f.vx = f.face * 4.5; } });
+    mk('utilt', 24, [[0, S], [3, P(0, -25, 0.1, 18, 0, -6, 10, 6, 25, -6, 25, 10)], [6, P(0, -26, 0, 6, -20, -6, 10, 6, 25, -6, 25, -80), 'snap'], [9, P(0, -26, -0.1, -10, -16, -6, 10, 6, 25, -6, 25, -160), 'snap'], [24, S]],
+      [HB(4, 5, 54, -56, 14, 8, 80, 32, 110, { grp: 0, fx: 'slash' }), HB(6, 7, 8, -96, 16, 8, 90, 32, 110, { grp: 0, fx: 'slash' }), HB(8, 10, -44, -72, 14, 8, 110, 32, 110, { grp: 0, fx: 'slash' })], { agile: 1, title: 'Arc Slash' });
+    mk('dtilt', 18, [[0, POSE.crouch], [4, P(0, -13, 0.45, 22, 14, -6, 12, 18, 12, -12, 14, 10), 'snap'], [9, P(0, -13, 0.45, 22, 14, -6, 12, 18, 12, -12, 14, 10)], [18, POSE.crouch]],
+      [HB(4, 8, 62, -10, 13, 7, 25, 35, 65, { grp: 0, fx: 'slash' }), HB(4, 8, 32, -10, 12, 5, 30, 30, 60, { grp: 0 })], { crouchEnd: 1, agile: 1 });
+    mk('dash', 30, [[0, S], [3, P(4, -20, 0.7, -14, 6, -10, 8, 18, 20, -22, 18, 170)], [7, P(10, -21, 0.6, 26, 2, -14, 6, 22, 18, -22, 18, 10), 'snap'], [16, P(10, -21, 0.6, 26, 2, -14, 6, 22, 18, -22, 18, 10)], [30, S]],
+      [HB(6, 13, 34, -36, 22, 10, 45, 45, 82, { fx: 'slash' })], { dash: 1, agile: 1, title: 'Passing Slash', go: (f, t) => { if (t >= 4 && t < 14) f.vx = f.face * 9; } });
+    mk('fsmash', 48, [[0, S], [8, P(-6, -24, -0.35, -6, -22, 10, 6, 12, 25, -14, 25, -140), 'slow'], [11, P(6, -24, 0.3, 22, -14, -14, 8, 20, 25, -16, 25, -40), 'snap'], [14, P(10, -23, 0.55, 26, 6, -14, 8, 22, 24, -18, 24, 40), 'snap'], [26, P(10, -23, 0.55, 26, 6, -14, 8, 22, 24, -18, 24, 40)], [48, S]],
+      [HB(11, 12, 58, -84, 18, 18, 40, 40, 100, { grp: 0, fx: 'slash' }), HB(13, 15, 72, -42, 20, 18, 38, 42, 102, { grp: 0, fx: 'slash' })], { charge: 8, smash: 1, agile: 1, title: 'Crescent Cleave' });
+    mk('usmash', 42, [[0, S], [6, P(0, -18, 0.3, 16, 14, -6, 12, 12, 16, -12, 16, 30)], [11, P(0, -27, 0.1, 20, -8, -6, 8, 6, 27, -6, 27, -30), 'snap'], [13, P(0, -29, 0, 4, -26, -4, 8, 6, 27, -6, 27, -90), 'snap'], [16, P(0, -28, -0.15, -14, -16, -4, 8, 6, 27, -6, 27, -150), 'snap'], [26, P(0, -28, -0.15, -14, -16, -4, 8, 6, 27, -6, 27, -150)], [42, S]],
+      [HB(11, 12, 54, -44, 16, 14, 85, 36, 100, { grp: 0, fx: 'slash' }), HB(13, 15, 6, -102, 20, 15, 90, 36, 100, { grp: 0, fx: 'slash' }), HB(16, 18, -50, -60, 16, 13, 95, 36, 100, { grp: 0, fx: 'slash' })], { charge: 6, smash: 1, agile: 1, title: 'Rising Moon' });
+    mk('dsmash', 42, [[0, S], [6, P(0, -18, 0.1, 10, 12, -10, 12, 6, 18, -6, 18, 80)], [11, P(0, -12, 0.3, 22, 14, -10, 12, 26, 10, -26, 10, 8), 'snap'], [15, P(0, -12, -0.3, -22, 14, 10, 12, 26, 10, -26, 10, 172), 'snap'], [24, P(0, -12, -0.3, -22, 14, 10, 12, 26, 10, -26, 10, 172)], [42, S]],
+      [HB(11, 13, 62, -8, 15, 13, 25, 35, 95, { fx: 'slash' }), HB(15, 17, -62, -8, 15, 12, 155, 35, 95, { fx: 'slash' })], { charge: 6, smash: 1, agile: 1, title: 'Spin Sweep' });
+    mk('fair', 30, [[0, J_], [4, P(0, -26, -0.2, 10, -20, -8, 6, 10, 16, -10, 18, -100)], [7, P(0, -26, 0.2, 22, -6, -8, 8, 10, 16, -12, 16, -20), 'snap'], [10, P(0, -26, 0.35, 18, 12, -8, 8, 10, 16, -12, 16, 60), 'snap'], [18, P(0, -26, 0.35, 18, 12, -8, 8, 10, 16, -12, 16, 60)], [30, J_]],
+      [HB(6, 7, 42, -88, 15, 10, 45, 30, 95, { grp: 0, fx: 'slash' }), HB(8, 9, 66, -50, 16, 11, 40, 30, 98, { grp: 0, fx: 'slash' }), HB(10, 12, 50, -12, 15, 10, 30, 30, 90, { grp: 0, fx: 'slash' })], { air: 1, lag: 10, agile: 1, title: 'Crescent Fair' });
+    mk('bair', 28, [[0, J_], [5, P(2, -26, 0.2, 10, -10, 6, 8, 8, 16, 6, 14, -60)], [8, P(2, -26, 0.35, -20, -4, 6, 8, -8, 16, 6, 14, 180), 'snap'], [15, P(2, -26, 0.35, -20, -4, 6, 8, -8, 16, 6, 14, 180)], [28, J_]],
+      [HB(8, 11, -60, -48, 16, 13, 145, 32, 100, { fx: 'slash' })], { air: 1, lag: 10, agile: 1, title: 'Reverse Cut' });
+    mk('uair', 26, [[0, J_], [4, P(0, -26, -0.1, 16, -14, -6, 8, 6, 16, -6, 18, -40)], [7, P(0, -26, -0.2, 4, -24, -6, 8, 6, 16, -6, 18, -90), 'snap'], [10, P(0, -26, -0.3, -12, -16, -6, 8, 6, 16, -6, 18, -140), 'snap'], [16, P(0, -26, -0.3, -12, -16, -6, 8, 6, 16, -6, 18, -140)], [26, J_]],
+      [HB(5, 6, 44, -88, 15, 9, 80, 30, 100, { grp: 0, fx: 'slash' }), HB(7, 9, 4, -112, 18, 10, 90, 30, 100, { grp: 0, fx: 'slash' }), HB(10, 12, -40, -88, 15, 9, 100, 30, 100, { grp: 0, fx: 'slash' })], { air: 1, lag: 8, agile: 1, title: 'Sky Arc' });
+    mk('dair', 44, [[0, J_], [6, P(0, -30, 0, 10, -10, -10, -10, 4, 16, -4, 18, -90), 'slow'], [10, P(0, -30, 0, 4, 18, -4, 16, 4, 14, -4, 14, 90), 'snap'], [40, P(0, -30, 0, 4, 18, -4, 16, 4, 14, -4, 14, 90)], [44, J_]],
+      [HB(10, 34, 2, 14, 16, 12, -85, 25, 85, { spike: 1, fx: 'slash' })], { air: 1, lag: 14, agile: 1, title: 'Plunge', go: (f, t) => { if (t < 10) { f.vy = Math.min(f.vy, 0.3); f.vx *= 0.85; } else if (t < 34) { f.vy = 14; f.vx *= 0.9; } } });
+  });
+}
+function gromMoves() {
+  const S = STAND;
+  const quake = (f, x, big) => { FX.ring(x, f.y, big ? 80 : 50, '#ffcf70'); World.shake(big ? 12 : 6); Audio2.play('boom', big ? 1 : 0.6); FX.dust(x - 10, f.y); FX.dust(x + 10, f.y); };
+  return mkSet(mk => {
+    mk('jab1', 16, [[0, S], [3, P(8, -25, 0.5, 12, 4, -4, 10, 14, 25, -12, 25, 40), 'snap'], [8, P(8, -25, 0.5, 12, 4, -4, 10, 14, 25, -12, 25, 40)], [16, S]], [HB(3, 6, 26, -46, 15, 5, 40, 30, 40)], { jab: 1, heavy: 1, title: 'Shoulder Bash' });
+    mk('jab2', 16, [[0, S], [3, P(4, -25, 0.2, 26, -2, -4, 10, 8, 25, -8, 25, 180), 'snap'], [8, P(4, -25, 0.2, 26, -2, -4, 10, 8, 25, -8, 25, 180)], [16, S]], [HB(3, 6, 32, -46, 14, 5, 40, 30, 40)], { jab: 2, heavy: 1 });
+    mk('jab3', 30, [[0, S], [5, P(2, -24, 0.3, 20, 12, -6, 10, 10, 25, -10, 25, 60), 'slow'], [9, P(2, -27, -0.1, 16, -20, -6, 8, 10, 25, -10, 25, -80), 'snap'], [16, P(2, -27, -0.1, 16, -20, -6, 8, 10, 25, -10, 25, -80)], [30, S]],
+      [HB(9, 12, 40, -72, 18, 9, 70, 50, 88)], { heavy: 1, title: 'Hammer Upswing' });
+    mk('ftilt', 34, [[0, S], [8, P(-4, -25, -0.3, -16, 0, -6, 8, 10, 25, -12, 25, 180), 'slow'], [12, P(4, -25, 0.35, 26, 0, -6, 8, 14, 25, -14, 25, 0), 'snap'], [20, P(4, -25, 0.35, 26, 0, -6, 8, 14, 25, -14, 25, 0)], [34, S]],
+      [HB(11, 15, 58, -44, 20, 14, 35, 40, 96)], { heavy: 1, title: 'Hammer Swing' });
+    mk('utilt', 32, [[0, S], [6, P(0, -24, 0.2, 18, 6, -6, 8, 8, 25, -8, 25, 30), 'slow'], [10, P(0, -26, 0, 4, -24, -4, 6, 8, 25, -8, 25, -90), 'snap'], [14, P(0, -26, -0.2, -14, -14, -4, 6, 8, 25, -8, 25, -160), 'snap'], [32, S]],
+      [HB(9, 10, 42, -80, 18, 11, 80, 40, 100, { grp: 0 }), HB(11, 12, 4, -104, 20, 12, 90, 40, 105, { grp: 0 }), HB(13, 14, -40, -80, 18, 11, 100, 40, 100, { grp: 0 })], { heavy: 1, title: 'Overhead Arc' });
+    mk('dtilt', 30, [[0, POSE.crouch], [6, P(0, -16, 0.4, 14, -10, -4, 10, 14, 16, -12, 16, -90), 'slow'], [10, P(0, -14, 0.6, 26, 14, -4, 10, 14, 14, -12, 14, 90), 'snap'], [18, P(0, -14, 0.6, 26, 14, -4, 10, 14, 14, -12, 14, 90)], [30, POSE.crouch]],
+      [HB(10, 13, 48, -6, 18, 10, 80, 40, 70)], { crouchEnd: 1, heavy: 1, title: 'Ground Pound', go: (f, t) => { if (t === 10 && !f.air) quake(f, f.x + f.face * 48, false); } });
+    mk('dash', 42, [[0, S], [6, P(4, -30, 0.6, 20, -4, -6, -4, 10, 16, -14, 18, 0)], [14, P(10, -10, 1.4, 24, 6, 20, 6, 4, 0, -20, 0, 0), 'snap'], [30, P(10, -10, 1.4, 24, 6, 20, 6, 4, 0, -20, 0, 0)], [42, S]],
+      [HB(8, 17, 22, -22, 26, 13, 50, 55, 82)], { dash: 1, heavy: 1, title: 'Body Slam', go: (f, t) => { if (t === 6 && !f.air) f.vy = -5; if (t < 16) f.vx = f.face * 7; if (t === 16 && !f.air) quake(f, f.x + f.face * 20, false); } });
+    mk('fsmash', 60, [[0, S], [10, P(-6, -27, -0.35, -2, -28, -4, -26, 10, 25, -14, 25, -120), 'slow'], [16, P(10, -17, 0.85, 30, 14, 20, 14, 22, 20, -18, 22, 80), 'snap'], [34, P(10, -17, 0.85, 30, 14, 20, 14, 22, 20, -18, 22, 80)], [60, S]],
+      [HB(15, 16, 60, -50, 22, 26, 40, 45, 106, { grp: 0, fx: 'fire' }), HB(16, 19, 66, -6, 26, 20, 50, 45, 98, { grp: 0 })], { charge: 10, smash: 1, heavy: 1, armor: [4, 17], title: 'Earthsplitter', go: (f, t) => { if (t === 17 && !f.air) { quake(f, f.x + f.face * 66, true); spawnProj('shock', f, f.x + f.face * 70, f.y - 10, f.face * 9, 0); } } });
+    mk('usmash', 54, [[0, S], [8, P(0, -17, 0.4, -16, 14, -12, 14, 12, 16, -12, 16, 150), 'slow'], [14, P(0, -30, -0.1, 4, -28, -4, -26, 6, 27, -6, 27, -90), 'snap'], [28, P(0, -30, -0.1, 4, -28, -4, -26, 6, 27, -6, 27, -90)], [54, S]],
+      [HB(13, 16, 2, -102, 26, 22, 90, 40, 102, { grp: 0, fx: 'fire' }), HB(13, 16, 34, -62, 20, 17, 80, 40, 100, { grp: 0 })], { charge: 8, smash: 1, heavy: 1, armor: [4, 14], title: 'Skyward Hammer' });
+    mk('dsmash', 56, [[0, S], [8, P(0, -27, 0, 6, -28, -6, -26, 8, 25, -8, 25, -90), 'slow'], [14, P(4, -14, 0.7, 28, 14, 20, 14, 14, 14, -12, 14, 80), 'snap'], [20, P(4, -14, 0.7, 28, 14, 20, 14, 14, 14, -12, 14, 80)], [24, P(-4, -14, -0.7, -28, 14, -20, 14, 12, 14, -14, 14, 100), 'snap'], [34, P(-4, -14, -0.7, -28, 14, -20, 14, 12, 14, -14, 14, 100)], [56, S]],
+      [HB(14, 17, 60, -6, 22, 19, 30, 40, 100), HB(24, 27, -60, -6, 22, 18, 150, 40, 100)], { charge: 8, smash: 1, heavy: 1, title: 'Fault Line', go: (f, t) => { if (!f.air && t === 15) quake(f, f.x + f.face * 60, true); if (!f.air && t === 25) quake(f, f.x - f.face * 60, true); } });
+    mk('nair', 34, [[0, J_], [5, P(0, -26, 0, 18, -6, -18, -6, 14, 10, -14, 10, 0), 'snap'], [22, P(0, -26, 0, 18, -6, -18, -6, 14, 10, -14, 10, 360)], [34, J_]],
+      [HB(5, 10, 0, -32, 30, 12, 45, 32, 92), HB(11, 22, 0, -32, 26, 7, 45, 22, 70)], { air: 1, lag: 10, heavy: 1, spin: 1, title: 'Hammer Spin' });
+    mk('fair', 40, [[0, J_], [8, P(0, -26, -0.3, 0, -28, -6, -8, 10, 16, -10, 18, -110), 'slow'], [13, P(0, -26, 0.4, 24, 12, -6, 8, 10, 16, -12, 16, 60), 'snap'], [22, P(0, -26, 0.4, 24, 12, -6, 8, 10, 16, -12, 16, 60)], [40, J_]],
+      [HB(12, 13, 50, -62, 18, 15, 45, 35, 100, { grp: 0 }), HB(13, 16, 50, -12, 20, 17, -80, 25, 92, { grp: 0, spike: 1, fx: 'fire' })], { air: 1, lag: 14, heavy: 1, title: 'Overhead Smash (meteor)' });
+    mk('bair', 32, [[0, J_], [6, P(2, -26, 0.1, 10, -10, 6, 8, 8, 16, -6, 14, -40), 'slow'], [9, P(2, -26, 0.35, -22, -2, 6, 8, 8, 16, 6, 14, 180), 'snap'], [16, P(2, -26, 0.35, -22, -2, 6, 8, 8, 16, 6, 14, 180)], [32, J_]],
+      [HB(9, 12, -54, -46, 20, 16, 145, 35, 104)], { air: 1, lag: 12, heavy: 1, title: 'Back Hammer' });
+    mk('uair', 30, [[0, J_], [5, P(0, -26, 0, 16, -10, -6, 8, 6, 16, -6, 18, -30), 'slow'], [9, P(0, -26, -0.2, 4, -26, -6, 8, 6, 16, -6, 18, -90), 'snap'], [13, P(0, -26, -0.35, -14, -16, -6, 8, 6, 16, -6, 18, -150), 'snap'], [30, J_]],
+      [HB(8, 10, 30, -88, 20, 12, 85, 32, 100, { grp: 0 }), HB(10, 14, -10, -96, 22, 13, 92, 32, 102, { grp: 0 })], { air: 1, lag: 10, heavy: 1, title: 'Hammer Twirl' });
+    mk('dair', 50, [[0, J_], [10, P(0, -30, -0.1, 8, -26, -8, -26, 6, 14, -6, 14, -90), 'slow'], [13, P(0, -28, 0.1, 6, 20, -6, 20, 6, 20, -6, 20, 90), 'snap'], [44, P(0, -28, 0.1, 6, 20, -6, 20, 6, 20, -6, 20, 90)], [50, J_]],
+      [HB(13, 44, 0, 10, 22, 15, -88, 25, 90, { spike: 1 })], { air: 1, lag: 18, heavy: 1, title: 'Anvil Drop',
+        go: (f, t) => { if (t < 13) { f.vy = Math.min(f.vy, -0.4); f.vx *= 0.8; } else if (t < 44) { f.vy = 16; f.vx *= 0.9; } },
+        onLand: (f) => { if (f.mf >= 13 && f.mf < 44) { quake(f, f.x, true); spawnProj('shock', f, f.x + 24, f.y - 10, 8, 0); spawnProj('shock', f, f.x - 24, f.y - 10, -8, 0); } } });
+  });
 }
 
 // ===== WORLD, PHYSICS, COMBAT, FIGHTER, PROJECTILES, FX =====
@@ -714,7 +829,7 @@ class Fighter {
     if (mv.air && this.vy > 0 && inp.flickY === 1) this.ff = 1;
     if (mv.air && !this.air) { // landed during aerial: autocancel windows before the first / after the last hitbox
       const s0 = Math.min(...mv.hb.map(h => h.s)), e0 = Math.max(...mv.hb.map(h => h.e)); const ac = this.mf < s0 - 1 || this.mf > e0 + 3;
-      if (ac) FX.dust(this.x, this.y); this.toLand(ac ? 3 : Math.round((mv.lag || 6) * this.mods.lagMul)); return;
+      if (mv.onLand) mv.onLand(this); if (ac) FX.dust(this.x, this.y); this.toLand(ac ? 3 : Math.round((mv.lag || 6) * this.mods.lagMul)); return;
     }
     if (mv.untilLand && !this.air && this.mf > 8) { if (mv.land) this.setMove(mv.land); else this.toLand(10); return; }
     if (this.mf >= mv.d) {
@@ -819,7 +934,7 @@ class Fighter {
       const mv = this.move, sz = this.mods.size; let Jc = null, Jp = null;
       mv.hb.forEach((h, i) => {
         if (this.mf < h.s || this.mf > h.e) return;
-        let key = this.mid * 100 + i; if (h.multi) key = this.mid * 100 + 50 + Math.floor((this.mf - h.s) / h.multi);
+        let key = this.mid * 100 + (h.grp !== undefined ? 80 + h.grp : i); if (h.multi) key = this.mid * 100 + 50 + Math.floor((this.mf - h.s) / h.multi);
         out.push({ x: this.x + this.face * h.x * sz, y: this.y + h.y * sz, r: h.r * sz, h, key, move: mv, main: 1 });
         const att = hbAttach(this.def, mv, h); if (!att) return;
         if (!Jc) { Jc = this.jointsAt(this.mft); Jp = this.jointsAt(Math.max(0, this.mft - 1)); }
@@ -1022,7 +1137,7 @@ function resolveCombat() {
         if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5;
         let ang = p.face > 0 ? h.a : 180 - h.a; if (h.spike && p.mods.meteor) dmg *= 1.3;
         const res = e.takeHit({ dmg, ang, bkb: h.bkb + (h.chgKb || 0) * p.chg, kbg: h.kbg * p.mods.kb, att: p, x: hb.x, y: hb.y, ax: p.x, fx: h.fx || h.el, stun: h.stun || 0, fromX: p.x, fromY: p.y - 30 });
-        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); } }
+        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); if (h.bounce && p.air) { p.vy = -8.5; p.ff = 0; p.jumps = Math.max(p.jumps, 1); } if (p.move && p.move.heavy) { World.shake(Math.min(14, 4 + dmg * 0.45)); World.zp = Math.max(World.zp || 0, 0.035); e.hitlag = Math.round((e.hitlag || 0) * 1.25); p.hitlag = Math.round(p.hitlag * 1.25); } } }
       }
     }
   }
@@ -1492,7 +1607,7 @@ class Rival extends Fighter {
     if (this.dead || this.spawnT > 0) return [];
     return super.hitboxes().filter(b => !b.h.orb && !b.h.grab).map(b => {
       const h = b.h; let d = h.d * this.mods.dmg * (this.move && this.move.smash ? 1 + 0.45 * this.chg : 1); if (h.chg) d += h.chg * this.chg;
-      return { x: b.x, y: b.y, r: b.r, d, a: h.a, bkb: h.bkb + (h.chgKb || 0) * this.chg, kbg: h.kbg, key: b.key, fx: h.fx || h.el, el: h.el };
+      return { x: b.x, y: b.y, r: b.r * 0.72, d, a: h.a, bkb: h.bkb + (h.chgKb || 0) * this.chg, kbg: h.kbg, key: b.key, fx: h.fx || h.el, el: h.el }; // shadow fighters keep tighter hitboxes than players
     });
   }
   takeHit(info) {
@@ -1927,6 +2042,8 @@ function fighterRot(f) {
   if (f.state === 'down') return lie;
   if (f.state === 'getup') return lie * (1 - clamp(f.sf / 14, 0, 1));
   if (f.state === 'move' && f.move && f.move.name === 'getupatk') return lie * (1 - clamp(f.mf / 8, 0, 1));
+  if (f.state === 'move' && f.move && f.move.flip) { const [a, b] = f.move.flip; return -easeOutQ(clamp(((f.mf || 0) - a) / (b - a), 0, 1)) * TAU; }
+  if (f.state === 'move' && f.move && f.move.spin && f.move.hb.length) { const a = f.move.hb[0].s, b = Math.max(...f.move.hb.map(h => h.e)); return clamp(((f.mf || 0) - a) / (b - a), 0, 1) * TAU * 2; }
   if (f.state === 'techroll' || f.state === 'getuproll') return clamp(f.sf / 30, 0, 1) * TAU * (f.rollDir || 1) * f.face;
   if (f.state === 'tech') return (1 - clamp(f.sf / 8, 0, 1)) * 0.8;
   if (f.state === 'air' && f.vy < 0 && f.jumps < f.maxJumps && f.sf < 22) return (f.sf / 22) * TAU;
@@ -1957,18 +2074,34 @@ function drawFighter(g, f) {
   const target = fighterPose(f).slice(); const holding = World.items.some(it => it.type === 'bomb' && (it.holder === f || (it.hs && it.hs === (f.slot + 1) && !f.isRival)));
   if (holding && ['idle', 'run', 'air', 'crouch', 'land', 'land0', 'squat', 'shield', 'shielddrop'].includes(f.state)) { target[3] = 13; target[4] = -2; target[5] = 9; target[6] = 2; }
   f._holding = holding;
-  const blend = f.state === 'move' || f.state === 'hitstun' ? 1 : (f.state !== f.lastState ? 0.45 : 0.6);
-  f.rp = f.rp && f.state !== 'move' ? mix(f.rp, target, blend) : target; f.lastState = f.state;
+  // ---- move feel: heavy wind-up tremble & impacts, agile afterimages & speed lines ----
+  let tremble = 0, antic = 0, agileGhost = false;
+  if (f.state === 'move' && f.move && f.move.hb && f.move.hb.length) {
+    const mv = f.move, s0 = mv._s0 ?? (mv._s0 = Math.min(...mv.hb.map(h => h.s))), e1 = mv._e1 ?? (mv._e1 = Math.max(...mv.hb.map(h => h.e))), mf = f.mf || 0;
+    if (f._fxMove !== mv || mf < (f._fxMf ?? 0)) { f._fxMove = mv; f._fxStruck = 0; f._mvBlendT = 4; }
+    f._fxMf = mf;
+    if (mv.heavy && mf < s0 && mf > 1) { antic = clamp(mf / s0, 0, 1); tremble = antic * (mv.smash ? 1.8 : 1); }
+    if (!f._fxStruck && mf >= s0) { f._fxStruck = 1; strikeFX(f, mv); }
+    if (mv.agile && mf >= s0 - 1 && mf <= e1 + 1) agileGhost = World.frame % 2 === 0;
+  } else f._fxMove = null;
+  if (f.lastState === 'move' && f.state !== 'move') f._recT = 7;
+  // heavy footfalls / light-footed afterimages while running
+  if (f.state === 'run' && !f.air) { const ph = Math.floor((f.runPh || 0) / Math.PI); if (ph !== f._stepPh) { f._stepPh = ph; if (def.id === 3) { FX.dust(f.x - f.face * 6, f.y); FX.dust(f.x + f.face * 4, f.y); World.shake(0.9); } else if (def.id === 0) FX.dust(f.x - f.face * 8, f.y); } if (def.id === 1 && Math.abs(f.dxr) > 5 && World.frame % 4 === 0) agileGhost = true; }
+  let blend = f.state === 'hitstun' ? 1 : (f.state !== f.lastState ? 0.45 : 0.6);
+  if (f.state === 'move') { blend = f._mvBlendT > 0 ? 0.6 : 1; if (f._mvBlendT > 0) f._mvBlendT--; }
+  else if (f._recT > 0) { blend = 0.32; f._recT--; }
+  f.rp = f.rp ? mix(f.rp, target, blend) : target; f.lastState = f.state;
   const pose = f.rp;
   if (!f.dead) dropShadow(g, f.x, f.y, 16 * s);
   // squash & stretch (render-side, works for online partners too)
-  if (f._wasAir !== undefined && f._wasAir !== !!f.air) { if (f.air && f.vy < -2) f._ss = { t: 9, sx: 0.86, sy: 1.16 }; else if (!f.air) f._ss = { t: 9, sx: 1.18, sy: 0.84 }; }
+  if (f._wasAir !== undefined && f._wasAir !== !!f.air) { if (f.air && f.vy < -2) f._ss = { t: 9, sx: 0.86, sy: 1.16 }; else if (!f.air) { const hv = def.id === 3 ? 1.5 : def.id === 1 || def.id === 2 ? 0.8 : 1; f._ss = { t: 9, sx: 1 + 0.18 * hv, sy: 1 - 0.16 * hv }; if (def.id === 3) { FX.dust(f.x - 14, f.y); FX.dust(f.x + 14, f.y); } } }
   f._wasAir = !!f.air; let SX = 1, SY = 1;
   if (f._ss && f._ss.t > 0) { const k = f._ss.t / 9; SX = 1 + (f._ss.sx - 1) * k; SY = 1 + (f._ss.sy - 1) * k; f._ss.t--; }
   if (f.state === 'squat' || f.state === 'land0') { SX *= 1.08; SY *= 0.92; }
+  if (antic) { SX *= 1 + 0.07 * antic; SY *= 1 - 0.08 * antic; }
   // dodge afterimages
   const dodging = ['roll', 'spot', 'adodge', 'techroll', 'getuproll'].includes(f.state) || (f.state === 'move' && f.move && (f.move.name === 'sspec' && def.id === 1));
-  f._gh = f._gh || []; if (dodging && World.frame % 3 === 0) { f._gh.push({ x: f.x, y: f.y, pose, rot: fighterRot(f), dy: fighterDy(f), life: 12 }); if (f._gh.length > 4) f._gh.shift(); }
+  f._gh = f._gh || []; if ((dodging && World.frame % 3 === 0) || agileGhost) { f._gh.push({ x: f.x, y: f.y, pose, rot: fighterRot(f), dy: fighterDy(f), life: 12 }); if (f._gh.length > 4) f._gh.shift(); }
   for (const gh of f._gh) { if (gh.life-- <= 0) continue; g.save(); g.globalAlpha = gh.life / 12 * 0.35; if (gh.dy) g.translate(0, gh.dy * s); if (gh.rot) { const cy = gh.y - 28 * s; g.translate(gh.x, cy); g.rotate(gh.rot * f.face); g.translate(-gh.x, -cy); } drawBody(g, gh.x, gh.y, f.face, gh.pose, artFor(def.id, true), s, { flash: true }); g.restore(); }
   f._gh = f._gh.filter(gh => gh.life > 0);
   drawSwingTrails(g, f);
@@ -1977,7 +2110,7 @@ function drawFighter(g, f) {
   if (rival && f.spawnT > 0) { const k = 1 - f.spawnT / 40; g.globalAlpha = k; }
   if (f.intang > 0 && f.state !== 'roll' && f.state !== 'spot' && f.state !== 'adodge' && World.frame % 6 < 3 && f.intang > 20) g.globalAlpha = 0.5;
   if (['roll', 'spot', 'adodge'].includes(f.state) && f.intang > 0) g.globalAlpha = 0.6;
-  const shakeX = f.hitlag > 0 && f.state === 'hitstun' ? rr(-3, 3) : 0;
+  const shakeX = (f.hitlag > 0 && f.state === 'hitstun' ? rr(-3, 3) : 0) + (tremble ? rr(-tremble, tremble) : 0);
   let col = rival ? '#2b2140' : def.color, dark = rival ? '#160f22' : def.dark, acc = rival ? def.color : def.dark;
   if (f.flash > 0 || (f.hitlag > 0 && f.state === 'hitstun' && World.frame % 4 < 2)) col = '#ffffff';
   if (f.frozenT > 0) { col = '#9fdcff'; dark = '#6fb8e0'; }
@@ -2217,6 +2350,8 @@ function drawParticles(g) {
         g.strokeStyle = rgba(p.c, a); g.lineWidth = 3; for (let i = 0; i < 6; i++) { const an = p.a * 9 + i / 6 * TAU; g.beginPath(); g.moveTo(p.x + Math.cos(an) * r * 1.1, p.y + Math.sin(an) * r * 1.1); g.lineTo(p.x + Math.cos(an) * r * (1.6 + k), p.y + Math.sin(an) * r * (1.6 + k)); g.stroke(); }
         g.restore(); break; }
       case 'kob': break;
+      case 'speed': { g.save(); g.globalAlpha = a * 0.9; g.strokeStyle = p.c; g.lineWidth = 2.2; g.lineCap = 'round'; g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x - Math.sign(p.vx || 1) * p.len * a, p.y); g.stroke(); g.restore(); break; }
+      case 'crack': { g.save(); g.globalAlpha = Math.min(1, a * 1.6) * 0.85; g.strokeStyle = '#2a1d14'; g.lineWidth = 2.4; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(p.x, p.y); let cx = p.x, cy = p.y; const n = 4, grow = Math.min(1, (p.max - p.life) / 5); for (let i = 1; i <= n; i++) { const t = i / n, ang = p.a + Math.sin(p.seed + i * 2.3) * 0.5; cx = p.x + Math.cos(p.a) * p.len * t * grow + Math.cos(ang) * 3; cy = p.y + Math.min(6, Math.abs(Math.sin(p.a)) * p.len * t * grow * 0.25) + Math.sin(p.seed + i) * 1.5; g.lineTo(cx, cy); } g.stroke(); g.restore(); break; }
       case 'techf': { const k = 1 - a; g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = a; g.strokeStyle = p.c; g.lineWidth = 4 * a + 1; g.beginPath(); g.arc(p.x, p.y, 12 + k * 46, 0, TAU); g.stroke(); g.fillStyle = p.c; for (let i = 0; i < 8; i++) { const an = i / 8 * TAU + k; const r1 = 10 + k * 30, r2 = 22 + k * 60; g.beginPath(); g.moveTo(p.x + Math.cos(an - 0.08) * r1, p.y + Math.sin(an - 0.08) * r1); g.lineTo(p.x + Math.cos(an) * r2, p.y + Math.sin(an) * r2); g.lineTo(p.x + Math.cos(an + 0.08) * r1, p.y + Math.sin(an + 0.08) * r1); g.fill(); } g.restore(); break; }
       case 'star': { g.fillStyle = p.c; g.beginPath(); const r = p.r * (1.3 - a * 0.3); for (let i = 0; i < 10; i++) { const rr2 = i % 2 ? r * 0.35 : r; const an = i / 10 * TAU; g.lineTo(p.x + Math.cos(an) * rr2, p.y + Math.sin(an) * rr2); } g.fill(); break; }
       case 'slash': g.strokeStyle = p.c; g.lineWidth = 4 * a; g.beginPath(); g.moveTo(p.x - Math.cos(p.a) * p.r, p.y - Math.sin(p.a) * p.r); g.lineTo(p.x + Math.cos(p.a) * p.r, p.y + Math.sin(p.a) * p.r); g.stroke(); break;
@@ -2422,10 +2557,10 @@ function drawHitboxDebug(g) {
     if (e.dead || e.out) continue;
     // launch trajectory (recorded path while in hitstun)
     const inStun = e.hitstun > 0 || e.state === 'hitstun';
-    if (inStun) { if (!e._trOn) { e._tr = []; e._trOn = 1; } e._tr.push(e.x, e.y - 30); e._trT = 120; } else { e._trOn = 0; if (e._trT > 0) e._trT--; }
-    if (e._tr && e._tr.length > 3 && e._trT > 0) {
-      g.globalAlpha = Math.min(1, e._trT / 40); g.strokeStyle = '#ffffff'; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(e._tr[0], e._tr[1]); for (let i = 2; i < e._tr.length; i += 2) g.lineTo(e._tr[i], e._tr[i + 1]); g.stroke(); g.setLineDash([]);
-      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(e._tr[0], e._tr[1], 4, 0, TAU); g.fill(); g.globalAlpha = 1;
+    if (inStun) { if (!e._trOn) { e._trj = []; e._trOn = 1; } e._trj.push(e.x, e.y - 30); e._trT = 120; } else { e._trOn = 0; if (e._trT > 0) e._trT--; }
+    if (e._trj && e._trj.length > 3 && e._trT > 0) {
+      g.globalAlpha = Math.min(1, e._trT / 40); g.strokeStyle = '#ffffff'; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(e._trj[0], e._trj[1]); for (let i = 2; i < e._trj.length; i += 2) g.lineTo(e._trj[i], e._trj[i + 1]); g.stroke(); g.setLineDash([]);
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(e._trj[0], e._trj[1], 4, 0, TAU); g.fill(); g.globalAlpha = 1;
     }
     // hurtbox
     const r = e.hurt && e.hurt(); if (r) { const inv = e.intang > 0 || e.invuln > 0; g.fillStyle = inv ? 'rgba(90,255,140,0.25)' : 'rgba(255,214,60,0.25)'; g.strokeStyle = inv ? 'rgba(90,255,140,0.9)' : 'rgba(255,214,60,0.9)'; g.fillRect(r.x, r.y, r.w, r.h); g.strokeRect(r.x, r.y, r.w, r.h); }
@@ -2437,6 +2572,26 @@ function drawHitboxDebug(g) {
     }
   }
   g.restore();
+}
+
+const easeOutQ = t => 1 - (1 - t) * (1 - t);
+// visual punctuation on the first active frame of an attack (render-side, so online partners see it too)
+function strikeFX(f, mv) {
+  const h = mv.hb.reduce((a, b) => (b.s < a.s ? b : a)), x = f.x + f.face * h.x * (f.mods ? f.mods.size : 1), y = f.y + h.y;
+  if (mv.heavy) {
+    f._ss = { t: 10, sx: 1.16, sy: 0.86 }; World.shake(mv.smash ? 4 : 2);
+    if (!f.air) {
+      const gx = Math.abs(h.y) < 30 ? x : f.x; for (let i = 0; i < 3; i++) { FX.dust(gx - 18 + i * 18, f.y); }
+      if (Math.abs(h.y) < 30 || mv.smash) for (let i = 0; i < (mv.smash ? 7 : 4); i++) FX.add({ k: 'crack', x: gx, y: f.y, a: rr(-Math.PI, 0), len: rr(14, mv.smash ? 46 : 28), life: 40, max: 40, seed: Math.random() * 99 });
+      if (mv.smash) for (let i = 0; i < 8; i++) FX.add({ k: 'cube', x: gx + rr(-20, 20), y: f.y - 4, vx: rr(-3, 3), vy: rr(-7, -3), life: ri(24, 38), max: 38, c: pick(['#8a7a6a', '#6b5d50', '#a89884']), s: rr(4, 8), rot: rr(0, 6), g: 0.4, rise: 1 });
+    }
+    FX.add({ k: 'ring', x, y, r0: 6, r: mv.smash ? 60 : 38, life: 12, max: 12, c: 'rgba(255,240,200,0.9)' });
+  }
+  if (mv.agile) {
+    f._ss = { t: 7, sx: 1.1, sy: 0.93 };
+    for (let i = 0; i < 6; i++) FX.add({ k: 'speed', x: f.x - f.face * rr(0, 30), y: f.y - rr(8, 64), vx: -f.face * rr(5, 10), vy: 0, life: 10, max: 10, len: rr(18, 40), c: 'rgba(255,255,255,0.85)' });
+    FX.add({ k: 'ring', x, y, r0: 4, r: 26, life: 8, max: 8, c: 'rgba(255,255,255,0.7)' });
+  }
 }
 
 // ===== MUSIC: a small synth orchestra + sequencer. All compositions are original. =====

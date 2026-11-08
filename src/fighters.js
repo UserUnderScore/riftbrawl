@@ -16,12 +16,13 @@ const POSE = {
   dead: P(0, -10, 1.5, 10, 10, -10, 10, 10, 10, -10, 10, 90),
   dodge: P(-2, -24, 0.4, 2, 14, -6, 14, 2, 22, -8, 18, 60),
 };
+const J_ = POSE.jump;
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 function kfPose(kf, f) {
   if (f <= kf[0][0]) return kf[0][1];
   for (let i = 0; i < kf.length - 1; i++) {
     const [fa, pa] = kf[i], [fb, pb] = kf[i + 1];
-    if (f <= fb) { let t = (f - fa) / Math.max(1, fb - fa); t = t * t * (3 - 2 * t); return mix(pa, pb, t); }
+    if (f <= fb) { let t = clamp((f - fa) / Math.max(1, fb - fa), 0, 1); const ez = kf[i + 1][2]; t = ez === 'snap' ? 1 - Math.pow(1 - t, 4) : ez === 'slow' ? Math.pow(t * t * (3 - 2 * t), 1.6) : t * t * (3 - 2 * t); return mix(pa, pb, t); }
   }
   return kf[kf.length - 1][1];
 }
@@ -129,29 +130,39 @@ const FIGHTERS = [
   },
 ];
 // Build complete move tables with per-fighter scaling
-const HB_SCALE = 1.35; // generous player hitboxes
+const HB_SCALE = 1.75; // very generous player hitboxes (attacks should connect where they look like they do)
+const HB_REACH = 1.12, HB_LINGER = 2; // push hitboxes a little further out and keep them active a couple frames longer
+function growHB(h) { return { ...h, x: h.x * HB_REACH, y: h.y < -20 ? h.y : h.y, r: h.r * HB_SCALE, e: h.e + (h.multi ? 0 : HB_LINGER) }; }
+function snapStrikes(mv) { // make the keyframe that lands on the first active frame a fast 'snap'
+  if (!mv.hb || !mv.hb.length || !mv.kf) return mv; const s0 = Math.min(...mv.hb.map(h => h.s)); let bi = -1, bd = 99;
+  mv.kf.forEach((k, i) => { if (i > 0 && Math.abs(k[0] - s0) < bd && k[0] <= s0 + 2) { bd = Math.abs(k[0] - s0); bi = i; } });
+  if (bi > 0 && !mv.kf[bi][2]) mv.kf = mv.kf.map((k, i) => i === bi ? [k[0], k[1], 'snap'] : k);
+  if (bi > 1 && !mv.kf[bi - 1][2] && (mv.smash || mv.heavy)) mv.kf = mv.kf.map((k, i) => i === bi - 1 ? [k[0], k[1], 'slow'] : k);
+  return mv;
+}
+const SIGNATURE = { 0: rookMoves, 1: velaMoves, 3: gromMoves, 2: pipMagic };
 for (const F of FIGHTERS) {
   const base = baseMoves(); const m = F.mul; F.moves = {};
   for (const [k, mv] of Object.entries(base)) {
     const nm = { ...mv, name: k }; if (mv.thr) nm.thr = { ...mv.thr, at: Math.round(mv.thr.at * m.spd) };
     nm.d = Math.round(mv.d * m.spd);
-    const sc = m.spd; nm.kf = mv.kf.map(([f, p]) => [Math.round(f * sc), p]);
+    const sc = m.spd; nm.kf = mv.kf.map(([f, p, e]) => [Math.round(f * sc), p, e]);
     if (mv.charge) nm.charge = Math.round(mv.charge * sc);
-    nm.hb = mv.hb.map(h => ({ ...h, s: Math.round(h.s * sc), e: Math.max(Math.round(h.s * sc) + 1, Math.round(h.e * sc)), x: h.x * m.reach, y: h.y, r: h.r * m.rad * (F.weapon === 'none' ? 1 : 1.08) * HB_SCALE, d: Math.round(h.d * m.dmg), bkb: h.bkb, kbg: h.kbg * m.kb }));
+    nm.hb = mv.hb.map(h => ({ ...h, s: Math.round(h.s * sc), e: Math.max(Math.round(h.s * sc) + 1, Math.round(h.e * sc)), x: h.x * m.reach, y: h.y, r: h.r * m.rad * (F.weapon === 'none' ? 1 : 1.08), d: Math.round(h.d * m.dmg), bkb: h.bkb, kbg: h.kbg * m.kb }));
     F.moves[k] = nm;
   }
-  // Signature tweaks
-  if (F.id === 1) { F.moves.dair.hb[0].a = -90; F.moves.utilt.hb[0].r *= 1.2; F.moves.fsmash.hb[0].d = 17; }
-  if (F.id === 2) Object.assign(F.moves, pipMagic());
-  if (F.id === 3) { F.moves.fsmash.hb[0].d = 24; F.moves.fsmash.hb[0].r *= 1.15; F.moves.dair.hb[0].d = 16; }
-  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = { ...mv, name: k, hb: (mv.hb || []).map(h => ({ ...h, r: h.r * HB_SCALE })), special: 1 };
+  // signature movesets replace the shared templates
+  Object.assign(F.moves, SIGNATURE[F.id]());
+  if (F.id === 3) for (const k of ['grab', 'getupatk']) F.moves[k].heavy = 1;
+  for (const [k, mv] of Object.entries(F.moves)) { mv.hb = mv.hb.map(h => h.grab ? { ...h, r: h.r * 1.35 } : growHB(h)); snapStrikes(mv); }
+  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = snapStrikes({ ...mv, name: k, hb: (mv.hb || []).map(growHB), special: 1 });
 }
 
 // ---- Pip's elemental spellbook: every normal is a short-range spell with an effect ----
 // el: fire = burn over time, ice = freeze (extra stun), shock = stun, wind = big push, arcane = raw power
 function pipMagic() {
   const S = STAND, k = HB_SCALE, M = {};
-  const mk = (name, d, kf, hb, extra = {}) => { M[name] = { name, d, kf, hb: hb.map(h => ({ ...h, r: h.r * k })), ...extra }; };
+  const mk = (name, d, kf, hb, extra = {}) => { M[name] = { name, d, kf, hb: hb.map(h => ({ ...h })), ...extra }; };
   const cast = (hx, hy, w, lean = 0.2) => P(2, -25, lean, hx, hy, -8, 10, 9, 25, -9, 25, w);
   mk('jab1', 12, [[0, S], [3, cast(24, -4, 0)], [7, cast(24, -4, 0)], [12, S]], [HB(3, 5, 30, -46, 11, 3, 30, 14, 20, { el: 'shock' })], { jab: 1, spell: 'Spark Jab' });
   mk('jab2', 12, [[0, S], [3, cast(24, 2, 10)], [7, cast(24, 2, 10)], [12, S]], [HB(3, 5, 30, -42, 11, 3, 35, 16, 20, { el: 'shock' })], { jab: 2, spell: 'Spark Jab' });
@@ -169,4 +180,108 @@ function pipMagic() {
   mk('uair', 26, [[0, POSE.jump], [5, P(0, -26, -0.2, 4, -28, -4, -26, 6, 18, -6, 18, -90)], [12, P(0, -26, -0.2, 4, -28, -4, -26, 6, 18, -6, 18, -90)], [26, POSE.jump]], [HB(5, 10, 0, -76, 20, 8, 85, 30, 95, { el: 'arcane' })], { air: 1, lag: 8, spell: 'Starburst' });
   mk('dair', 38, [[0, POSE.jump], [6, P(0, -30, 0, 10, -14, -10, -14, 6, 14, -6, 14, -90)], [12, P(0, -30, 0, 6, 26, -6, 26, 6, 14, -6, 14, 90)], [22, P(0, -30, 0, 6, 26, -6, 26, 6, 14, -6, 14, 90)], [38, POSE.jump]], [HB(6, 11, 0, 10, 26, 2, 90, 20, 0, { el: 'arcane', pull: 1 }), HB(12, 16, 0, 8, 20, 11, -80, 25, 85, { el: 'arcane', spike: 1 })], { air: 1, lag: 14, spell: 'Gravity Well' });
   return M;
+}
+
+// ===================== Signature movesets =====================
+// kf entries may carry a 3rd element: 'snap' (fast strike that settles) or 'slow' (heavy, weighted wind-up).
+// Moves flagged heavy get anticipation, impact shake, dust & cracks; agile moves get afterimages, speed lines & snappy stretch.
+function mkSet(fn) { const M = {}; fn((name, d, kf, hb, extra = {}) => { M[name] = { name, d, kf, hb: hb.map(h => ({ ...h })), ...extra }; }); return M; }
+function rookMoves() {
+  const S = STAND;
+  return mkSet(mk => {
+    const pA = P(4, -25, 0.2, 24, -4, -4, 10, 8, 25, -8, 25, 0), pB = P(4, -25, 0.2, -2, 10, 24, -2, 8, 25, -8, 25, 0);
+    mk('jab1', 12, [[0, S], [2, P(2, -25, 0.14, 23, -2, -6, 12, 7, 25, -7, 25, 0), 'snap'], [6, P(2, -25, 0.14, 23, -2, -6, 12, 7, 25, -7, 25, 0)], [12, S]], [HB(2, 5, 26, -47, 11, 3, 30, 14, 25)], { jab: 1, agile: 1 });
+    mk('jab2', 12, [[0, S], [2, P(4, -25, 0.2, -2, 8, 24, -2, 8, 25, -8, 25, 0), 'snap'], [6, P(4, -25, 0.2, -2, 8, 24, -2, 8, 25, -8, 25, 0)], [12, S]], [HB(2, 5, 27, -46, 11, 3, 35, 16, 25)], { jab: 2, agile: 1 });
+    mk('jab3', 34, [[0, S], [3, pA, 'snap'], [6, pB, 'snap'], [9, pA, 'snap'], [12, pB, 'snap'], [15, pA, 'snap'], [18, pB, 'snap'], [21, P(6, -28, -0.05, 20, -26, -6, 8, 10, 25, -8, 25, -90), 'snap'], [26, P(6, -28, -0.05, 20, -26, -6, 8, 10, 25, -8, 25, -90)], [34, S]],
+      [HB(3, 18, 28, -45, 13, 1.5, 70, 8, 0, { multi: 3 }), HB(21, 24, 30, -54, 15, 5, 55, 55, 100, { fx: 'fire' })], { agile: 1, title: 'Flurry' });
+    mk('ftilt', 24, [[0, S], [3, P(-2, -26, -0.2, -8, 4, -10, 6, 6, 25, -6, 25, 0)], [6, P(6, -27, -0.35, -10, 2, -12, 6, 32, -8, -4, 25, 0), 'snap'], [12, P(6, -27, -0.35, -10, 2, -12, 6, 32, -8, -4, 25, 0)], [24, S]],
+      [HB(6, 10, 38, -33, 13, 9, 38, 32, 95)], { agile: 1, go: (f, t) => { if (t === 4 && !f.air) f.vx = f.face * 5.5; } });
+    mk('dtilt', 18, [[0, POSE.crouch], [4, P(0, -12, 0.5, 10, 14, -6, 12, 34, 12, -12, 14, 10), 'snap'], [9, P(0, -12, 0.5, 10, 14, -6, 12, 34, 12, -12, 14, 10)], [18, POSE.crouch]], [HB(4, 8, 36, -5, 13, 6, 18, 40, 40)], { crouchEnd: 1, agile: 1 });
+    mk('dash', 30, [[0, S], [4, P(6, -34, 0.1, 8, -6, -12, 4, 22, -10, -8, 22, 0), 'snap'], [14, P(6, -34, 0.1, 8, -6, -12, 4, 22, -10, -8, 22, 0)], [30, S]],
+      [HB(4, 8, 24, -38, 15, 12, 45, 55, 88), HB(9, 15, 24, -38, 13, 6, 55, 40, 50)], { dash: 1, agile: 1, title: 'Flying Knee' });
+    mk('fsmash', 46, [[0, S], [8, P(-8, -23, -0.4, -18, 2, 10, 4, 14, 25, -14, 25, 0), 'slow'], [13, P(10, -24, 0.55, 34, -6, -14, 8, 22, 24, -18, 24, 0), 'snap'], [24, P(10, -24, 0.55, 34, -6, -14, 8, 22, 24, -18, 24, 0)], [46, S]],
+      [HB(13, 17, 46, -47, 16, 17, 38, 42, 102, { fx: 'fire' })], { charge: 8, smash: 1, heavy: 1, title: 'Haymaker', go: (f, t) => { if (t === 12 && !f.air) f.vx = f.face * 7; } });
+    mk('usmash', 42, [[0, S], [6, POSE.crouch], [10, P(0, -30, -0.6, -10, 8, -14, 4, 10, -34, -6, 20, 0), 'snap'], [16, P(0, -30, -1.3, -14, -4, -10, -8, 4, -36, -6, 14, 0)], [26, P(0, -27, -0.3, -10, 4, -12, 4, 6, 20, -6, 24, 0)], [42, S]],
+      [HB(10, 13, 10, -78, 15, 6, 88, 30, 50), HB(14, 18, 0, -86, 18, 11, 90, 38, 102)], { charge: 6, smash: 1, agile: 1, flip: [12, 26], title: 'Flip Kick' });
+    mk('dsmash', 44, [[0, S], [6, POSE.crouch], [11, P(0, -12, 0.6, 10, 16, -6, 16, 34, 6, -14, 10, 0), 'snap'], [15, P(0, -12, 0.6, 10, 16, -6, 16, -34, 6, 10, 10, 0), 'snap'], [26, P(0, -12, 0.6, 10, 16, -6, 16, -34, 6, 10, 10, 0)], [44, S]],
+      [HB(11, 14, 36, -6, 14, 12, 30, 35, 95), HB(15, 18, -36, -6, 14, 12, 150, 35, 95)], { charge: 6, smash: 1, agile: 1, title: 'Breakdance Sweep' });
+    mk('nair', 32, [[0, J_], [4, P(0, -26, 0, 18, -6, -18, -6, 22, 2, -22, 2, 0), 'snap'], [20, P(0, -26, 0, 18, -6, -18, -6, 22, 2, -22, 2, 0)], [32, J_]],
+      [HB(4, 18, 0, -30, 24, 2, 60, 15, 0, { multi: 4 }), HB(19, 22, 0, -30, 26, 5, 45, 40, 82)], { air: 1, lag: 8, agile: 1, spin: 1, title: 'Tornado Kick' });
+    mk('fair', 32, [[0, J_], [5, P(0, -26, 0.3, 24, -2, -8, 8, 10, 16, -10, 18, 0), 'snap'], [10, P(0, -26, 0.3, -4, 8, 24, -2, 10, 16, -10, 18, 0), 'snap'], [16, P(0, -26, 0.35, 26, 4, -6, 10, 10, 16, -10, 18, 0), 'snap'], [32, J_]],
+      [HB(5, 7, 28, -42, 13, 4, 75, 30, 15), HB(10, 12, 28, -42, 13, 4, 75, 30, 15), HB(16, 19, 30, -40, 16, 8, 40, 34, 98)], { air: 1, lag: 10, agile: 1, title: 'Triple Hook' });
+    mk('bair', 28, [[0, J_], [6, P(2, -26, 0.45, 10, 4, 6, 8, -34, -6, 6, 14, 120), 'snap'], [13, P(2, -26, 0.45, 10, 4, 6, 8, -34, -6, 6, 14, 120)], [28, J_]],
+      [HB(6, 10, -36, -30, 14, 14, 145, 34, 104)], { air: 1, lag: 10, heavy: 1, title: 'Mule Kick' });
+    mk('uair', 26, [[0, J_], [4, P(0, -26, -0.3, -10, 4, 10, 4, 10, -40, -6, 16, -90), 'snap'], [9, P(0, -26, -0.3, -10, 4, 10, 4, -8, -42, 6, 14, -90), 'snap'], [14, P(0, -26, -0.3, -10, 4, 10, 4, -8, -42, 6, 14, -90)], [26, J_]],
+      [HB(4, 7, 8, -72, 14, 4, 85, 40, 20), HB(9, 13, -4, -76, 16, 8, 88, 30, 100)], { air: 1, lag: 8, agile: 1, title: 'Scissor Kick' });
+    mk('dair', 36, [[0, J_], [7, P(0, -32, 0, 10, -14, -10, -14, 6, 4, -6, 6, -90), 'slow'], [11, P(0, -30, 0, 12, -4, -12, -4, 4, 34, -4, 32, 90), 'snap'], [22, P(0, -30, 0, 12, -4, -12, -4, 4, 34, -4, 32, 90)], [36, J_]],
+      [HB(11, 16, 0, 8, 16, 12, -85, 22, 86, { spike: 1, bounce: 1 })], { air: 1, lag: 14, heavy: 1, title: 'Stomp' });
+  });
+}
+function velaMoves() {
+  const S = STAND;
+  return mkSet(mk => {
+    const th1 = P(2, -25, 0.16, 20, -2, -6, 12, 7, 25, -7, 25, 0), th2 = P(4, -25, 0.2, 22, -6, -6, 12, 8, 25, -8, 25, -8), th3 = P(4, -25, 0.2, 22, 2, -6, 12, 8, 25, -8, 25, 8);
+    mk('jab1', 12, [[0, S], [2, th1, 'snap'], [6, th1], [12, S]], [HB(2, 5, 54, -47, 11, 3, 30, 14, 25, { fx: 'slash' })], { jab: 1, agile: 1 });
+    mk('jab2', 12, [[0, S], [2, P(3, -25, 0.15, 18, 4, -6, 10, 7, 25, -7, 25, -28), 'snap'], [6, P(3, -25, 0.15, 18, 4, -6, 10, 7, 25, -7, 25, -28)], [12, S]], [HB(2, 5, 50, -58, 12, 3, 40, 16, 25, { fx: 'slash' })], { jab: 2, agile: 1 });
+    mk('jab3', 34, [[0, S], [3, th2, 'snap'], [5, P(0, -25, 0.1, 10, 0, -6, 12, 8, 25, -8, 25, 0)], [7, th3, 'snap'], [9, P(0, -25, 0.1, 10, 0, -6, 12, 8, 25, -8, 25, 0)], [11, th1, 'snap'], [13, P(0, -25, 0.1, 10, 0, -6, 12, 8, 25, -8, 25, 0)], [15, th2, 'snap'], [18, P(-2, -25, -0.1, 0, -6, -6, 10, 8, 25, -8, 25, -20)], [21, P(10, -24, 0.45, 26, -2, -14, 6, 22, 25, -18, 25, 0), 'snap'], [26, P(10, -24, 0.45, 26, -2, -14, 6, 22, 25, -18, 25, 0)], [34, S]],
+      [HB(3, 17, 56, -46, 14, 1.5, 70, 8, 0, { multi: 3, fx: 'slash' }), HB(21, 24, 66, -46, 16, 5, 40, 55, 100, { fx: 'slash' })], { agile: 1, title: 'Hundred Stabs' });
+    mk('ftilt', 26, [[0, S], [4, P(-4, -24, -0.1, -6, 4, -10, 8, 8, 25, -8, 25, 0)], [7, P(12, -22, 0.45, 24, -2, -14, 6, 26, 25, -22, 25, 0), 'snap'], [14, P(12, -22, 0.45, 24, -2, -14, 6, 26, 25, -22, 25, 0)], [26, S]],
+      [HB(7, 10, 80, -44, 13, 12, 35, 36, 102, { fx: 'slash', grp: 0 }), HB(7, 10, 46, -44, 13, 7, 40, 30, 80, { grp: 0 })], { agile: 1, title: 'Lunge (tip = sweetspot)', go: (f, t) => { if (t === 6 && !f.air) f.vx = f.face * 4.5; } });
+    mk('utilt', 24, [[0, S], [3, P(0, -25, 0.1, 18, 0, -6, 10, 6, 25, -6, 25, 10)], [6, P(0, -26, 0, 6, -20, -6, 10, 6, 25, -6, 25, -80), 'snap'], [9, P(0, -26, -0.1, -10, -16, -6, 10, 6, 25, -6, 25, -160), 'snap'], [24, S]],
+      [HB(4, 5, 54, -56, 14, 8, 80, 32, 110, { grp: 0, fx: 'slash' }), HB(6, 7, 8, -96, 16, 8, 90, 32, 110, { grp: 0, fx: 'slash' }), HB(8, 10, -44, -72, 14, 8, 110, 32, 110, { grp: 0, fx: 'slash' })], { agile: 1, title: 'Arc Slash' });
+    mk('dtilt', 18, [[0, POSE.crouch], [4, P(0, -13, 0.45, 22, 14, -6, 12, 18, 12, -12, 14, 10), 'snap'], [9, P(0, -13, 0.45, 22, 14, -6, 12, 18, 12, -12, 14, 10)], [18, POSE.crouch]],
+      [HB(4, 8, 62, -10, 13, 7, 25, 35, 65, { grp: 0, fx: 'slash' }), HB(4, 8, 32, -10, 12, 5, 30, 30, 60, { grp: 0 })], { crouchEnd: 1, agile: 1 });
+    mk('dash', 30, [[0, S], [3, P(4, -20, 0.7, -14, 6, -10, 8, 18, 20, -22, 18, 170)], [7, P(10, -21, 0.6, 26, 2, -14, 6, 22, 18, -22, 18, 10), 'snap'], [16, P(10, -21, 0.6, 26, 2, -14, 6, 22, 18, -22, 18, 10)], [30, S]],
+      [HB(6, 13, 34, -36, 22, 10, 45, 45, 82, { fx: 'slash' })], { dash: 1, agile: 1, title: 'Passing Slash', go: (f, t) => { if (t >= 4 && t < 14) f.vx = f.face * 9; } });
+    mk('fsmash', 48, [[0, S], [8, P(-6, -24, -0.35, -6, -22, 10, 6, 12, 25, -14, 25, -140), 'slow'], [11, P(6, -24, 0.3, 22, -14, -14, 8, 20, 25, -16, 25, -40), 'snap'], [14, P(10, -23, 0.55, 26, 6, -14, 8, 22, 24, -18, 24, 40), 'snap'], [26, P(10, -23, 0.55, 26, 6, -14, 8, 22, 24, -18, 24, 40)], [48, S]],
+      [HB(11, 12, 58, -84, 18, 18, 40, 40, 100, { grp: 0, fx: 'slash' }), HB(13, 15, 72, -42, 20, 18, 38, 42, 102, { grp: 0, fx: 'slash' })], { charge: 8, smash: 1, agile: 1, title: 'Crescent Cleave' });
+    mk('usmash', 42, [[0, S], [6, P(0, -18, 0.3, 16, 14, -6, 12, 12, 16, -12, 16, 30)], [11, P(0, -27, 0.1, 20, -8, -6, 8, 6, 27, -6, 27, -30), 'snap'], [13, P(0, -29, 0, 4, -26, -4, 8, 6, 27, -6, 27, -90), 'snap'], [16, P(0, -28, -0.15, -14, -16, -4, 8, 6, 27, -6, 27, -150), 'snap'], [26, P(0, -28, -0.15, -14, -16, -4, 8, 6, 27, -6, 27, -150)], [42, S]],
+      [HB(11, 12, 54, -44, 16, 14, 85, 36, 100, { grp: 0, fx: 'slash' }), HB(13, 15, 6, -102, 20, 15, 90, 36, 100, { grp: 0, fx: 'slash' }), HB(16, 18, -50, -60, 16, 13, 95, 36, 100, { grp: 0, fx: 'slash' })], { charge: 6, smash: 1, agile: 1, title: 'Rising Moon' });
+    mk('dsmash', 42, [[0, S], [6, P(0, -18, 0.1, 10, 12, -10, 12, 6, 18, -6, 18, 80)], [11, P(0, -12, 0.3, 22, 14, -10, 12, 26, 10, -26, 10, 8), 'snap'], [15, P(0, -12, -0.3, -22, 14, 10, 12, 26, 10, -26, 10, 172), 'snap'], [24, P(0, -12, -0.3, -22, 14, 10, 12, 26, 10, -26, 10, 172)], [42, S]],
+      [HB(11, 13, 62, -8, 15, 13, 25, 35, 95, { fx: 'slash' }), HB(15, 17, -62, -8, 15, 12, 155, 35, 95, { fx: 'slash' })], { charge: 6, smash: 1, agile: 1, title: 'Spin Sweep' });
+    mk('fair', 30, [[0, J_], [4, P(0, -26, -0.2, 10, -20, -8, 6, 10, 16, -10, 18, -100)], [7, P(0, -26, 0.2, 22, -6, -8, 8, 10, 16, -12, 16, -20), 'snap'], [10, P(0, -26, 0.35, 18, 12, -8, 8, 10, 16, -12, 16, 60), 'snap'], [18, P(0, -26, 0.35, 18, 12, -8, 8, 10, 16, -12, 16, 60)], [30, J_]],
+      [HB(6, 7, 42, -88, 15, 10, 45, 30, 95, { grp: 0, fx: 'slash' }), HB(8, 9, 66, -50, 16, 11, 40, 30, 98, { grp: 0, fx: 'slash' }), HB(10, 12, 50, -12, 15, 10, 30, 30, 90, { grp: 0, fx: 'slash' })], { air: 1, lag: 10, agile: 1, title: 'Crescent Fair' });
+    mk('bair', 28, [[0, J_], [5, P(2, -26, 0.2, 10, -10, 6, 8, 8, 16, 6, 14, -60)], [8, P(2, -26, 0.35, -20, -4, 6, 8, -8, 16, 6, 14, 180), 'snap'], [15, P(2, -26, 0.35, -20, -4, 6, 8, -8, 16, 6, 14, 180)], [28, J_]],
+      [HB(8, 11, -60, -48, 16, 13, 145, 32, 100, { fx: 'slash' })], { air: 1, lag: 10, agile: 1, title: 'Reverse Cut' });
+    mk('uair', 26, [[0, J_], [4, P(0, -26, -0.1, 16, -14, -6, 8, 6, 16, -6, 18, -40)], [7, P(0, -26, -0.2, 4, -24, -6, 8, 6, 16, -6, 18, -90), 'snap'], [10, P(0, -26, -0.3, -12, -16, -6, 8, 6, 16, -6, 18, -140), 'snap'], [16, P(0, -26, -0.3, -12, -16, -6, 8, 6, 16, -6, 18, -140)], [26, J_]],
+      [HB(5, 6, 44, -88, 15, 9, 80, 30, 100, { grp: 0, fx: 'slash' }), HB(7, 9, 4, -112, 18, 10, 90, 30, 100, { grp: 0, fx: 'slash' }), HB(10, 12, -40, -88, 15, 9, 100, 30, 100, { grp: 0, fx: 'slash' })], { air: 1, lag: 8, agile: 1, title: 'Sky Arc' });
+    mk('dair', 44, [[0, J_], [6, P(0, -30, 0, 10, -10, -10, -10, 4, 16, -4, 18, -90), 'slow'], [10, P(0, -30, 0, 4, 18, -4, 16, 4, 14, -4, 14, 90), 'snap'], [40, P(0, -30, 0, 4, 18, -4, 16, 4, 14, -4, 14, 90)], [44, J_]],
+      [HB(10, 34, 2, 14, 16, 12, -85, 25, 85, { spike: 1, fx: 'slash' })], { air: 1, lag: 14, agile: 1, title: 'Plunge', go: (f, t) => { if (t < 10) { f.vy = Math.min(f.vy, 0.3); f.vx *= 0.85; } else if (t < 34) { f.vy = 14; f.vx *= 0.9; } } });
+  });
+}
+function gromMoves() {
+  const S = STAND;
+  const quake = (f, x, big) => { FX.ring(x, f.y, big ? 80 : 50, '#ffcf70'); World.shake(big ? 12 : 6); Audio2.play('boom', big ? 1 : 0.6); FX.dust(x - 10, f.y); FX.dust(x + 10, f.y); };
+  return mkSet(mk => {
+    mk('jab1', 16, [[0, S], [3, P(8, -25, 0.5, 12, 4, -4, 10, 14, 25, -12, 25, 40), 'snap'], [8, P(8, -25, 0.5, 12, 4, -4, 10, 14, 25, -12, 25, 40)], [16, S]], [HB(3, 6, 26, -46, 15, 5, 40, 30, 40)], { jab: 1, heavy: 1, title: 'Shoulder Bash' });
+    mk('jab2', 16, [[0, S], [3, P(4, -25, 0.2, 26, -2, -4, 10, 8, 25, -8, 25, 180), 'snap'], [8, P(4, -25, 0.2, 26, -2, -4, 10, 8, 25, -8, 25, 180)], [16, S]], [HB(3, 6, 32, -46, 14, 5, 40, 30, 40)], { jab: 2, heavy: 1 });
+    mk('jab3', 30, [[0, S], [5, P(2, -24, 0.3, 20, 12, -6, 10, 10, 25, -10, 25, 60), 'slow'], [9, P(2, -27, -0.1, 16, -20, -6, 8, 10, 25, -10, 25, -80), 'snap'], [16, P(2, -27, -0.1, 16, -20, -6, 8, 10, 25, -10, 25, -80)], [30, S]],
+      [HB(9, 12, 40, -72, 18, 9, 70, 50, 88)], { heavy: 1, title: 'Hammer Upswing' });
+    mk('ftilt', 34, [[0, S], [8, P(-4, -25, -0.3, -16, 0, -6, 8, 10, 25, -12, 25, 180), 'slow'], [12, P(4, -25, 0.35, 26, 0, -6, 8, 14, 25, -14, 25, 0), 'snap'], [20, P(4, -25, 0.35, 26, 0, -6, 8, 14, 25, -14, 25, 0)], [34, S]],
+      [HB(11, 15, 58, -44, 20, 14, 35, 40, 96)], { heavy: 1, title: 'Hammer Swing' });
+    mk('utilt', 32, [[0, S], [6, P(0, -24, 0.2, 18, 6, -6, 8, 8, 25, -8, 25, 30), 'slow'], [10, P(0, -26, 0, 4, -24, -4, 6, 8, 25, -8, 25, -90), 'snap'], [14, P(0, -26, -0.2, -14, -14, -4, 6, 8, 25, -8, 25, -160), 'snap'], [32, S]],
+      [HB(9, 10, 42, -80, 18, 11, 80, 40, 100, { grp: 0 }), HB(11, 12, 4, -104, 20, 12, 90, 40, 105, { grp: 0 }), HB(13, 14, -40, -80, 18, 11, 100, 40, 100, { grp: 0 })], { heavy: 1, title: 'Overhead Arc' });
+    mk('dtilt', 30, [[0, POSE.crouch], [6, P(0, -16, 0.4, 14, -10, -4, 10, 14, 16, -12, 16, -90), 'slow'], [10, P(0, -14, 0.6, 26, 14, -4, 10, 14, 14, -12, 14, 90), 'snap'], [18, P(0, -14, 0.6, 26, 14, -4, 10, 14, 14, -12, 14, 90)], [30, POSE.crouch]],
+      [HB(10, 13, 48, -6, 18, 10, 80, 40, 70)], { crouchEnd: 1, heavy: 1, title: 'Ground Pound', go: (f, t) => { if (t === 10 && !f.air) quake(f, f.x + f.face * 48, false); } });
+    mk('dash', 42, [[0, S], [6, P(4, -30, 0.6, 20, -4, -6, -4, 10, 16, -14, 18, 0)], [14, P(10, -10, 1.4, 24, 6, 20, 6, 4, 0, -20, 0, 0), 'snap'], [30, P(10, -10, 1.4, 24, 6, 20, 6, 4, 0, -20, 0, 0)], [42, S]],
+      [HB(8, 17, 22, -22, 26, 13, 50, 55, 82)], { dash: 1, heavy: 1, title: 'Body Slam', go: (f, t) => { if (t === 6 && !f.air) f.vy = -5; if (t < 16) f.vx = f.face * 7; if (t === 16 && !f.air) quake(f, f.x + f.face * 20, false); } });
+    mk('fsmash', 60, [[0, S], [10, P(-6, -27, -0.35, -2, -28, -4, -26, 10, 25, -14, 25, -120), 'slow'], [16, P(10, -17, 0.85, 30, 14, 20, 14, 22, 20, -18, 22, 80), 'snap'], [34, P(10, -17, 0.85, 30, 14, 20, 14, 22, 20, -18, 22, 80)], [60, S]],
+      [HB(15, 16, 60, -50, 22, 26, 40, 45, 106, { grp: 0, fx: 'fire' }), HB(16, 19, 66, -6, 26, 20, 50, 45, 98, { grp: 0 })], { charge: 10, smash: 1, heavy: 1, armor: [4, 17], title: 'Earthsplitter', go: (f, t) => { if (t === 17 && !f.air) { quake(f, f.x + f.face * 66, true); spawnProj('shock', f, f.x + f.face * 70, f.y - 10, f.face * 9, 0); } } });
+    mk('usmash', 54, [[0, S], [8, P(0, -17, 0.4, -16, 14, -12, 14, 12, 16, -12, 16, 150), 'slow'], [14, P(0, -30, -0.1, 4, -28, -4, -26, 6, 27, -6, 27, -90), 'snap'], [28, P(0, -30, -0.1, 4, -28, -4, -26, 6, 27, -6, 27, -90)], [54, S]],
+      [HB(13, 16, 2, -102, 26, 22, 90, 40, 102, { grp: 0, fx: 'fire' }), HB(13, 16, 34, -62, 20, 17, 80, 40, 100, { grp: 0 })], { charge: 8, smash: 1, heavy: 1, armor: [4, 14], title: 'Skyward Hammer' });
+    mk('dsmash', 56, [[0, S], [8, P(0, -27, 0, 6, -28, -6, -26, 8, 25, -8, 25, -90), 'slow'], [14, P(4, -14, 0.7, 28, 14, 20, 14, 14, 14, -12, 14, 80), 'snap'], [20, P(4, -14, 0.7, 28, 14, 20, 14, 14, 14, -12, 14, 80)], [24, P(-4, -14, -0.7, -28, 14, -20, 14, 12, 14, -14, 14, 100), 'snap'], [34, P(-4, -14, -0.7, -28, 14, -20, 14, 12, 14, -14, 14, 100)], [56, S]],
+      [HB(14, 17, 60, -6, 22, 19, 30, 40, 100), HB(24, 27, -60, -6, 22, 18, 150, 40, 100)], { charge: 8, smash: 1, heavy: 1, title: 'Fault Line', go: (f, t) => { if (!f.air && t === 15) quake(f, f.x + f.face * 60, true); if (!f.air && t === 25) quake(f, f.x - f.face * 60, true); } });
+    mk('nair', 34, [[0, J_], [5, P(0, -26, 0, 18, -6, -18, -6, 14, 10, -14, 10, 0), 'snap'], [22, P(0, -26, 0, 18, -6, -18, -6, 14, 10, -14, 10, 360)], [34, J_]],
+      [HB(5, 10, 0, -32, 30, 12, 45, 32, 92), HB(11, 22, 0, -32, 26, 7, 45, 22, 70)], { air: 1, lag: 10, heavy: 1, spin: 1, title: 'Hammer Spin' });
+    mk('fair', 40, [[0, J_], [8, P(0, -26, -0.3, 0, -28, -6, -8, 10, 16, -10, 18, -110), 'slow'], [13, P(0, -26, 0.4, 24, 12, -6, 8, 10, 16, -12, 16, 60), 'snap'], [22, P(0, -26, 0.4, 24, 12, -6, 8, 10, 16, -12, 16, 60)], [40, J_]],
+      [HB(12, 13, 50, -62, 18, 15, 45, 35, 100, { grp: 0 }), HB(13, 16, 50, -12, 20, 17, -80, 25, 92, { grp: 0, spike: 1, fx: 'fire' })], { air: 1, lag: 14, heavy: 1, title: 'Overhead Smash (meteor)' });
+    mk('bair', 32, [[0, J_], [6, P(2, -26, 0.1, 10, -10, 6, 8, 8, 16, -6, 14, -40), 'slow'], [9, P(2, -26, 0.35, -22, -2, 6, 8, 8, 16, 6, 14, 180), 'snap'], [16, P(2, -26, 0.35, -22, -2, 6, 8, 8, 16, 6, 14, 180)], [32, J_]],
+      [HB(9, 12, -54, -46, 20, 16, 145, 35, 104)], { air: 1, lag: 12, heavy: 1, title: 'Back Hammer' });
+    mk('uair', 30, [[0, J_], [5, P(0, -26, 0, 16, -10, -6, 8, 6, 16, -6, 18, -30), 'slow'], [9, P(0, -26, -0.2, 4, -26, -6, 8, 6, 16, -6, 18, -90), 'snap'], [13, P(0, -26, -0.35, -14, -16, -6, 8, 6, 16, -6, 18, -150), 'snap'], [30, J_]],
+      [HB(8, 10, 30, -88, 20, 12, 85, 32, 100, { grp: 0 }), HB(10, 14, -10, -96, 22, 13, 92, 32, 102, { grp: 0 })], { air: 1, lag: 10, heavy: 1, title: 'Hammer Twirl' });
+    mk('dair', 50, [[0, J_], [10, P(0, -30, -0.1, 8, -26, -8, -26, 6, 14, -6, 14, -90), 'slow'], [13, P(0, -28, 0.1, 6, 20, -6, 20, 6, 20, -6, 20, 90), 'snap'], [44, P(0, -28, 0.1, 6, 20, -6, 20, 6, 20, -6, 20, 90)], [50, J_]],
+      [HB(13, 44, 0, 10, 22, 15, -88, 25, 90, { spike: 1 })], { air: 1, lag: 18, heavy: 1, title: 'Anvil Drop',
+        go: (f, t) => { if (t < 13) { f.vy = Math.min(f.vy, -0.4); f.vx *= 0.8; } else if (t < 44) { f.vy = 16; f.vx *= 0.9; } },
+        onLand: (f) => { if (f.mf >= 13 && f.mf < 44) { quake(f, f.x, true); spawnProj('shock', f, f.x + 24, f.y - 10, 8, 0); spawnProj('shock', f, f.x - 24, f.y - 10, -8, 0); } } });
+  });
 }

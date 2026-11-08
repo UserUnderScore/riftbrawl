@@ -378,7 +378,7 @@ class Rival extends Fighter {
     if (this.dead || this.spawnT > 0) return [];
     return super.hitboxes().filter(b => !b.h.orb && !b.h.grab).map(b => {
       const h = b.h; let d = h.d * this.mods.dmg * (this.move && this.move.smash ? 1 + 0.45 * this.chg : 1); if (h.chg) d += h.chg * this.chg;
-      return { x: b.x, y: b.y, r: b.r, d, a: h.a, bkb: h.bkb + (h.chgKb || 0) * this.chg, kbg: h.kbg, key: b.key, fx: h.fx || h.el, el: h.el };
+      return { x: b.x, y: b.y, r: b.r * 0.72, d, a: h.a, bkb: h.bkb + (h.chgKb || 0) * this.chg, kbg: h.kbg, key: b.key, fx: h.fx || h.el, el: h.el }; // shadow fighters keep tighter hitboxes than players
     });
   }
   takeHit(info) {

@@ -312,7 +312,7 @@ class Fighter {
     if (mv.air && this.vy > 0 && inp.flickY === 1) this.ff = 1;
     if (mv.air && !this.air) { // landed during aerial: autocancel windows before the first / after the last hitbox
       const s0 = Math.min(...mv.hb.map(h => h.s)), e0 = Math.max(...mv.hb.map(h => h.e)); const ac = this.mf < s0 - 1 || this.mf > e0 + 3;
-      if (ac) FX.dust(this.x, this.y); this.toLand(ac ? 3 : Math.round((mv.lag || 6) * this.mods.lagMul)); return;
+      if (mv.onLand) mv.onLand(this); if (ac) FX.dust(this.x, this.y); this.toLand(ac ? 3 : Math.round((mv.lag || 6) * this.mods.lagMul)); return;
     }
     if (mv.untilLand && !this.air && this.mf > 8) { if (mv.land) this.setMove(mv.land); else this.toLand(10); return; }
     if (this.mf >= mv.d) {
@@ -417,7 +417,7 @@ class Fighter {
       const mv = this.move, sz = this.mods.size; let Jc = null, Jp = null;
       mv.hb.forEach((h, i) => {
         if (this.mf < h.s || this.mf > h.e) return;
-        let key = this.mid * 100 + i; if (h.multi) key = this.mid * 100 + 50 + Math.floor((this.mf - h.s) / h.multi);
+        let key = this.mid * 100 + (h.grp !== undefined ? 80 + h.grp : i); if (h.multi) key = this.mid * 100 + 50 + Math.floor((this.mf - h.s) / h.multi);
         out.push({ x: this.x + this.face * h.x * sz, y: this.y + h.y * sz, r: h.r * sz, h, key, move: mv, main: 1 });
         const att = hbAttach(this.def, mv, h); if (!att) return;
         if (!Jc) { Jc = this.jointsAt(this.mft); Jp = this.jointsAt(Math.max(0, this.mft - 1)); }
@@ -620,7 +620,7 @@ function resolveCombat() {
         if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5;
         let ang = p.face > 0 ? h.a : 180 - h.a; if (h.spike && p.mods.meteor) dmg *= 1.3;
         const res = e.takeHit({ dmg, ang, bkb: h.bkb + (h.chgKb || 0) * p.chg, kbg: h.kbg * p.mods.kb, att: p, x: hb.x, y: hb.y, ax: p.x, fx: h.fx || h.el, stun: h.stun || 0, fromX: p.x, fromY: p.y - 30 });
-        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); } }
+        if (res) { onPlayerHit(p, e, dmg, res); if (res === 'hit') { applyEl(e, h.el, p); if (h.pull) applyEl(e, 'pull', p); if (h.bounce && p.air) { p.vy = -8.5; p.ff = 0; p.jumps = Math.max(p.jumps, 1); } if (p.move && p.move.heavy) { World.shake(Math.min(14, 4 + dmg * 0.45)); World.zp = Math.max(World.zp || 0, 0.035); e.hitlag = Math.round((e.hitlag || 0) * 1.25); p.hitlag = Math.round(p.hitlag * 1.25); } } }
       }
     }
   }
