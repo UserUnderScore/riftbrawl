@@ -4,9 +4,21 @@ A co-op roguelike platform fighter. It has Smash-style combat with damage % and 
 
 **Play:** open the GitHub Pages link for this repo (https://userunderscore.github.io/riftbrawl/) in Chrome or Edge.
 
+## Up to 3 players
+- **Local:** pick **LOCAL CO-OP (2-3P)**. Extra players join on the character screen by pressing ATTACK or JUMP on their device: the second keyboard layout or a controller.
+- **Two people on one keyboard:**
+  - **P1** (left side): WASD to move, Space to jump, F attack, G special, H shield, R smash, T taunt. J/K/L/I also still work.
+  - **P2** (right side): Arrows to move, M or Right Shift to jump, `,` attack, `.` special, `/` shield, `;` smash, `'` taunt. The numpad also works.
+- **Online:** a 3-player game can be split across computers in any mix:
+  - host + 1 online computer with 2 players on its keyboard
+  - host with 2 players on its keyboard + 1 online player
+  - host + 2 online computers
+- A second player on a joining computer presses ATTACK or JUMP with Arrows + Comma (or a controller) on the character screen.
+- With 3 players you get 5 stocks, and waves and bosses are tougher.
+
 ## Online co-op
 1. One player picks **ONLINE: HOST** and reads out the 4-letter code.
-2. The other opens the same link, picks **ONLINE: JOIN**, and types the code.
+2. The others open the same link, pick **ONLINE: JOIN**, and type the code. Everyone should show the same version number on the title screen.
 
 The two browsers connect directly to each other over WebRTC. [PeerJS](https://peerjs.com)'s free public server is only used to introduce them. No accounts are needed.
 

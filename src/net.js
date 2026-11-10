@@ -4,7 +4,7 @@ const PTYPES = Object.keys(PROJ);
 const STATES = ['idle', 'run', 'crouch', 'squat', 'land0', 'land', 'air', 'helpless', 'move', 'shield', 'roll', 'spot', 'adodge', 'shieldbreak', 'hitstun', 'ledge', 'shielddrop', 'revive', 'tech', 'techroll', 'walltech', 'ceiltech', 'down', 'getup', 'getuproll', 'climb', 'burst', 'grabhold', 'grabbed'];
 const R2 = v => Math.round(v);
 const Net = {
-  isHost: false, isGuest: false, room: null, r: null, code: '', status: '', ok: false, guestPeer: null, guestState: null, remote: null,
+  isHost: false, isGuest: false, room: null, r: null, code: '', status: '', ok: false, guestPeer: null, guestState: null, remote: null, guests: [], gid: '', locals: [],
   evq: [], seq: 0, lastSeq: 0, hostP: null, guestScene: 'wait', hostPaused: false, sig: '', cnt: { a: 0, b: 0, j: 0, s: 0, m: 0, p: 0, c: 0 }, pf: 0, pfy: 0, lastPres: null,
   async getRoom() {
     if (this.room) return this.room;
@@ -15,7 +15,7 @@ const Net = {
     return this.room;
   },
   async host() {
-    this.leave(); this.isHost = true; this.ok = false; this.guestPeer = null; this.guestState = null; this.remote = new RemoteInput();
+    this.leave(); this.isHost = true; this.ok = false; this.guestPeer = null; this.guestState = null; this.guests = [];
     this.code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[ri(0, 23)]).join(''); this.status = 'Connecting…';
     const room = await this.getRoom(); if (!room) return;
     try {
@@ -25,12 +25,7 @@ const Net = {
       }
       this.ok = true; this.status = 'Room open — waiting for your partner to join…';
       this.r.presence({ role: 'host', v: 1, gv: GAME_VERSION }).catch(() => { });
-      this.r.onPeers(ch => {
-        const g = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'guest');
-        if (g && !this.guestPeer) { UI.toast('Partner joined!'); Audio2.play('select'); }
-        if (!g && this.guestPeer) { UI.toast('Partner disconnected'); const p2 = World.players[1]; if (p2) { p2.out = true; } }
-        this.guestPeer = g ? g.peer : null;
-      }, e => { this.status = 'Room error: ' + e.code; this.ok = false; });
+      this.r.onPeers(ch => this.syncGuests(ch.peers), e => { this.status = 'Room error: ' + e.code; this.ok = false; });
     } catch (e) { this.status = 'Could not open room: ' + ((e && (e.message || e.code)) || 'error'); }
     this.wrapFX();
   },
@@ -40,16 +35,17 @@ const Net = {
     try {
       this.r = await room.join('rb-' + code.toLowerCase(), { host: false, onStatus: m => { if (!this.isGuest) this.status = m; } });
       this.ok = true; this.status = 'Connected — looking for host…'; this.isGuest = true; this.guestScene = 'wait'; this.sig = ''; this.lastSeq = 0;
-      this.r.presence({ role: 'guest', in: [] }).catch(() => { });
+      this.gid = Math.random().toString(36).slice(2, 10); this.locals = [Devices.get(Game.primary || 'kb1')]; this.local = this.locals[0]; this.cnts = [{ a: 0, b: 0, j: 0, s: 0, m: 0, p: 0, c: 0, t: 0 }, { a: 0, b: 0, j: 0, s: 0, m: 0, p: 0, c: 0, t: 0 }]; this.pfs = [[0, 0], [0, 0]];
+      Game.gch = [1, 2]; Game.grdy = [false, false]; Game.gbp = [0, 0]; Game.grr = [0, 0]; Game.gbpKey = [null, null];
+      this.r.presence({ role: 'guest', gid: this.gid, n: 1, in: [] }).catch(() => { });
       showJoinBox(false); Game.scene = 'wait';
-      this.local = Devices.get(Game.primary || 'kb1');
       this.r.onPeers(ch => { const h = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'host'); if (!h && this.hostP) { UI.toast('Host left the game'); this.leave(); Game.setScene('title'); } this.hostP = h ? h.peer : null; if (h && h.presence && h.presence.gv !== GAME_VERSION && !this._vw) { this._vw = 1; UI.toast('Host is on a different version (' + (h.presence.gv || 'older') + '). Both players: press Ctrl+Shift+R to refresh.'); } });
       setTimeout(() => { if (this.isGuest && !this.hostP) this.status = 'No host found with code ' + code + ' (yet). Double-check the code.'; }, 6000);
     } catch (e) { this.status = 'Could not join: ' + ((e && (e.message || e.code)) || 'error'); }
   },
   leave() {
     if (this.r) { try { this.r.leave(); } catch (e) { } }
-    this.r = null; this.isHost = false; this.isGuest = false; this.guestPeer = null; this.hostP = null; this.ok = false;
+    this.r = null; this.isHost = false; this.isGuest = false; this.guestPeer = null; this.guestState = null; this.guests = []; this.hostP = null; this.ok = false;
   },
   // capture FX + sounds on host so the guest can replay them
   wrapFX() {
@@ -59,30 +55,47 @@ const Net = {
     const os = World.shake.bind(World); World.shake = a => { if (Net.isHost && a > 3) Net.pushEv('sh', [R2(a)]); os(a); };
   },
   pushEv(k, a) { this.evq.push([++this.seq, k, ...a.map(v => typeof v === 'number' ? Math.round(v * 10) / 10 : v)]); if (this.evq.length > 40) this.evq.shift(); },
+  // ---------- host: track every guest machine (each can bring 1-2 local players; 3 players max in total) ----------
+  syncGuests(peers) {
+    const seen = [];
+    for (const p of peers) { if (p.sameTab || !p.presence || p.presence.role !== 'guest') continue; const gid = p.presence.gid || p.peer; if (seen.some(g => g.gid === gid)) continue; let g = this.guests.find(x => x.gid === gid); if (!g) { g = { gid, peer: p.peer, st: p.presence, remotes: [new RemoteInput(), new RemoteInput()], lastPres: null }; g.remotes.forEach(r => r.isRemote = true); UI.toast('A player joined!'); Audio2.play('select'); } g.peer = p.peer; seen.push(g); }
+    for (const g of this.guests) if (!seen.includes(g)) { UI.toast('A player disconnected'); Game.slots.forEach((sl, i) => { if (sl.gid === g.gid && World.players[i]) World.players[i].out = true; }); }
+    this.guests = seen; this.guestPeer = seen.length ? seen[0].peer : null; this.guestState = seen.length ? seen[0].st : null;
+  },
+  guestByGid(gid) { return this.guests.find(g => g.gid === gid) || null; },
+  pollRemotes() { for (const g of this.guests) for (const r of g.remotes) r.poll(); },
+  encodeInput(k) {
+    const s = this.locals[k].cur, C = this.cnts[k], pf = this.pfs[k];
+    for (const key of ['a', 'b', 'j', 's', 'm', 'p']) if (s[key + 'p']) C[key] = (C[key] + 1) % 1000;
+    if (s.cp) C.c = (C.c + 1) % 1000; if (s.tp) C.t = (C.t + 1) % 1000;
+    if (s.flick) pf[0] = s.flick; if (s.flickY) pf[1] = s.flickY;
+    return null;
+  },
+  packInput(k) {
+    const s = this.locals[k].cur, C = this.cnts[k], pf = this.pfs[k];
+    const out = Game.localPause ? [0, 0, 0, 0, 0, C.a, C.b, C.j, C.s, C.m, C.p, C.c, 0, 0, C.t] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), C.a, C.b, C.j, C.s, C.m, C.p, C.c, pf[0], pf[1], C.t];
+    pf[0] = 0; pf[1] = 0; return out;
+  },
   tick() {
     if (!this.r) return;
     this.tc = (this.tc || 0) + 1;
     if (this.isHost) {
-      // read guest presence
-      const g = this.r.peers().find(p => p.peer === this.guestPeer);
-      if (g && g.presence !== this.lastPres) { this.lastPres = g.presence; this.guestState = g.presence; if (Array.isArray(g.presence.in)) this.remote.feed(g.presence.in); }
+      const peers = this.r.peers();
+      for (const g of this.guests) { const p = peers.find(q => q.peer === g.peer); if (p && p.presence !== g.lastPres) { g.lastPres = p.presence; g.st = p.presence; if (Array.isArray(p.presence.in)) g.remotes[0].feed(p.presence.in); if (Array.isArray(p.presence.in2)) g.remotes[1].feed(p.presence.in2); } }
+      this.guestState = this.guests.length ? this.guests[0].st : null;
       if (this.tc % 2 === 0) this.r.presence({ role: 'host', s: this.snapshot() }).catch(() => { });
     } else if (this.isGuest) {
-      const s = this.local.cur;
-      for (const k of ['a', 'b', 'j', 's', 'm', 'p']) if (s[k + 'p']) this.cnt[k] = (this.cnt[k] + 1) % 1000;
-      if (s.cp) this.cnt.c = (this.cnt.c + 1) % 1000;
-      if (s.tp) this.cnt.t = ((this.cnt.t | 0) + 1) % 1000;
-      if (s.flick) this.pf = s.flick; if (s.flickY) this.pfy = s.flickY;
+      for (let k = 0; k < this.locals.length; k++) this.encodeInput(k);
       if (this.tc % 2 === 0) {
-        const inp = Game.localPause ? [0, 0, 0, 0, 0, this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, 0, 0, this.cnt.t | 0] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, this.pf, this.pfy, this.cnt.t | 0];
-        this.pf = 0; this.pfy = 0;
-        this.r.presence({ role: 'guest', in: inp, ch: Game.gch | 0, rdy: Game.grdy ? 1 : 0, bp: Game.gbp || 0, mu: Meta.levels(), rr: Game.grr | 0 }).catch(() => { });
+        const G = Game, n = this.locals.length;
+        this.r.presence({ role: 'guest', gid: this.gid, n, in: this.packInput(0), in2: n > 1 ? this.packInput(1) : null, ch: G.gch.slice(0, n), rdy: G.grdy.slice(0, n).map(v => v ? 1 : 0), bp: G.gbp.slice(0, n), mu: Meta.levels(), rr: G.grr.slice(0, n) }).catch(() => { });
       }
     }
   },
   snapshot() {
     const G = Game; const s = { sc: G.scene === 'lobby' ? 'wait' : G.scene, pa: G.paused ? 1 : 0 };
-    if (G.scene === 'charsel') s.cs = [G.csel[0] | 0, G.cready[0] ? 1 : 0];
+    s.sl = G.slots.map(sl => sl.dev === 'net' ? [sl.gid, sl.k | 0] : 0);
+    if (G.scene === 'charsel') s.cs = G.slots.map((_, i) => [G.csel[i] | 0, G.cready[i] ? 1 : 0]);
     if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0, o.ps || []]; }
     if (G.scene === 'path' && G.pathOpts) s.po = [G.pathOpts.join('.'), G.pathIdx | 0, G.run ? G.run.idx : 0];
     if (G.run && World.stage && ['play', 'boon', 'victory'].includes(G.scene)) {
@@ -99,7 +112,7 @@ const Net = {
       s.ev = this.evq.slice(-16);
       s.cm = [R2(World.cam.x), R2(World.cam.y), R2(World.cam.z * 100)];
     }
-    if (G.scene === 'boon') { s.bo = [(G.boonOpts[1] || []).join('.'), G.boonPick[1] ? 1 : 0, G.boonPick[0] ? 1 : 0, (G.boonOpts[0] || []).join('.')]; }
+    if (G.scene === 'boon') { s.bo = World.players.map((p, i) => [(G.boonOpts[i] || []).join('.'), G.boonPick[i] ? 1 : 0]); }
     // keep within 4 KiB
     let js = JSON.stringify(s);
     if (js.length > 3800) { s.ev = s.ev.slice(-8); js = JSON.stringify(s); }
@@ -117,32 +130,48 @@ const Net = {
     if (s !== this.lastS) { this.lastS = s; this.applySnap(s); }
     this.guestScene = ['title', 'mode', 'controls', 'remap', 'join', 'lobby'].includes(s.sc) ? 'wait' : s.sc; this.hostPaused = !!s.pa;
     if (this.guestScene === 'wait') this.status = 'Connected! Waiting for the host to start…';
-    const src = this.local;
-    // local guest UI
+    const src = this.locals[0];
+    // which player slots belong to this machine (a guest can bring a second player on the same keyboard / another pad)
+    const sl = s.sl || []; const mine = []; sl.forEach((x, i) => { if (x && x[0] === this.gid) mine[x[1]] = i; });
+    const buildSlots = () => sl.length ? sl.map((x, i) => x && x[0] === this.gid ? { dev: (this.locals[x[1]] || src).dev, input: this.locals[x[1]] || src, mine: 1, k: x[1] } : { dev: 'net' }) : [{ dev: 'net' }, { dev: src.dev, input: src, mine: 1, k: 0 }];
     if (s.sc === 'charsel') {
-      G.mode = 'guest'; G.slots = [{ dev: 'net' }, { dev: src.dev, input: src }]; G.csel[0] = s.cs ? s.cs[0] : 0; G.cready[0] = !!(s.cs && s.cs[1]);
-      if (G.gch === undefined) G.gch = 1;
-      const d = menuDir(src);
-      if (!G.grdy) { if (d === 'left') { G.gch = (G.gch + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch = (G.gch + 1) % 4; Audio2.play('blip'); } if (menuOK(src)) { G.grdy = true; Audio2.play('ready'); } }
-      else if (menuBack(src)) G.grdy = false;
-      if (G.clickChar !== undefined) { if (!G.grdy) G.gch = G.clickChar; G.clickChar = undefined; }
-      G.csel[1] = G.gch; G.cready[1] = !!G.grdy; G.t++;
-    } else { G.grdy = false; }
-    if (s.sc === 'boon' && s.bo) {
-      const opts = s.bo[0] ? s.bo[0].split('.') : []; G.boonOpts = { 0: s.bo[3] ? s.bo[3].split('.') : [], 1: opts }; G.slots = [{ dev: 'net' }, { dev: src.dev }];
-      G.boonPick[0] = s.bo[2] ? 'x' : null; if (G.boonIdx[1] === undefined) G.boonIdx[1] = 0;
-      if (src.cur.sp && !G.boonPick[1]) { G.grr = (G.grr | 0) + 1; Audio2.play('confirm'); }
-      const key = (s.sg ? s.sg[1] : 0) + (s.sg && s.sg[5] ? 1000 : 0);
-      if (s.bo[1]) G.boonPick[1] = G.boonPick[1] || opts[G.boonIdx[1]]; else if (G.gbpKey !== key) { G.boonPick[1] = null; G.gbp = 0; G.gbpKey = key; }
-      if (!G.boonPick[1] && opts.length) {
-        const d = menuDir(src); const n = opts.length;
-        if (d === 'up' || d === 'left') G.boonIdx[1] = (G.boonIdx[1] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[1] = (G.boonIdx[1] + 1) % n;
-        if (G.clickBoon && G.clickBoon[0] === 1) { G.boonIdx[1] = G.clickBoon[1]; G.clickBoon = null; G.gbp = [key, G.boonIdx[1]]; G.boonPick[1] = opts[G.boonIdx[1]]; Audio2.play('boon'); }
-        else if (menuOK(src)) { G.gbp = [key, G.boonIdx[1]]; G.boonPick[1] = opts[G.boonIdx[1]]; Audio2.play('boon'); }
+      G.mode = 'guest'; G.slots = buildSlots();
+      // a second local player joins by pressing ATTACK/JUMP on another device of this computer (e.g. Arrows + Comma on the same keyboard)
+      if (this.locals.length < 2 && sl.length < 3) for (const ls of localSources()) { if (this.locals.includes(ls)) continue; if (ls.cur.ap || ls.cur.jp) { this.locals.push(ls); G.gch[1] = (G.gch[0] + 1) % 4; G.grdy[1] = false; Audio2.play('select'); ls.cur.ap = 0; ls.cur.jp = 0; this.joinT = 0; break; } }
+      if (this.locals.length > 1 && mine[1] === undefined) { this.joinT = (this.joinT | 0) + 1; if (this.joinT > 90) { this.locals.pop(); UI.toast('The game is full (3 players max)'); } }
+      sl.forEach((x, i) => { if (!(x && x[0] === this.gid)) { G.csel[i] = s.cs && s.cs[i] ? s.cs[i][0] : 0; G.cready[i] = !!(s.cs && s.cs[i] && s.cs[i][1]); } });
+      for (let k = 0; k < this.locals.length; k++) {
+        const ls = this.locals[k], d = menuDir(ls);
+        if (!G.grdy[k]) {
+          if (d === 'left') { G.gch[k] = (G.gch[k] + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch[k] = (G.gch[k] + 1) % 4; Audio2.play('blip'); }
+          if (menuOK(ls)) { G.grdy[k] = true; Audio2.play('ready'); const nm = FIGHTERS[G.gch[k]].name; announce(nm[0] + nm.slice(1).toLowerCase() + '!'); }
+          else if (k === 1 && menuBack(ls)) { this.locals.pop(); Audio2.play('back'); break; }
+        } else if (menuBack(ls)) G.grdy[k] = false;
+        if (mine[k] !== undefined) { G.csel[mine[k]] = G.gch[k]; G.cready[mine[k]] = !!G.grdy[k]; }
       }
+      if (G.clickChar !== undefined) { if (!G.grdy[0]) G.gch[0] = G.clickChar; G.clickChar = undefined; }
+      if (!sl.length) { G.csel[1] = G.gch[0]; G.cready[1] = !!G.grdy[0]; }
+      G.t++;
+    } else { G.grdy = [false, false]; }
+    if (s.sc === 'boon' && s.bo) {
+      G.slots = buildSlots(); const key = (s.sg ? s.sg[1] : 0) + (s.sg && s.sg[5] ? 1000 : 0);
+      s.bo.forEach((b, i) => { G.boonOpts[i] = b[0] ? b[0].split('.') : []; });
+      s.bo.forEach((b, i) => {
+        const x = sl[i]; const isMine = x && x[0] === this.gid; if (!isMine) { G.boonPick[i] = b[1] ? 'x' : null; return; }
+        const k = x[1], ls = this.locals[k] || src, opts = G.boonOpts[i];
+        if (G.boonIdx[i] === undefined) G.boonIdx[i] = 0;
+        if (ls.cur.sp && !G.boonPick[i]) { G.grr[k] = (G.grr[k] | 0) + 1; Audio2.play('confirm'); }
+        if (b[1]) G.boonPick[i] = G.boonPick[i] || opts[G.boonIdx[i]]; else if (G.gbpKey[k] !== key) { G.boonPick[i] = null; G.gbp[k] = 0; G.gbpKey[k] = key; }
+        if (!G.boonPick[i] && opts.length) {
+          const d = menuDir(ls); const n = opts.length;
+          if (d === 'up' || d === 'left') G.boonIdx[i] = (G.boonIdx[i] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[i] = (G.boonIdx[i] + 1) % n;
+          if (G.clickBoon && G.clickBoon[0] === i) { G.boonIdx[i] = G.clickBoon[1]; G.clickBoon = null; G.gbp[k] = [key, G.boonIdx[i]]; G.boonPick[i] = opts[G.boonIdx[i]]; Audio2.play('boon'); }
+          else if (menuOK(ls)) { G.gbp[k] = [key, G.boonIdx[i]]; G.boonPick[i] = opts[G.boonIdx[i]]; Audio2.play('boon'); }
+        }
+      });
     } else if (s.sc !== 'boon') { G.boonIdx = {}; G.boonPick = {}; }
     if (s.sc === 'play') {
-      if (src.cur.pp) { G.localPause = !G.localPause; G.pauseIdx = 0; }
+      if (this.locals.some(l => l.cur.pp)) { G.localPause = !G.localPause; G.pauseIdx = 0; }
       if (G.localPause) { const GP = GUEST_PAUSE; const d = menuDir(src); if (d === 'up') G.pauseIdx = (G.pauseIdx + GP.length - 1) % GP.length; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % GP.length; volAdjust(GP[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } const lab = GP[G.pauseIdx]; if (VOL_ROWS[lab]) { G.clickPick = undefined; if (menuOK(src)) volAdjust(lab, 1); } else if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
       // smooth entities toward targets
       for (const p of World.players) if (p.tx !== undefined) { p.x = lerp(p.x, p.tx, 0.55); p.y = lerp(p.y, p.ty, 0.55); }

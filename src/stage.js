@@ -71,7 +71,7 @@ function genStage(seed, idx, kind, opts = {}) {
     }
     return w; };
   const nP = opts.players || 1;
-  const wsize = () => Math.round((3 + Math.floor(idx * 0.35) + R.i(0, 1)) * (nP > 1 ? 1.35 : 1) * (opts.endless ? 1.15 : 1));
+  const wsize = () => Math.round((3 + Math.floor(idx * 0.35) + R.i(0, 1)) * (nP >= 3 ? 1.6 : nP > 1 ? 1.35 : 1) * (opts.endless ? 1.15 : 1));
   if (kind === 'training') {
     st.solids.length = 0; solid(0, 600, 1100, 140); solid(1340, 260, 70, 420); plat(140, 460, 230); plat(730, 460, 230); plat(435, 330, 230);
     st.x0 = -700; st.x1 = 1900; st.killY = 1150; st.goal = null; st.spawns = []; st.events = []; st.training = 1;

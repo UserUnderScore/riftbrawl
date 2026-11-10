@@ -73,8 +73,10 @@ addEventListener('blur', () => { for (const k in Keys) Keys[k] = false; });
 addEventListener('mousedown', () => Audio2.unlock());
 
 const KB_LAYOUTS = {
-  kb1: { l: ['KeyA'], r: ['KeyD'], u: ['KeyW'], d: ['KeyS'], a: ['KeyJ'], b: ['KeyK'], j: ['Space'], s: ['KeyL', 'ShiftLeft'], m: ['KeyI'], p: ['Escape', 'Enter'], t: ['KeyT'] },
-  kb2: { l: ['ArrowLeft'], r: ['ArrowRight'], u: ['ArrowUp'], d: ['ArrowDown'], a: ['Comma', 'Numpad1'], b: ['Period', 'Numpad2'], j: ['ShiftRight', 'Numpad0'], s: ['Slash', 'Numpad3'], m: ['Semicolon', 'Numpad4'], p: ['Backspace', 'NumpadEnter'], t: ['Quote', 'Numpad5'] },
+  // P1 (left side of the keyboard): WASD + Space, with F/G/H/R as shared-keyboard alternatives to J/K/L/I
+  kb1: { l: ['KeyA'], r: ['KeyD'], u: ['KeyW'], d: ['KeyS'], a: ['KeyJ', 'KeyF'], b: ['KeyK', 'KeyG'], j: ['Space'], s: ['KeyL', 'ShiftLeft', 'KeyH'], m: ['KeyI', 'KeyR'], p: ['Escape', 'Enter'], t: ['KeyT'] },
+  // P2 (right side of the same keyboard): Arrows + M jump, Comma attack, Period special, Slash shield (or the numpad)
+  kb2: { l: ['ArrowLeft'], r: ['ArrowRight'], u: ['ArrowUp'], d: ['ArrowDown'], a: ['Comma', 'Numpad1'], b: ['Period', 'Numpad2'], j: ['ShiftRight', 'KeyM', 'Numpad0'], s: ['Slash', 'Numpad3'], m: ['Semicolon', 'Numpad4'], p: ['Backspace', 'NumpadEnter'], t: ['Quote', 'Numpad5'] },
 };
 // Positional mapping (standard gamepad): 0=bottom(B on Switch) 1=right(A) 2=left(Y) 3=top(X)
 // Smash defaults on Pro Controller: A(right)=attack, B(bottom)=special, X/Y=jump, L/R/ZL/ZR=shield
@@ -1857,7 +1859,7 @@ function genStage(seed, idx, kind, opts = {}) {
     }
     return w; };
   const nP = opts.players || 1;
-  const wsize = () => Math.round((3 + Math.floor(idx * 0.35) + R.i(0, 1)) * (nP > 1 ? 1.35 : 1) * (opts.endless ? 1.15 : 1));
+  const wsize = () => Math.round((3 + Math.floor(idx * 0.35) + R.i(0, 1)) * (nP >= 3 ? 1.6 : nP > 1 ? 1.35 : 1) * (opts.endless ? 1.15 : 1));
   if (kind === 'training') {
     st.solids.length = 0; solid(0, 600, 1100, 140); solid(1340, 260, 70, 420); plat(140, 460, 230); plat(730, 460, 230); plat(435, 330, 230);
     st.x0 = -700; st.x1 = 1900; st.killY = 1150; st.goal = null; st.spawns = []; st.events = []; st.training = 1;
@@ -3124,30 +3126,34 @@ const PeerRoom = {
       const hostId = 'riftbrawl-v1-' + name, topic = 'riftbrawl/v2/' + name, myId = Math.random().toString(36).slice(2, 10);
       let peer = null;
       try { if (typeof Peer !== 'undefined') peer = opt.host ? new Peer(hostId, cfg) : new Peer(cfg); } catch (e) { peer = null; }
-      let conn = null, mine = Object.freeze({}), other = null, subs = [], snap = [], done = false, sendT = null, closed = false, lastSend = 0;
+      const MAX_GUESTS = 2; // up to 3 players: the host plus up to two guest machines
+      const conns = new Map(), others = new Map(); let mine = Object.freeze({}), subs = [], snap = [], done = false, sendT = null, closed = false, lastSend = 0;
+      const openConns = () => [...conns.values()].filter(c => c.open); const anyRelay = () => [...conns.values()].some(c => c.relay);
       const relays = []; // connected MQTT clients
       const meP = () => ({ peer: (peer && peer.id) || myId, presence: mine, isMe: true, sameTab: true, kind: 'viewer', guest: false, by: null });
-      const rebuild = () => { snap = Object.freeze([Object.freeze(meP()), ...(other ? [other] : [])]); };
+      const rebuild = () => { snap = Object.freeze([Object.freeze(meP()), ...others.values()]); };
       const notify = (joined = [], left = []) => { rebuild(); for (const f of subs) try { f({ peers: snap, joined, left, updated: [] }); } catch (e) { console.error(e); } };
-      const flush = () => { sendT = null; if (conn && conn.open) { lastSend = performance.now(); try { conn.send({ p: mine }); } catch (e) { } } };
+      const flush = () => { sendT = null; const oc = openConns(); if (oc.length) lastSend = performance.now(); for (const c of oc) try { c.send({ p: mine }); } catch (e) { } };
       const attach = c => {
-        if (conn && conn !== c) { try { conn.close(); } catch (e) { } }
-        conn = c;
-        c.on('data', d => { if (conn !== c || !d || typeof d !== 'object' || !d.p || typeof d.p !== 'object') return; const was = !!other; other = Object.freeze({ peer: c.peer, presence: Object.freeze(d.p), isMe: false, sameTab: false, kind: 'viewer', guest: false, by: null }); notify(was ? [] : [other]); });
+        if (!opt.host) { for (const [k, o] of conns) if (o !== c) { conns.delete(k); try { o.close(); } catch (e) { } } others.clear(); }
+        else { const old = conns.get(c.peer); if (old && old !== c) { conns.delete(c.peer); try { old.close(); } catch (e) { } } else if (!old && conns.size >= MAX_GUESTS) { try { c.close(); } catch (e) { } return false; } }
+        conns.set(c.peer, c);
+        c.on('data', d => { if (conns.get(c.peer) !== c || !d || typeof d !== 'object' || !d.p || typeof d.p !== 'object') return; const was = others.has(c.peer); const o = Object.freeze({ peer: c.peer, presence: Object.freeze(d.p), isMe: false, sameTab: false, kind: 'viewer', guest: false, by: null }); others.set(c.peer, o); notify(was ? [] : [o]); });
         c.on('open', () => flush());
-        const gone = () => { if (conn !== c) return; const o = other; other = null; conn = null; notify([], o ? [o] : []); };
+        const gone = () => { if (conns.get(c.peer) !== c) return; conns.delete(c.peer); const o = others.get(c.peer); others.delete(c.peer); notify([], o ? [o] : []); };
         c.on('close', gone); c.on('error', gone);
         if (c.open) flush();
+        return true;
       };
       const api = {
         name,
-        presence(patch) { mine = Object.freeze({ ...mine, ...patch }); rebuild(); if (!sendT) { const gap = conn && conn.relay ? Math.max(0, 60 - (performance.now() - lastSend)) : 30; sendT = setTimeout(flush, Math.max(16, gap)); } return Promise.resolve(); },
+        presence(patch) { mine = Object.freeze({ ...mine, ...patch }); rebuild(); if (!sendT) { const gap = anyRelay() ? Math.max(0, 60 - (performance.now() - lastSend)) : 30; sendT = setTimeout(flush, Math.max(16, gap)); } return Promise.resolve(); },
         peers() { return snap; },
         onPeers(fn) { subs.push(fn); setTimeout(() => fn({ peers: snap, joined: snap, left: [], updated: [] }), 0); return () => { subs = subs.filter(x => x !== fn); }; },
         emit() { return Promise.resolve(); }, on() { return () => { }; },
-        connected() { return !!(conn && conn.open); }, onConnection() { return () => { }; },
-        get viaRelay() { return !!(conn && conn.relay); },
-        leave() { closed = true; try { conn && conn.close(); } catch (e) { } try { peer && peer.destroy(); } catch (e) { } for (const r of relays) try { r.close(); } catch (e) { } return Promise.resolve(); },
+        connected() { return openConns().length > 0; }, onConnection() { return () => { }; },
+        get viaRelay() { return anyRelay(); },
+        leave() { closed = true; for (const c of conns.values()) try { c.close(); } catch (e) { } try { peer && peer.destroy(); } catch (e) { } for (const r of relays) try { r.close(); } catch (e) { } return Promise.resolve(); },
       };
       rebuild();
       const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(api); } };
@@ -3164,14 +3170,14 @@ const PeerRoom = {
         c.hb = setInterval(() => { if (!c.open) return clearInterval(c.hb); if (performance.now() - c.last > 10000) c.close(); else if (performance.now() - lastSend > 1500) { try { cl.pub(pubTopic, JSON.stringify({ to: peerId, from: myId, ping: 1 })); } catch (e) { } } }, 1000);
         return c;
       };
-      const startRelay = (onClient) => { for (const url of self.brokers()) MQ.connect(url, 8000).then(cl => { if (closed || (done && !opt.host && conn && !conn.relay)) { cl.close(); return; } relays.push(cl); onClient(cl); }).catch(() => { }); };
+      const startRelay = (onClient) => { for (const url of self.brokers()) MQ.connect(url, 8000).then(cl => { if (closed || (done && !opt.host && openConns().some(x => !x.relay))) { cl.close(); return; } relays.push(cl); onClient(cl); }).catch(() => { }); };
       if (opt.host) {
         // host listens on every broker it can reach; replies go back through whichever broker the guest used
         startRelay(cl => {
           cl.sub(topic + '/g', raw => {
             let m; try { m = JSON.parse(raw); } catch (e) { return; } if (!m || !m.from) return;
-            let c = conn && conn.relay && conn.rid === m.from ? conn : null;
-            if (!c) { if (conn && conn.open && !conn.relay) return; if (m.hi) { c = relayConn(cl, topic + '/h', m.from); attach(c); } else return; }
+            let c = conns.get('relay-' + m.from) || null;
+            if (!c) { if (m.hi) { c = relayConn(cl, topic + '/h', m.from); if (!attach(c)) return; } else return; }
             c.last = performance.now(); if (m.hi) c.send({ p: mine }); if (m.d) c.emit('data', m.d);
           });
           if (!peer) { finish(); status('Room open (relay)'); }
@@ -3184,7 +3190,7 @@ const PeerRoom = {
             cl.sub(topic + '/h', raw => {
               let m; try { m = JSON.parse(raw); } catch (e) { return; } if (!m || m.to !== myId) return;
               if (!picked && !done) { picked = cl; hostSeen = true; const c = relayConn(cl, topic + '/g', m.from); attach(c); finish(); }
-              if (conn && conn.relay && conn.rid === m.from) { conn.last = performance.now(); if (m.d) conn.emit('data', m.d); }
+              const rc = conns.get('relay-' + m.from); if (rc) { rc.last = performance.now(); if (m.d) rc.emit('data', m.d); }
             });
             const hello = () => { if (!picked && !done) { cl.pub(topic + '/g', JSON.stringify({ from: myId, hi: 1 })); setTimeout(hello, 1500); } };
             setTimeout(hello, 300);
@@ -3197,7 +3203,7 @@ const PeerRoom = {
             if (done) return; tries++; status(tries === 1 ? 'Looking for the host…' : 'Still connecting…');
             const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); attach(c);
             const watch = setInterval(() => { const pc = c.peerConnection; if (!pc) return; const st = pc.iceConnectionState; if (st && st !== iceState) { iceState = st; if (st === 'checking') { hostSeen = true; status('Found the host — linking networks…'); } if (st === 'failed') tryRelay('Direct link blocked by your network — switching to the relay…'); } }, 250);
-            c.on('open', () => { clearInterval(watch); if (!done) { if (conn !== c) attach(c); finish(); } });
+            c.on('open', () => { clearInterval(watch); if (!done) { if (conns.get(c.peer) !== c) attach(c); finish(); } });
             setTimeout(() => clearInterval(watch), 60000);
           };
           peer.on('open', tryConnect);
@@ -3213,7 +3219,7 @@ const PeerRoom = {
         peer.on('disconnected', () => { if (!closed) try { peer.reconnect(); } catch (e) { } });
         if (opt.host) {
           peer.on('open', () => { finish(); });
-          peer.on('connection', c => { if (conn && conn.open) { c.on('open', () => c.close()); return; } attach(c); });
+          peer.on('connection', c => { if (!attach(c)) c.on('open', () => c.close()); });
         }
       }
     }));
@@ -3260,7 +3266,7 @@ const PTYPES = Object.keys(PROJ);
 const STATES = ['idle', 'run', 'crouch', 'squat', 'land0', 'land', 'air', 'helpless', 'move', 'shield', 'roll', 'spot', 'adodge', 'shieldbreak', 'hitstun', 'ledge', 'shielddrop', 'revive', 'tech', 'techroll', 'walltech', 'ceiltech', 'down', 'getup', 'getuproll', 'climb', 'burst', 'grabhold', 'grabbed'];
 const R2 = v => Math.round(v);
 const Net = {
-  isHost: false, isGuest: false, room: null, r: null, code: '', status: '', ok: false, guestPeer: null, guestState: null, remote: null,
+  isHost: false, isGuest: false, room: null, r: null, code: '', status: '', ok: false, guestPeer: null, guestState: null, remote: null, guests: [], gid: '', locals: [],
   evq: [], seq: 0, lastSeq: 0, hostP: null, guestScene: 'wait', hostPaused: false, sig: '', cnt: { a: 0, b: 0, j: 0, s: 0, m: 0, p: 0, c: 0 }, pf: 0, pfy: 0, lastPres: null,
   async getRoom() {
     if (this.room) return this.room;
@@ -3271,7 +3277,7 @@ const Net = {
     return this.room;
   },
   async host() {
-    this.leave(); this.isHost = true; this.ok = false; this.guestPeer = null; this.guestState = null; this.remote = new RemoteInput();
+    this.leave(); this.isHost = true; this.ok = false; this.guestPeer = null; this.guestState = null; this.guests = [];
     this.code = Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[ri(0, 23)]).join(''); this.status = 'Connecting…';
     const room = await this.getRoom(); if (!room) return;
     try {
@@ -3281,12 +3287,7 @@ const Net = {
       }
       this.ok = true; this.status = 'Room open — waiting for your partner to join…';
       this.r.presence({ role: 'host', v: 1, gv: GAME_VERSION }).catch(() => { });
-      this.r.onPeers(ch => {
-        const g = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'guest');
-        if (g && !this.guestPeer) { UI.toast('Partner joined!'); Audio2.play('select'); }
-        if (!g && this.guestPeer) { UI.toast('Partner disconnected'); const p2 = World.players[1]; if (p2) { p2.out = true; } }
-        this.guestPeer = g ? g.peer : null;
-      }, e => { this.status = 'Room error: ' + e.code; this.ok = false; });
+      this.r.onPeers(ch => this.syncGuests(ch.peers), e => { this.status = 'Room error: ' + e.code; this.ok = false; });
     } catch (e) { this.status = 'Could not open room: ' + ((e && (e.message || e.code)) || 'error'); }
     this.wrapFX();
   },
@@ -3296,16 +3297,17 @@ const Net = {
     try {
       this.r = await room.join('rb-' + code.toLowerCase(), { host: false, onStatus: m => { if (!this.isGuest) this.status = m; } });
       this.ok = true; this.status = 'Connected — looking for host…'; this.isGuest = true; this.guestScene = 'wait'; this.sig = ''; this.lastSeq = 0;
-      this.r.presence({ role: 'guest', in: [] }).catch(() => { });
+      this.gid = Math.random().toString(36).slice(2, 10); this.locals = [Devices.get(Game.primary || 'kb1')]; this.local = this.locals[0]; this.cnts = [{ a: 0, b: 0, j: 0, s: 0, m: 0, p: 0, c: 0, t: 0 }, { a: 0, b: 0, j: 0, s: 0, m: 0, p: 0, c: 0, t: 0 }]; this.pfs = [[0, 0], [0, 0]];
+      Game.gch = [1, 2]; Game.grdy = [false, false]; Game.gbp = [0, 0]; Game.grr = [0, 0]; Game.gbpKey = [null, null];
+      this.r.presence({ role: 'guest', gid: this.gid, n: 1, in: [] }).catch(() => { });
       showJoinBox(false); Game.scene = 'wait';
-      this.local = Devices.get(Game.primary || 'kb1');
       this.r.onPeers(ch => { const h = ch.peers.find(p => !p.sameTab && p.presence && p.presence.role === 'host'); if (!h && this.hostP) { UI.toast('Host left the game'); this.leave(); Game.setScene('title'); } this.hostP = h ? h.peer : null; if (h && h.presence && h.presence.gv !== GAME_VERSION && !this._vw) { this._vw = 1; UI.toast('Host is on a different version (' + (h.presence.gv || 'older') + '). Both players: press Ctrl+Shift+R to refresh.'); } });
       setTimeout(() => { if (this.isGuest && !this.hostP) this.status = 'No host found with code ' + code + ' (yet). Double-check the code.'; }, 6000);
     } catch (e) { this.status = 'Could not join: ' + ((e && (e.message || e.code)) || 'error'); }
   },
   leave() {
     if (this.r) { try { this.r.leave(); } catch (e) { } }
-    this.r = null; this.isHost = false; this.isGuest = false; this.guestPeer = null; this.hostP = null; this.ok = false;
+    this.r = null; this.isHost = false; this.isGuest = false; this.guestPeer = null; this.guestState = null; this.guests = []; this.hostP = null; this.ok = false;
   },
   // capture FX + sounds on host so the guest can replay them
   wrapFX() {
@@ -3315,30 +3317,47 @@ const Net = {
     const os = World.shake.bind(World); World.shake = a => { if (Net.isHost && a > 3) Net.pushEv('sh', [R2(a)]); os(a); };
   },
   pushEv(k, a) { this.evq.push([++this.seq, k, ...a.map(v => typeof v === 'number' ? Math.round(v * 10) / 10 : v)]); if (this.evq.length > 40) this.evq.shift(); },
+  // ---------- host: track every guest machine (each can bring 1-2 local players; 3 players max in total) ----------
+  syncGuests(peers) {
+    const seen = [];
+    for (const p of peers) { if (p.sameTab || !p.presence || p.presence.role !== 'guest') continue; const gid = p.presence.gid || p.peer; if (seen.some(g => g.gid === gid)) continue; let g = this.guests.find(x => x.gid === gid); if (!g) { g = { gid, peer: p.peer, st: p.presence, remotes: [new RemoteInput(), new RemoteInput()], lastPres: null }; g.remotes.forEach(r => r.isRemote = true); UI.toast('A player joined!'); Audio2.play('select'); } g.peer = p.peer; seen.push(g); }
+    for (const g of this.guests) if (!seen.includes(g)) { UI.toast('A player disconnected'); Game.slots.forEach((sl, i) => { if (sl.gid === g.gid && World.players[i]) World.players[i].out = true; }); }
+    this.guests = seen; this.guestPeer = seen.length ? seen[0].peer : null; this.guestState = seen.length ? seen[0].st : null;
+  },
+  guestByGid(gid) { return this.guests.find(g => g.gid === gid) || null; },
+  pollRemotes() { for (const g of this.guests) for (const r of g.remotes) r.poll(); },
+  encodeInput(k) {
+    const s = this.locals[k].cur, C = this.cnts[k], pf = this.pfs[k];
+    for (const key of ['a', 'b', 'j', 's', 'm', 'p']) if (s[key + 'p']) C[key] = (C[key] + 1) % 1000;
+    if (s.cp) C.c = (C.c + 1) % 1000; if (s.tp) C.t = (C.t + 1) % 1000;
+    if (s.flick) pf[0] = s.flick; if (s.flickY) pf[1] = s.flickY;
+    return null;
+  },
+  packInput(k) {
+    const s = this.locals[k].cur, C = this.cnts[k], pf = this.pfs[k];
+    const out = Game.localPause ? [0, 0, 0, 0, 0, C.a, C.b, C.j, C.s, C.m, C.p, C.c, 0, 0, C.t] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), C.a, C.b, C.j, C.s, C.m, C.p, C.c, pf[0], pf[1], C.t];
+    pf[0] = 0; pf[1] = 0; return out;
+  },
   tick() {
     if (!this.r) return;
     this.tc = (this.tc || 0) + 1;
     if (this.isHost) {
-      // read guest presence
-      const g = this.r.peers().find(p => p.peer === this.guestPeer);
-      if (g && g.presence !== this.lastPres) { this.lastPres = g.presence; this.guestState = g.presence; if (Array.isArray(g.presence.in)) this.remote.feed(g.presence.in); }
+      const peers = this.r.peers();
+      for (const g of this.guests) { const p = peers.find(q => q.peer === g.peer); if (p && p.presence !== g.lastPres) { g.lastPres = p.presence; g.st = p.presence; if (Array.isArray(p.presence.in)) g.remotes[0].feed(p.presence.in); if (Array.isArray(p.presence.in2)) g.remotes[1].feed(p.presence.in2); } }
+      this.guestState = this.guests.length ? this.guests[0].st : null;
       if (this.tc % 2 === 0) this.r.presence({ role: 'host', s: this.snapshot() }).catch(() => { });
     } else if (this.isGuest) {
-      const s = this.local.cur;
-      for (const k of ['a', 'b', 'j', 's', 'm', 'p']) if (s[k + 'p']) this.cnt[k] = (this.cnt[k] + 1) % 1000;
-      if (s.cp) this.cnt.c = (this.cnt.c + 1) % 1000;
-      if (s.tp) this.cnt.t = ((this.cnt.t | 0) + 1) % 1000;
-      if (s.flick) this.pf = s.flick; if (s.flickY) this.pfy = s.flickY;
+      for (let k = 0; k < this.locals.length; k++) this.encodeInput(k);
       if (this.tc % 2 === 0) {
-        const inp = Game.localPause ? [0, 0, 0, 0, 0, this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, 0, 0, this.cnt.t | 0] : [R2(s.mx * 100), R2(s.my * 100), R2(s.cx * 100), R2(s.cy * 100), (s.a ? 1 : 0) | (s.b ? 2 : 0) | (s.j ? 4 : 0) | (s.s ? 8 : 0) | (s.m ? 16 : 0) | (s.p ? 32 : 0) | (s.kb ? 64 : 0), this.cnt.a, this.cnt.b, this.cnt.j, this.cnt.s, this.cnt.m, this.cnt.p, this.cnt.c, this.pf, this.pfy, this.cnt.t | 0];
-        this.pf = 0; this.pfy = 0;
-        this.r.presence({ role: 'guest', in: inp, ch: Game.gch | 0, rdy: Game.grdy ? 1 : 0, bp: Game.gbp || 0, mu: Meta.levels(), rr: Game.grr | 0 }).catch(() => { });
+        const G = Game, n = this.locals.length;
+        this.r.presence({ role: 'guest', gid: this.gid, n, in: this.packInput(0), in2: n > 1 ? this.packInput(1) : null, ch: G.gch.slice(0, n), rdy: G.grdy.slice(0, n).map(v => v ? 1 : 0), bp: G.gbp.slice(0, n), mu: Meta.levels(), rr: G.grr.slice(0, n) }).catch(() => { });
       }
     }
   },
   snapshot() {
     const G = Game; const s = { sc: G.scene === 'lobby' ? 'wait' : G.scene, pa: G.paused ? 1 : 0 };
-    if (G.scene === 'charsel') s.cs = [G.csel[0] | 0, G.cready[0] ? 1 : 0];
+    s.sl = G.slots.map(sl => sl.dev === 'net' ? [sl.gid, sl.k | 0] : 0);
+    if (G.scene === 'charsel') s.cs = G.slots.map((_, i) => [G.csel[i] | 0, G.cready[i] ? 1 : 0]);
     if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0, o.ps || []]; }
     if (G.scene === 'path' && G.pathOpts) s.po = [G.pathOpts.join('.'), G.pathIdx | 0, G.run ? G.run.idx : 0];
     if (G.run && World.stage && ['play', 'boon', 'victory'].includes(G.scene)) {
@@ -3355,7 +3374,7 @@ const Net = {
       s.ev = this.evq.slice(-16);
       s.cm = [R2(World.cam.x), R2(World.cam.y), R2(World.cam.z * 100)];
     }
-    if (G.scene === 'boon') { s.bo = [(G.boonOpts[1] || []).join('.'), G.boonPick[1] ? 1 : 0, G.boonPick[0] ? 1 : 0, (G.boonOpts[0] || []).join('.')]; }
+    if (G.scene === 'boon') { s.bo = World.players.map((p, i) => [(G.boonOpts[i] || []).join('.'), G.boonPick[i] ? 1 : 0]); }
     // keep within 4 KiB
     let js = JSON.stringify(s);
     if (js.length > 3800) { s.ev = s.ev.slice(-8); js = JSON.stringify(s); }
@@ -3373,32 +3392,48 @@ const Net = {
     if (s !== this.lastS) { this.lastS = s; this.applySnap(s); }
     this.guestScene = ['title', 'mode', 'controls', 'remap', 'join', 'lobby'].includes(s.sc) ? 'wait' : s.sc; this.hostPaused = !!s.pa;
     if (this.guestScene === 'wait') this.status = 'Connected! Waiting for the host to start…';
-    const src = this.local;
-    // local guest UI
+    const src = this.locals[0];
+    // which player slots belong to this machine (a guest can bring a second player on the same keyboard / another pad)
+    const sl = s.sl || []; const mine = []; sl.forEach((x, i) => { if (x && x[0] === this.gid) mine[x[1]] = i; });
+    const buildSlots = () => sl.length ? sl.map((x, i) => x && x[0] === this.gid ? { dev: (this.locals[x[1]] || src).dev, input: this.locals[x[1]] || src, mine: 1, k: x[1] } : { dev: 'net' }) : [{ dev: 'net' }, { dev: src.dev, input: src, mine: 1, k: 0 }];
     if (s.sc === 'charsel') {
-      G.mode = 'guest'; G.slots = [{ dev: 'net' }, { dev: src.dev, input: src }]; G.csel[0] = s.cs ? s.cs[0] : 0; G.cready[0] = !!(s.cs && s.cs[1]);
-      if (G.gch === undefined) G.gch = 1;
-      const d = menuDir(src);
-      if (!G.grdy) { if (d === 'left') { G.gch = (G.gch + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch = (G.gch + 1) % 4; Audio2.play('blip'); } if (menuOK(src)) { G.grdy = true; Audio2.play('ready'); } }
-      else if (menuBack(src)) G.grdy = false;
-      if (G.clickChar !== undefined) { if (!G.grdy) G.gch = G.clickChar; G.clickChar = undefined; }
-      G.csel[1] = G.gch; G.cready[1] = !!G.grdy; G.t++;
-    } else { G.grdy = false; }
-    if (s.sc === 'boon' && s.bo) {
-      const opts = s.bo[0] ? s.bo[0].split('.') : []; G.boonOpts = { 0: s.bo[3] ? s.bo[3].split('.') : [], 1: opts }; G.slots = [{ dev: 'net' }, { dev: src.dev }];
-      G.boonPick[0] = s.bo[2] ? 'x' : null; if (G.boonIdx[1] === undefined) G.boonIdx[1] = 0;
-      if (src.cur.sp && !G.boonPick[1]) { G.grr = (G.grr | 0) + 1; Audio2.play('confirm'); }
-      const key = (s.sg ? s.sg[1] : 0) + (s.sg && s.sg[5] ? 1000 : 0);
-      if (s.bo[1]) G.boonPick[1] = G.boonPick[1] || opts[G.boonIdx[1]]; else if (G.gbpKey !== key) { G.boonPick[1] = null; G.gbp = 0; G.gbpKey = key; }
-      if (!G.boonPick[1] && opts.length) {
-        const d = menuDir(src); const n = opts.length;
-        if (d === 'up' || d === 'left') G.boonIdx[1] = (G.boonIdx[1] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[1] = (G.boonIdx[1] + 1) % n;
-        if (G.clickBoon && G.clickBoon[0] === 1) { G.boonIdx[1] = G.clickBoon[1]; G.clickBoon = null; G.gbp = [key, G.boonIdx[1]]; G.boonPick[1] = opts[G.boonIdx[1]]; Audio2.play('boon'); }
-        else if (menuOK(src)) { G.gbp = [key, G.boonIdx[1]]; G.boonPick[1] = opts[G.boonIdx[1]]; Audio2.play('boon'); }
+      G.mode = 'guest'; G.slots = buildSlots();
+      // a second local player joins by pressing ATTACK/JUMP on another device of this computer (e.g. Arrows + Comma on the same keyboard)
+      if (this.locals.length < 2 && sl.length < 3) for (const ls of localSources()) { if (this.locals.includes(ls)) continue; if (ls.cur.ap || ls.cur.jp) { this.locals.push(ls); G.gch[1] = (G.gch[0] + 1) % 4; G.grdy[1] = false; Audio2.play('select'); ls.cur.ap = 0; ls.cur.jp = 0; this.joinT = 0; break; } }
+      if (this.locals.length > 1 && mine[1] === undefined) { this.joinT = (this.joinT | 0) + 1; if (this.joinT > 90) { this.locals.pop(); UI.toast('The game is full (3 players max)'); } }
+      sl.forEach((x, i) => { if (!(x && x[0] === this.gid)) { G.csel[i] = s.cs && s.cs[i] ? s.cs[i][0] : 0; G.cready[i] = !!(s.cs && s.cs[i] && s.cs[i][1]); } });
+      for (let k = 0; k < this.locals.length; k++) {
+        const ls = this.locals[k], d = menuDir(ls);
+        if (!G.grdy[k]) {
+          if (d === 'left') { G.gch[k] = (G.gch[k] + 3) % 4; Audio2.play('blip'); } if (d === 'right') { G.gch[k] = (G.gch[k] + 1) % 4; Audio2.play('blip'); }
+          if (menuOK(ls)) { G.grdy[k] = true; Audio2.play('ready'); const nm = FIGHTERS[G.gch[k]].name; announce(nm[0] + nm.slice(1).toLowerCase() + '!'); }
+          else if (k === 1 && menuBack(ls)) { this.locals.pop(); Audio2.play('back'); break; }
+        } else if (menuBack(ls)) G.grdy[k] = false;
+        if (mine[k] !== undefined) { G.csel[mine[k]] = G.gch[k]; G.cready[mine[k]] = !!G.grdy[k]; }
       }
+      if (G.clickChar !== undefined) { if (!G.grdy[0]) G.gch[0] = G.clickChar; G.clickChar = undefined; }
+      if (!sl.length) { G.csel[1] = G.gch[0]; G.cready[1] = !!G.grdy[0]; }
+      G.t++;
+    } else { G.grdy = [false, false]; }
+    if (s.sc === 'boon' && s.bo) {
+      G.slots = buildSlots(); const key = (s.sg ? s.sg[1] : 0) + (s.sg && s.sg[5] ? 1000 : 0);
+      s.bo.forEach((b, i) => { G.boonOpts[i] = b[0] ? b[0].split('.') : []; });
+      s.bo.forEach((b, i) => {
+        const x = sl[i]; const isMine = x && x[0] === this.gid; if (!isMine) { G.boonPick[i] = b[1] ? 'x' : null; return; }
+        const k = x[1], ls = this.locals[k] || src, opts = G.boonOpts[i];
+        if (G.boonIdx[i] === undefined) G.boonIdx[i] = 0;
+        if (ls.cur.sp && !G.boonPick[i]) { G.grr[k] = (G.grr[k] | 0) + 1; Audio2.play('confirm'); }
+        if (b[1]) G.boonPick[i] = G.boonPick[i] || opts[G.boonIdx[i]]; else if (G.gbpKey[k] !== key) { G.boonPick[i] = null; G.gbp[k] = 0; G.gbpKey[k] = key; }
+        if (!G.boonPick[i] && opts.length) {
+          const d = menuDir(ls); const n = opts.length;
+          if (d === 'up' || d === 'left') G.boonIdx[i] = (G.boonIdx[i] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[i] = (G.boonIdx[i] + 1) % n;
+          if (G.clickBoon && G.clickBoon[0] === i) { G.boonIdx[i] = G.clickBoon[1]; G.clickBoon = null; G.gbp[k] = [key, G.boonIdx[i]]; G.boonPick[i] = opts[G.boonIdx[i]]; Audio2.play('boon'); }
+          else if (menuOK(ls)) { G.gbp[k] = [key, G.boonIdx[i]]; G.boonPick[i] = opts[G.boonIdx[i]]; Audio2.play('boon'); }
+        }
+      });
     } else if (s.sc !== 'boon') { G.boonIdx = {}; G.boonPick = {}; }
     if (s.sc === 'play') {
-      if (src.cur.pp) { G.localPause = !G.localPause; G.pauseIdx = 0; }
+      if (this.locals.some(l => l.cur.pp)) { G.localPause = !G.localPause; G.pauseIdx = 0; }
       if (G.localPause) { const GP = GUEST_PAUSE; const d = menuDir(src); if (d === 'up') G.pauseIdx = (G.pauseIdx + GP.length - 1) % GP.length; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % GP.length; volAdjust(GP[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } const lab = GP[G.pauseIdx]; if (VOL_ROWS[lab]) { G.clickPick = undefined; if (menuOK(src)) volAdjust(lab, 1); } else if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
       // smooth entities toward targets
       for (const p of World.players) if (p.tx !== undefined) { p.x = lerp(p.x, p.tx, 0.55); p.y = lerp(p.y, p.ty, 0.55); }
@@ -3547,8 +3582,8 @@ const Game = {
     this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0, cleared: 0, bosses: 0, bonus: 0, path: 'road', rerolls: { 0: this.meta.reroll || 0, 1: this.slots[1] && this.slots[1].dev === 'net' ? ((gmu && gmu.reroll) || 0) : (this.meta.reroll || 0) } };
     World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null; this.gameT = 0; this.gameNext = null; this.countT = 0; this.crownDown = 0;
     World.players = this.slots.map((s, i) => new Fighter(FIGHTERS[this.csel[i]], i, s.input));
-    World.players.forEach((p, i) => applyMeta(p, this.slots[i] && this.slots[i].dev === 'net' ? gmu : this.meta));
-    this.teamStocks = (World.players.length > 1 ? 4 : 3) + (this.meta.vigor || 0);
+    World.players.forEach((p, i) => { const sl = this.slots[i]; const g = sl && sl.dev === 'net' ? Net.guestByGid(sl.gid) : null; applyMeta(p, sl && sl.dev === 'net' ? ((g && g.st && g.st.mu) || gmu) : this.meta); });
+    this.teamStocks = [3, 3, 4, 5][World.players.length] + (this.meta.vigor || 0);
     if (this.mode === 'training') return this.loadTraining();
     this.loadStage(0, 'road'); this.countT = 200; this.gameT = 0; this.gameNext = null; this._gameSplashed = 0; World.critT = 0;
   },
@@ -3570,7 +3605,7 @@ const Game = {
     World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np, path });
     this.applyStageState(mods);
     const e = Math.max(0, idx - 11);
-    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
+    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np >= 3 ? 1.3 : np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
     for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
     if (kind !== 'boss') placeCrates(World.stage);
@@ -3678,7 +3713,7 @@ const Game = {
     for (const s of w) {
       if (s.boss) {
         const e = new Enemy(s.type, (A.l + A.r) / 2, A.floor - (BOSS[s.type].fly ? 260 : 10), {});
-        e.maxHp *= World.players.length > 1 ? 1.6 : 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; this.bossIntro = { t: 0, type: s.type }; Audio2.play('bossin'); FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
+        e.maxHp *= [1, 1, 1.6, 2.1][World.players.length] || 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; this.bossIntro = { t: 0, type: s.type }; Audio2.play('bossin'); FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
       }
       const x = A.l + 80 + s.side * (A.r - A.l - 160); const y = A.floor - 140 - rr(0, 120);
       const e = spawnEnemy(s.type, x, y, { elite: s.elite, spawn: 1, fid: s.fid }); if (e) { FX.swarm(x, y, e.h); if (!e.isRival) e.cd = 50 + ri(0, 50); }
@@ -3748,7 +3783,7 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'TRAINING', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2-3P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'TRAINING', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -3783,7 +3818,7 @@ function sceneUpdate() {
     case 'controls': if (anyOK() || anyBack() || G.clickPick !== undefined) { G.clickPick = undefined; G.setScene('mode'); } break;
     case 'remap': updateRemap(); break;
     case 'lobby': {
-      if (Net.guestPeer) { G.slots[1] = { input: Net.remote, dev: 'net' }; G.toCharSel(); }
+      if (Net.guests.length) { G.toCharSel(); syncNetSlots(G); }
       if (anyBack()) { Net.leave(); G.setScene('mode'); }
       break;
     }
@@ -3791,7 +3826,7 @@ function sceneUpdate() {
     case 'charsel': updateCharSel(); break;
     case 'play': {
       if (G.paused) { updatePause(); break; }
-      const pp = World.players.some(p => p.input.cur && p.input.cur.pp && p.input !== Net.remote) || KeysPressed['Escape'];
+      const pp = World.players.some(p => p.input.cur && p.input.cur.pp && !p.input.isRemote) || KeysPressed['Escape'];
       if (pp) { G.paused = true; G.pauseIdx = 0; Audio2.play('blip'); break; }
       if (World.slowT > 0) { World.slowT--; if (World.slowT % 2 === 0) break; }
       if (World.stage && World.stage.training && (G.trainSpeed | 0) > 1) { G._ts = (G._ts | 0) + 1; if (G._ts % G.trainSpeed) break; } // training slow-motion
@@ -3834,8 +3869,9 @@ Game.toCharSel = function () {
 function updateCharSel() {
   const G = Game;
   // P2 join for local
-  if (G.mode === 'local' && G.slots.length < 2) {
-    for (const s of localSources()) { if (G.slots.some(x => x.dev === s.dev)) continue; if (s.cur.ap || s.cur.jp) { G.slots.push({ input: s, dev: s.dev }); G.csel[1] = 1; G.cready[1] = false; Audio2.play('select'); s.cur.ap = 0; s.cur.jp = 0; } }
+  // extra local players join by pressing ATTACK/JUMP on another device: a second keyboard layout (Arrows + Comma) or a gamepad
+  if ((G.mode === 'local' || G.mode === 'host') && G.slots.length < MAX_PLAYERS) {
+    for (const s of localSources()) { if (G.slots.length >= MAX_PLAYERS) break; if (G.slots.some(x => x.dev === s.dev)) continue; if (s.cur.ap || s.cur.jp) { const nl = G.slots.filter(x => x.dev !== 'net').length; G.slots.splice(nl, 0, { input: s, dev: s.dev }); for (let i = G.slots.length - 1; i > nl; i--) { G.csel[i] = G.csel[i - 1]; G.cready[i] = G.cready[i - 1]; } G.csel[nl] = nl % 4; G.cready[nl] = false; Audio2.play('select'); s.cur.ap = 0; s.cur.jp = 0; } }
   }
   G.slots.forEach((sl, i) => {
     if (sl.dev === 'net') return;
@@ -3848,11 +3884,16 @@ function updateCharSel() {
     } else if (menuBack(s)) G.cready[i] = false;
   });
   if (G.clickChar !== undefined) { G.csel[0] = G.clickChar; G.clickChar = undefined; }
-  if (G.mode === 'host' && Net.guestState) { const gs = Net.guestState; if (typeof gs.ch === 'number') G.csel[1] = clamp(gs.ch | 0, 0, 3); G.cready[1] = !!gs.rdy; }
-  if (G.mode === 'host' && !Net.guestPeer) { G.slots.length = 1; }
-  if (G.mode === 'host' && Net.guestPeer && G.slots.length < 2) { G.slots[1] = { input: Net.remote, dev: 'net' }; G.csel[1] = 1; G.cready[1] = false; }
+  if (G.mode === 'host') syncNetSlots(G);
   const all = G.slots.length && G.slots.every((_, i) => G.cready[i]) && (G.mode !== 'local' || G.slots.length >= 1);
   if (all && G.t > 20) { G.readyT = (G.readyT | 0) + 1; if (G.readyT === 1) { Audio2.play('confirm'); Audio2.play('crowd', 0.6); } if (G.readyT > 50) { G.readyT = 0; G.startRun(); } } else G.readyT = 0; // READY TO FIGHT banner
+}
+const MAX_PLAYERS = 3;
+function syncNetSlots(G) { // host: local players first, then each guest machine's players (1-2 each), 3 players max
+  const out = G.slots.filter(s => s.dev !== 'net');
+  for (const g of Net.guests) { const n = clamp(((g.st && g.st.n) | 0) || 1, 1, 2); for (let k = 0; k < n && out.length < MAX_PLAYERS; k++) out.push({ input: g.remotes[k], dev: 'net', gid: g.gid, k }); }
+  G.slots = out;
+  out.forEach((sl, i) => { if (sl.dev !== 'net') return; const g = Net.guestByGid(sl.gid), st = (g && g.st) || {}; const ch = Array.isArray(st.ch) ? st.ch[sl.k] : (sl.k ? 2 : st.ch); const rd = Array.isArray(st.rdy) ? st.rdy[sl.k] : (sl.k ? 0 : st.rdy); G.csel[i] = clamp(ch | 0, 0, 3); G.cready[i] = !!rd; });
 }
 const PAUSE_OPTS = ['RESUME', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT RUN'];
 const DUMMY_MODES = ['STAND', 'SHIELD', 'JUMP', 'CPU'];
@@ -3872,8 +3913,12 @@ function updateBoon() {
   const G = Game;
   World.players.forEach((p, i) => {
     if (G.boonPick[i]) return; const sl = G.slots[i]; if (!sl) { G.boonPick[i] = 'skip'; return; }
-    if (sl.dev === 'net' && Net.guestState && (Net.guestState.rr | 0) !== (G._grr | 0) && G.run.rerolls[i] > 0) { G._grr = Net.guestState.rr | 0; G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); Audio2.play('confirm'); }
-    if (sl.dev === 'net') { const gs = Net.guestState; if (gs && Array.isArray(gs.bp) && gs.bp[0] === G.run.idx + (G.run.endless ? 1000 : 0) && typeof gs.bp[1] === 'number') { const id = G.boonOpts[i][gs.bp[1] | 0]; if (id) { G.boonPick[i] = id; Audio2.play('select'); } } return; }
+    if (sl.dev === 'net') {
+      const g = Net.guestByGid(sl.gid), gs = g && g.st; if (!gs) return; const k = sl.k | 0; G._grr = G._grr || {};
+      const rr = Array.isArray(gs.rr) ? gs.rr[k] | 0 : 0; if (G._grr[i] === undefined) G._grr[i] = rr; if (rr !== G._grr[i] && G.run.rerolls[i] > 0) { G._grr[i] = rr; G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); Audio2.play('confirm'); }
+      const bp = Array.isArray(gs.bp) ? gs.bp[k] : null; if (Array.isArray(bp) && bp[0] === G.run.idx + (G.run.endless ? 1000 : 0) && typeof bp[1] === 'number') { const id = G.boonOpts[i][bp[1] | 0]; if (id) { G.boonPick[i] = id; Audio2.play('select'); } }
+      return;
+    }
     const s = sl.input; const d = menuDir(s); const n = G.boonOpts[i].length;
     if (s.cur.sp && G.run.rerolls[i] > 0) { G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); G.boonIdx[i] = 0; Audio2.play('confirm'); UIW.st = 0; return; }
     if (d === 'up' || d === 'left') G.boonIdx[i] = (G.boonIdx[i] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[i] = (G.boonIdx[i] + 1) % n;
@@ -4104,7 +4149,7 @@ function loop(now) {
   acc += Math.min(100, now - last); last = now;
   let steps = 0;
   while (acc >= 1000 / 60 && steps < 4) {
-    Devices.pollAll(); if (Net.remote) Net.remote.poll();
+    Devices.pollAll(); if (Net.isHost) Net.pollRemotes();
     sceneUpdate();
     if (!Net.isGuest && Game.scene === 'play') Game.updateCamera();
     Net.tick();
@@ -4362,7 +4407,8 @@ function drawRiftBall(g, it) {
   g.restore();
 }
 
-const GAME_VERSION = '11.08-f';
+const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
+const GAME_VERSION = '11.09-a';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -4431,7 +4477,7 @@ function drawControlsPanel(x, y, a = 0.95) {
   const col1 = x - 10, col2 = W / 2 - 60, col3 = W / 2 + 230;
   const sec = (title, cx, items) => { T(title, cx, y + 58, 17, '#ff8fe4', { align: 'left' }); items.forEach((t, i) => T(t, cx, y + 86 + i * 22, 13.5, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false })); };
   sec('SWITCH PRO / GAMEPAD', col1, ['Left stick — move / aim', 'A (right) — attack', 'B (bottom) — special', 'X / Y — jump', 'L / R / ZL / ZR — shield', 'Flick stick + A — smash', 'Right stick — smash / aerial', 'Flick up — jump', '+ — pause', '− — taunt (+ stick direction)']);
-  sec('KEYBOARD  P1 / P2', col2, ['Move — WASD / Arrows', 'Attack — J / ,', 'Special — K / .', 'Jump — Space / R-Shift', 'Shield — L / /', 'Smash — I / ;', 'Pause — Esc / Backspace', 'Taunt — T / \u2019', '', 'Shield + direction — roll / dodge', 'Shield + down-diagonal — drop through'] );
+  sec('KEYBOARD  P1 / P2', col2, ['Move — WASD / Arrows', 'Attack — J or F / ,', 'Special — K or G / .', 'Jump — Space / M or R-Shift', 'Shield — L or H / /', 'Smash — I or R / ;', 'Pause — Esc / Backspace', 'Taunt — T / \u2019', 'Two on one keyboard: P1 uses', 'WASD+Space+F/G/H, P2 Arrows+M/,/./', 'Shield + direction — roll / dodge', 'Shield + down-diagonal — drop through'] );
   sec('TECHNIQUES', col3, ['Grab — SHIELD + ATTACK', 'Throw — grab + direction', 'Tech — SHIELD as you land', 'Tech roll — + direction', 'Parry — release SHIELD on hit', 'Wall jump — JUMP away from wall', 'Rift Burst — SHIELD + SPECIAL', 'Getup — ATTACK / dir / JUMP', 'Recovery — UP + SPECIAL', 'Rift Bomb — ATTACK: pick up / throw', 'Short-hop aerial — JUMP + ATTACK', 'Footstool — JUMP on a foe\u2019s head', 'Wavedash — air dodge into the floor', 'Hitstun cancel — dodge/attack late', 'B-reverse — tilt back after SPECIAL', 'Taunt — T / \u2019 / minus button']);
   T('Launch foes off-screen or through the purple barriers for a KO.  Food lowers your damage %.', W / 2, y + 438, 15, '#ffd23c', { stroke: 4 });
 }
@@ -4482,7 +4528,7 @@ function drawHUD() {
     const px = x + 52, py = y + 38; ctx.save(); ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); const pg = ctx.createRadialGradient(px, py - 10, 4, px, py, 34); pg.addColorStop(0, shade(col, 0.2)); pg.addColorStop(1, shade(col, -0.45)); ctx.fillStyle = pg; ctx.fill(); ctx.clip(); if (!p.out) drawPortrait(ctx, p.def.id, px + 2, py + (p.def.id === 2 ? 16 : p.def.id === 3 ? 10 : 6), p.def.id === 2 ? 26 : 30, false); ctx.restore();
     ctx.lineWidth = 3.5; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = OL; ctx.beginPath(); ctx.arc(px, py, 35, 0, TAU); ctx.stroke();
     T(p.def.name, x + 96, y + 72, 14, '#fff', { align: 'left', stroke: 4 });
-    const tag = (Net.isHost || Net.isGuest) ? (G.slots[i] && G.slots[i].dev === 'net' ? 'PARTNER' : 'YOU') : 'P' + (i + 1);
+    const tag = 'P' + (i + 1);
     ctx.fillStyle = col; slant(x + cw - 74, y - 12, 62, 20, 6); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.stroke(); T(tag, x + cw - 43, y + 3, 13, '#fff', { stroke: 3, shadow: false });
     // damage
     const pop = (p._pop || 0) / 12; const jx = pop > 0 ? rr(-3, 3) * pop : 0, jy = pop > 0 ? rr(-3, 3) * pop : 0;
@@ -4623,12 +4669,15 @@ function heart(x, y, r) { ctx.fillStyle = '#ff4d6d'; ctx.strokeStyle = OL; ctx.l
 function drawCharSel() {
   drawTitleBG(); const G = Game; const t = World.frame;
   T('CHOOSE YOUR FIGHTER', W / 2, 62, 44, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
-  if (G.mode === 'local' && G.slots.length < 2) T('Player 2: press ATTACK or JUMP on another controller (or Arrows + Comma) to join', W / 2, 94, 16, '#ffe9a0', { stroke: 4 });
-  if (G.mode === 'host') T(Net.guestPeer ? 'PARTNER CONNECTED ✓' : 'Waiting for partner…  Room code: ' + Net.code, W / 2, 94, 17, Net.guestPeer ? '#7dff8a' : '#ffe9a0', { stroke: 4 });
+  const ns = G.slots.length;
+  { const bits = []; if (G.mode === 'host') bits.push('ROOM CODE ' + Net.code + (Net.guests.length ? '  ·  ' + Net.guests.length + ' online computer' + (Net.guests.length > 1 ? 's' : '') + ' connected ✓' : '  ·  waiting for online players…'));
+    if ((G.mode === 'local' || G.mode === 'host') && ns < 3) bits.push('P' + (ns + 1) + ' joins with ATTACK/JUMP on another controller or Arrows + Comma on this keyboard');
+    if (G.mode === 'guest' && ns < 3 && Net.locals.length < 2) bits.push('A 2nd player here can join with Arrows + Comma or another controller');
+    if (bits.length) T(bits.join('   ·   '), W / 2, 96, bits.join('').length > 110 ? 13 : 15, G.mode === 'host' && Net.guests.length ? '#b8ffc0' : '#ffe9a0', { stroke: 4 }); }
   // big previews for each slot
   const slots = G.slots.length ? G.slots : [{}];
   slots.forEach((sl, k) => {
-    const fid = G.csel[k] ?? 0, F = FIGHTERS[fid]; const left = k === 0; const px = left ? 60 : W - 60 - 360, py = 112;
+    const fid = G.csel[k] ?? 0, F = FIGHTERS[fid]; const left = slots.length === 3 ? k < 2 : k === 0; const px = slots.length === 3 ? 40 + k * 420 : (k === 0 ? 60 : W - 60 - 360), py = 112;
     glass(px, py, 360, 400, F.color, 24, 0.85);
     ctx.save(); slant(px, py, 360, 400, 24); ctx.clip(); const sg = ctx.createRadialGradient(px + 180, py + 230, 10, px + 180, py + 230, 230); sg.addColorStop(0, rgba(F.color, 0.55)); sg.addColorStop(1, rgba(F.color, 0)); ctx.fillStyle = sg; ctx.fillRect(px, py, 360, 400);
     const rk = 'r' + k; if (G.cready[k] && UIW.ready[rk] === undefined) UIW.ready[rk] = UIW.st; if (!G.cready[k]) delete UIW.ready[rk];
@@ -4637,16 +4686,16 @@ function drawCharSel() {
     drawFighterArt(fid, px + 180, py + 300 - (rt >= 0 && rt < 10 ? Math.sin(rt / 10 * Math.PI) * 20 : 0), left ? 1 : -1, 3.1, pose);
     if (rt >= 0 && rt < 16) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - rt / 16)})`; ctx.fillRect(px, py, 360, 400); ctx.globalCompositeOperation = 'source-over'; }
     ctx.restore();
-    T((k === 0 ? 'P1' : 'P2'), px + 34, py + 36, 22, k === 0 ? '#ff6b6b' : '#5ab4ff', { align: 'left', stroke: 5 });
+    T('P' + (k + 1) + (slots[k] && slots[k].mine ? ' · YOU' : slots[k] && slots[k].dev === 'net' ? ' · ONLINE' : ''), px + 34, py + 36, 22, PCOL[k] || '#fff', { align: 'left', stroke: 5 });
     T(F.name, px + 180, py + 340, 46, F.color, { stroke: 9 }); T(F.title.toUpperCase(), px + 180, py + 366, 16, '#fff', { stroke: 4 });
     if (G.cready[k]) { ctx.save(); ctx.translate(px + 180, py + 180); ctx.rotate(-0.15); slant(-130, -34, 260, 64, 18); ctx.fillStyle = 'rgba(255,210,60,0.95)'; ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 4; ctx.stroke(); T('READY!', 0, 18, 46, '#fff', { stroke: 9 }); ctx.restore(); }
   });
   // moveset card in the middle
-  const mf = FIGHTERS[G.csel[0] ?? 0]; glass(W / 2 - 200, 130, 400, 180, mf.color, 18, 0.85);
+  if (slots.length < 3) { const mf = FIGHTERS[G.csel[0] ?? 0]; glass(W / 2 - 200, 130, 400, 180, mf.color, 18, 0.85);
   T('SPECIAL MOVES', W / 2, 160, 18, '#ffd23c', { stroke: 4 });
   [['NEUTRAL', 'nspec'], ['SIDE', 'sspec'], ['UP', 'uspec'], ['DOWN', 'dspec']].forEach(([k, m], j) => { T(k, W / 2 - 160, 194 + j * 28, 14, '#ff9ae8', { align: 'left', stroke: 3, weight: 800 }); T(mf.specials[m].name, W / 2 - 70, 194 + j * 28, 17, '#fff', { align: 'left', stroke: 4 }); });
   UI.wrap(mf.blurb, W / 2 - 180, 330, 360, 14, '#e8e2f5');
-  const st = mf.stats; [['WEIGHT', st.weight / 130], ['SPEED', st.run / 7], ['JUMPS', (st.jumps + 1) / 3]].forEach(([n, v], j) => { const y = 380 + j * 24; T(n, W / 2 - 160, y + 12, 13, '#cfc6e6', { align: 'left', stroke: 0, weight: 800 }); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 70, y, 230, 13); ctx.fillStyle = mf.color; ctx.fillRect(W / 2 - 70, y, 230 * clamp(v, 0, 1), 13); ctx.strokeStyle = OL; ctx.lineWidth = 1.5; ctx.strokeRect(W / 2 - 70, y, 230, 13); });
+  const st = mf.stats; [['WEIGHT', st.weight / 130], ['SPEED', st.run / 7], ['JUMPS', (st.jumps + 1) / 3]].forEach(([n, v], j) => { const y = 380 + j * 24; T(n, W / 2 - 160, y + 12, 13, '#cfc6e6', { align: 'left', stroke: 0, weight: 800 }); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 70, y, 230, 13); ctx.fillStyle = mf.color; ctx.fillRect(W / 2 - 70, y, 230 * clamp(v, 0, 1), 13); ctx.strokeStyle = OL; ctx.lineWidth = 1.5; ctx.strokeRect(W / 2 - 70, y, 230, 13); }); }
   // roster
   const tw = 128, ty = H - 168;
   FIGHTERS.forEach((F, i) => {
@@ -4654,7 +4703,7 @@ function drawCharSel() {
     slant(x, ty, tw, 120, 16); const g = ctx.createLinearGradient(0, ty, 0, ty + 120); g.addColorStop(0, shade(F.color, -0.1)); g.addColorStop(1, shade(F.color, -0.6)); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = sel.length ? 4 : 2; ctx.strokeStyle = sel.length ? '#fff' : OL; ctx.stroke();
     ctx.save(); slant(x, ty, tw, 120, 16); ctx.clip(); drawPortrait(ctx, i, x + tw / 2, ty + 58, 40, false); ctx.restore();
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; slant(x - 2, ty + 92, tw - 6, 28, 16); ctx.fill(); T(F.name, x + tw / 2 - 6, ty + 113, 18, '#fff', { stroke: 4 });
-    sel.forEach((k, j) => { const bx = x + 8 + j * 46, by = ty - 14; ctx.fillStyle = k === 0 ? '#ff4b4b' : '#3a8dff'; slant(bx, by, 44, 24, 8); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2.5; ctx.stroke(); T('P' + (k + 1), bx + 22, by + 18, 15, '#fff', { stroke: 3, shadow: false }); });
+    sel.forEach((k, j) => { const bx = x + 8 + j * 46, by = ty - 14; ctx.fillStyle = PCOLD[k] || '#888'; slant(bx, by, 44, 24, 8); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2.5; ctx.stroke(); T('P' + (k + 1), bx + 22, by + 18, 15, '#fff', { stroke: 3, shadow: false }); });
     clickRegions().push({ x, y: ty, w: tw, h: 120, fn: () => { Game.clickChar = i; } });
   });
   T('◀ ▶ choose     ATTACK / JUMP confirm     SPECIAL back', W / 2, H - 16, 15, '#cfc6e6', { stroke: 4 });
@@ -4665,13 +4714,18 @@ function drawBoon() {
   drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.78)'; ctx.fillRect(0, 0, W, H); const G = Game;
   T(G.run && G.run.endless && G.run.idx === 11 ? 'ENDLESS AWAITS · CHOOSE A BOON' : 'STAGE CLEAR!', W / 2, 74, 46, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
   T('Choose a boon' + (G.run && G.run.rerolls ? '   ·   SHIELD: reroll (' + Object.values(G.run.rerolls).map(v => v | 0).join(' / ') + ' left)' : ''), W / 2, 104, 18, '#ff9ae8', { stroke: 4 });
-  const n = World.players.length; const colW = n > 1 ? 560 : 640;
+  const n = World.players.length; const C3 = n >= 3; const colW = C3 ? 400 : n > 1 ? 560 : 640;
   World.players.forEach((p, i) => {
-    const x0 = n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
+    const x0 = C3 ? W / 2 - (3 * colW + 2 * 16) / 2 + i * (colW + 16) : n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
     T('P' + (i + 1) + ' · ' + p.def.name + (G.boonPick[i] ? '  ✓' : ''), x0 + colW / 2, 140, 22, p.def.color, { stroke: 5 });
     (G.boonOpts[i] || []).forEach((id, k) => {
       const b = BOON_BY_ID[id]; const sel = G.boonIdx[i] === k && !G.boonPick[i]; const picked = G.boonPick[i] === id; const rc = RARITY[b.r].c;
       const ein = easeBack(clamp((UIW.st - 8 - k * 6 - i * 3) / 18, 0, 1)); ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1); ctx.translate((1 - ein) * (i ? 500 : -500), 0);
+      if (C3) { const y = 158 + k * 156, lift = sel ? -4 + Math.sin(World.frame * 0.15) * 1.5 : 0; slant(x0, y + lift, colW, 138, 16); const g = ctx.createLinearGradient(x0, y, x0 + colW, y + 138); g.addColorStop(0, picked ? '#2f6b3a' : sel ? '#4a2f7a' : '#2a1f45'); g.addColorStop(1, picked ? '#173a1e' : sel ? '#26164a' : '#160f28'); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = sel || picked ? 4 : 2.5; ctx.strokeStyle = sel ? '#fff' : rc; ctx.stroke();
+        const ix = x0 + 48, iy = y + 52 + lift; ctx.beginPath(); ctx.arc(ix, iy, 30, 0, TAU); const ig = ctx.createRadialGradient(ix - 8, iy - 10, 3, ix, iy, 32); ig.addColorStop(0, shade(rc, 0.4)); ig.addColorStop(1, shade(rc, -0.45)); ctx.fillStyle = ig; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = OL; ctx.stroke(); T(BOON_ICON[id] || '✦', ix, iy + 12, 32, '#fff', { italic: false, stroke: 4 });
+        T(RARITY[b.r].n, x0 + 92, y + 28 + lift, 12, rc, { align: 'left', stroke: 3, weight: 800 }); T(b.name, x0 + 92, y + 56 + lift, 22, '#fff', { align: 'left', stroke: 5 });
+        wrapLeft(b.desc, x0 + 22, y + 96 + lift, colW - 44, 13, '#e0d8f0', 2); if (picked) T('CHOSEN!', x0 + colW - 60, y + 30, 18, '#7dff8a', { stroke: 5 });
+        ctx.restore(); if (G.slots[i] && G.slots[i].dev !== 'net') clickRegions().push({ x: x0, y, w: colW, h: 138, fn: () => { Game.clickBoon = [i, k]; } }); return; }
       const y = 158 + k * 156; const lift = sel ? -4 + Math.sin(World.frame * 0.15) * 1.5 : 0; slant(x0, y + lift, colW, 138, 20);
       const g = ctx.createLinearGradient(x0, y, x0 + colW, y + 138); g.addColorStop(0, picked ? '#2f6b3a' : sel ? '#4a2f7a' : '#2a1f45'); g.addColorStop(1, picked ? '#173a1e' : sel ? '#26164a' : '#160f28'); ctx.fillStyle = g; ctx.fill();
       ctx.lineWidth = sel || picked ? 4 : 2.5; ctx.strokeStyle = sel ? '#fff' : rc; ctx.stroke();
@@ -4789,6 +4843,8 @@ function drawCritFlash() {
   ctx.save(); ctx.globalCompositeOperation = 'lighter'; const gr = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.7); gr.addColorStop(0, `rgba(120,200,255,${0.0})`); gr.addColorStop(1, `rgba(90,170,255,${0.45 * k})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = `rgba(255,255,255,${0.6 * k})`; ctx.lineWidth = 3; for (let i = 0; i < 18; i++) { const a = i / 18 * TAU + t * 0.02, r0 = 260 + (i % 3) * 40; ctx.beginPath(); ctx.moveTo(W / 2 + Math.cos(a) * r0, H / 2 + Math.sin(a) * r0); ctx.lineTo(W / 2 + Math.cos(a) * 900, H / 2 + Math.sin(a) * 900); ctx.stroke(); } ctx.restore();
 }
+
+function wrapLeft(text, x, y, maxW, size, col, maxLines = 3) { ctx.font = `600 ${size}px ${FONT}`; const words = String(text || '').split(' '), lines = []; let ln = ''; for (const w of words) { const t = ln ? ln + ' ' + w : w; if (ctx.measureText(t).width > maxW && ln) { lines.push(ln); ln = w; } else ln = t; } if (ln) lines.push(ln); lines.slice(0, maxLines).forEach((l, i) => T(l, x, y + i * (size + 5), size, col, { align: 'left', stroke: 0, italic: false, weight: 600, shadow: false })); }
 
 document.getElementById('fs').addEventListener('click',()=>{const el=document.documentElement;try{(el.requestFullscreen||el.webkitRequestFullscreen).call(el).catch(()=>{});}catch(e){}});
 requestAnimationFrame(loop);

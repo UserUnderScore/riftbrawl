@@ -1,4 +1,5 @@
-const GAME_VERSION = '11.08-f';
+const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
+const GAME_VERSION = '11.09-a';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -67,7 +68,7 @@ function drawControlsPanel(x, y, a = 0.95) {
   const col1 = x - 10, col2 = W / 2 - 60, col3 = W / 2 + 230;
   const sec = (title, cx, items) => { T(title, cx, y + 58, 17, '#ff8fe4', { align: 'left' }); items.forEach((t, i) => T(t, cx, y + 86 + i * 22, 13.5, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false })); };
   sec('SWITCH PRO / GAMEPAD', col1, ['Left stick — move / aim', 'A (right) — attack', 'B (bottom) — special', 'X / Y — jump', 'L / R / ZL / ZR — shield', 'Flick stick + A — smash', 'Right stick — smash / aerial', 'Flick up — jump', '+ — pause', '− — taunt (+ stick direction)']);
-  sec('KEYBOARD  P1 / P2', col2, ['Move — WASD / Arrows', 'Attack — J / ,', 'Special — K / .', 'Jump — Space / R-Shift', 'Shield — L / /', 'Smash — I / ;', 'Pause — Esc / Backspace', 'Taunt — T / \u2019', '', 'Shield + direction — roll / dodge', 'Shield + down-diagonal — drop through'] );
+  sec('KEYBOARD  P1 / P2', col2, ['Move — WASD / Arrows', 'Attack — J or F / ,', 'Special — K or G / .', 'Jump — Space / M or R-Shift', 'Shield — L or H / /', 'Smash — I or R / ;', 'Pause — Esc / Backspace', 'Taunt — T / \u2019', 'Two on one keyboard: P1 uses', 'WASD+Space+F/G/H, P2 Arrows+M/,/./', 'Shield + direction — roll / dodge', 'Shield + down-diagonal — drop through'] );
   sec('TECHNIQUES', col3, ['Grab — SHIELD + ATTACK', 'Throw — grab + direction', 'Tech — SHIELD as you land', 'Tech roll — + direction', 'Parry — release SHIELD on hit', 'Wall jump — JUMP away from wall', 'Rift Burst — SHIELD + SPECIAL', 'Getup — ATTACK / dir / JUMP', 'Recovery — UP + SPECIAL', 'Rift Bomb — ATTACK: pick up / throw', 'Short-hop aerial — JUMP + ATTACK', 'Footstool — JUMP on a foe\u2019s head', 'Wavedash — air dodge into the floor', 'Hitstun cancel — dodge/attack late', 'B-reverse — tilt back after SPECIAL', 'Taunt — T / \u2019 / minus button']);
   T('Launch foes off-screen or through the purple barriers for a KO.  Food lowers your damage %.', W / 2, y + 438, 15, '#ffd23c', { stroke: 4 });
 }
@@ -118,7 +119,7 @@ function drawHUD() {
     const px = x + 52, py = y + 38; ctx.save(); ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); const pg = ctx.createRadialGradient(px, py - 10, 4, px, py, 34); pg.addColorStop(0, shade(col, 0.2)); pg.addColorStop(1, shade(col, -0.45)); ctx.fillStyle = pg; ctx.fill(); ctx.clip(); if (!p.out) drawPortrait(ctx, p.def.id, px + 2, py + (p.def.id === 2 ? 16 : p.def.id === 3 ? 10 : 6), p.def.id === 2 ? 26 : 30, false); ctx.restore();
     ctx.lineWidth = 3.5; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = OL; ctx.beginPath(); ctx.arc(px, py, 35, 0, TAU); ctx.stroke();
     T(p.def.name, x + 96, y + 72, 14, '#fff', { align: 'left', stroke: 4 });
-    const tag = (Net.isHost || Net.isGuest) ? (G.slots[i] && G.slots[i].dev === 'net' ? 'PARTNER' : 'YOU') : 'P' + (i + 1);
+    const tag = 'P' + (i + 1);
     ctx.fillStyle = col; slant(x + cw - 74, y - 12, 62, 20, 6); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.stroke(); T(tag, x + cw - 43, y + 3, 13, '#fff', { stroke: 3, shadow: false });
     // damage
     const pop = (p._pop || 0) / 12; const jx = pop > 0 ? rr(-3, 3) * pop : 0, jy = pop > 0 ? rr(-3, 3) * pop : 0;
@@ -259,12 +260,15 @@ function heart(x, y, r) { ctx.fillStyle = '#ff4d6d'; ctx.strokeStyle = OL; ctx.l
 function drawCharSel() {
   drawTitleBG(); const G = Game; const t = World.frame;
   T('CHOOSE YOUR FIGHTER', W / 2, 62, 44, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
-  if (G.mode === 'local' && G.slots.length < 2) T('Player 2: press ATTACK or JUMP on another controller (or Arrows + Comma) to join', W / 2, 94, 16, '#ffe9a0', { stroke: 4 });
-  if (G.mode === 'host') T(Net.guestPeer ? 'PARTNER CONNECTED ✓' : 'Waiting for partner…  Room code: ' + Net.code, W / 2, 94, 17, Net.guestPeer ? '#7dff8a' : '#ffe9a0', { stroke: 4 });
+  const ns = G.slots.length;
+  { const bits = []; if (G.mode === 'host') bits.push('ROOM CODE ' + Net.code + (Net.guests.length ? '  ·  ' + Net.guests.length + ' online computer' + (Net.guests.length > 1 ? 's' : '') + ' connected ✓' : '  ·  waiting for online players…'));
+    if ((G.mode === 'local' || G.mode === 'host') && ns < 3) bits.push('P' + (ns + 1) + ' joins with ATTACK/JUMP on another controller or Arrows + Comma on this keyboard');
+    if (G.mode === 'guest' && ns < 3 && Net.locals.length < 2) bits.push('A 2nd player here can join with Arrows + Comma or another controller');
+    if (bits.length) T(bits.join('   ·   '), W / 2, 96, bits.join('').length > 110 ? 13 : 15, G.mode === 'host' && Net.guests.length ? '#b8ffc0' : '#ffe9a0', { stroke: 4 }); }
   // big previews for each slot
   const slots = G.slots.length ? G.slots : [{}];
   slots.forEach((sl, k) => {
-    const fid = G.csel[k] ?? 0, F = FIGHTERS[fid]; const left = k === 0; const px = left ? 60 : W - 60 - 360, py = 112;
+    const fid = G.csel[k] ?? 0, F = FIGHTERS[fid]; const left = slots.length === 3 ? k < 2 : k === 0; const px = slots.length === 3 ? 40 + k * 420 : (k === 0 ? 60 : W - 60 - 360), py = 112;
     glass(px, py, 360, 400, F.color, 24, 0.85);
     ctx.save(); slant(px, py, 360, 400, 24); ctx.clip(); const sg = ctx.createRadialGradient(px + 180, py + 230, 10, px + 180, py + 230, 230); sg.addColorStop(0, rgba(F.color, 0.55)); sg.addColorStop(1, rgba(F.color, 0)); ctx.fillStyle = sg; ctx.fillRect(px, py, 360, 400);
     const rk = 'r' + k; if (G.cready[k] && UIW.ready[rk] === undefined) UIW.ready[rk] = UIW.st; if (!G.cready[k]) delete UIW.ready[rk];
@@ -273,16 +277,16 @@ function drawCharSel() {
     drawFighterArt(fid, px + 180, py + 300 - (rt >= 0 && rt < 10 ? Math.sin(rt / 10 * Math.PI) * 20 : 0), left ? 1 : -1, 3.1, pose);
     if (rt >= 0 && rt < 16) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - rt / 16)})`; ctx.fillRect(px, py, 360, 400); ctx.globalCompositeOperation = 'source-over'; }
     ctx.restore();
-    T((k === 0 ? 'P1' : 'P2'), px + 34, py + 36, 22, k === 0 ? '#ff6b6b' : '#5ab4ff', { align: 'left', stroke: 5 });
+    T('P' + (k + 1) + (slots[k] && slots[k].mine ? ' · YOU' : slots[k] && slots[k].dev === 'net' ? ' · ONLINE' : ''), px + 34, py + 36, 22, PCOL[k] || '#fff', { align: 'left', stroke: 5 });
     T(F.name, px + 180, py + 340, 46, F.color, { stroke: 9 }); T(F.title.toUpperCase(), px + 180, py + 366, 16, '#fff', { stroke: 4 });
     if (G.cready[k]) { ctx.save(); ctx.translate(px + 180, py + 180); ctx.rotate(-0.15); slant(-130, -34, 260, 64, 18); ctx.fillStyle = 'rgba(255,210,60,0.95)'; ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 4; ctx.stroke(); T('READY!', 0, 18, 46, '#fff', { stroke: 9 }); ctx.restore(); }
   });
   // moveset card in the middle
-  const mf = FIGHTERS[G.csel[0] ?? 0]; glass(W / 2 - 200, 130, 400, 180, mf.color, 18, 0.85);
+  if (slots.length < 3) { const mf = FIGHTERS[G.csel[0] ?? 0]; glass(W / 2 - 200, 130, 400, 180, mf.color, 18, 0.85);
   T('SPECIAL MOVES', W / 2, 160, 18, '#ffd23c', { stroke: 4 });
   [['NEUTRAL', 'nspec'], ['SIDE', 'sspec'], ['UP', 'uspec'], ['DOWN', 'dspec']].forEach(([k, m], j) => { T(k, W / 2 - 160, 194 + j * 28, 14, '#ff9ae8', { align: 'left', stroke: 3, weight: 800 }); T(mf.specials[m].name, W / 2 - 70, 194 + j * 28, 17, '#fff', { align: 'left', stroke: 4 }); });
   UI.wrap(mf.blurb, W / 2 - 180, 330, 360, 14, '#e8e2f5');
-  const st = mf.stats; [['WEIGHT', st.weight / 130], ['SPEED', st.run / 7], ['JUMPS', (st.jumps + 1) / 3]].forEach(([n, v], j) => { const y = 380 + j * 24; T(n, W / 2 - 160, y + 12, 13, '#cfc6e6', { align: 'left', stroke: 0, weight: 800 }); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 70, y, 230, 13); ctx.fillStyle = mf.color; ctx.fillRect(W / 2 - 70, y, 230 * clamp(v, 0, 1), 13); ctx.strokeStyle = OL; ctx.lineWidth = 1.5; ctx.strokeRect(W / 2 - 70, y, 230, 13); });
+  const st = mf.stats; [['WEIGHT', st.weight / 130], ['SPEED', st.run / 7], ['JUMPS', (st.jumps + 1) / 3]].forEach(([n, v], j) => { const y = 380 + j * 24; T(n, W / 2 - 160, y + 12, 13, '#cfc6e6', { align: 'left', stroke: 0, weight: 800 }); ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(W / 2 - 70, y, 230, 13); ctx.fillStyle = mf.color; ctx.fillRect(W / 2 - 70, y, 230 * clamp(v, 0, 1), 13); ctx.strokeStyle = OL; ctx.lineWidth = 1.5; ctx.strokeRect(W / 2 - 70, y, 230, 13); }); }
   // roster
   const tw = 128, ty = H - 168;
   FIGHTERS.forEach((F, i) => {
@@ -290,7 +294,7 @@ function drawCharSel() {
     slant(x, ty, tw, 120, 16); const g = ctx.createLinearGradient(0, ty, 0, ty + 120); g.addColorStop(0, shade(F.color, -0.1)); g.addColorStop(1, shade(F.color, -0.6)); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = sel.length ? 4 : 2; ctx.strokeStyle = sel.length ? '#fff' : OL; ctx.stroke();
     ctx.save(); slant(x, ty, tw, 120, 16); ctx.clip(); drawPortrait(ctx, i, x + tw / 2, ty + 58, 40, false); ctx.restore();
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; slant(x - 2, ty + 92, tw - 6, 28, 16); ctx.fill(); T(F.name, x + tw / 2 - 6, ty + 113, 18, '#fff', { stroke: 4 });
-    sel.forEach((k, j) => { const bx = x + 8 + j * 46, by = ty - 14; ctx.fillStyle = k === 0 ? '#ff4b4b' : '#3a8dff'; slant(bx, by, 44, 24, 8); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2.5; ctx.stroke(); T('P' + (k + 1), bx + 22, by + 18, 15, '#fff', { stroke: 3, shadow: false }); });
+    sel.forEach((k, j) => { const bx = x + 8 + j * 46, by = ty - 14; ctx.fillStyle = PCOLD[k] || '#888'; slant(bx, by, 44, 24, 8); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2.5; ctx.stroke(); T('P' + (k + 1), bx + 22, by + 18, 15, '#fff', { stroke: 3, shadow: false }); });
     clickRegions().push({ x, y: ty, w: tw, h: 120, fn: () => { Game.clickChar = i; } });
   });
   T('◀ ▶ choose     ATTACK / JUMP confirm     SPECIAL back', W / 2, H - 16, 15, '#cfc6e6', { stroke: 4 });
@@ -301,13 +305,18 @@ function drawBoon() {
   drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.78)'; ctx.fillRect(0, 0, W, H); const G = Game;
   T(G.run && G.run.endless && G.run.idx === 11 ? 'ENDLESS AWAITS · CHOOSE A BOON' : 'STAGE CLEAR!', W / 2, 74, 46, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
   T('Choose a boon' + (G.run && G.run.rerolls ? '   ·   SHIELD: reroll (' + Object.values(G.run.rerolls).map(v => v | 0).join(' / ') + ' left)' : ''), W / 2, 104, 18, '#ff9ae8', { stroke: 4 });
-  const n = World.players.length; const colW = n > 1 ? 560 : 640;
+  const n = World.players.length; const C3 = n >= 3; const colW = C3 ? 400 : n > 1 ? 560 : 640;
   World.players.forEach((p, i) => {
-    const x0 = n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
+    const x0 = C3 ? W / 2 - (3 * colW + 2 * 16) / 2 + i * (colW + 16) : n > 1 ? W / 2 - colW - 12 + i * (colW + 24) : W / 2 - colW / 2;
     T('P' + (i + 1) + ' · ' + p.def.name + (G.boonPick[i] ? '  ✓' : ''), x0 + colW / 2, 140, 22, p.def.color, { stroke: 5 });
     (G.boonOpts[i] || []).forEach((id, k) => {
       const b = BOON_BY_ID[id]; const sel = G.boonIdx[i] === k && !G.boonPick[i]; const picked = G.boonPick[i] === id; const rc = RARITY[b.r].c;
       const ein = easeBack(clamp((UIW.st - 8 - k * 6 - i * 3) / 18, 0, 1)); ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1); ctx.translate((1 - ein) * (i ? 500 : -500), 0);
+      if (C3) { const y = 158 + k * 156, lift = sel ? -4 + Math.sin(World.frame * 0.15) * 1.5 : 0; slant(x0, y + lift, colW, 138, 16); const g = ctx.createLinearGradient(x0, y, x0 + colW, y + 138); g.addColorStop(0, picked ? '#2f6b3a' : sel ? '#4a2f7a' : '#2a1f45'); g.addColorStop(1, picked ? '#173a1e' : sel ? '#26164a' : '#160f28'); ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = sel || picked ? 4 : 2.5; ctx.strokeStyle = sel ? '#fff' : rc; ctx.stroke();
+        const ix = x0 + 48, iy = y + 52 + lift; ctx.beginPath(); ctx.arc(ix, iy, 30, 0, TAU); const ig = ctx.createRadialGradient(ix - 8, iy - 10, 3, ix, iy, 32); ig.addColorStop(0, shade(rc, 0.4)); ig.addColorStop(1, shade(rc, -0.45)); ctx.fillStyle = ig; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = OL; ctx.stroke(); T(BOON_ICON[id] || '✦', ix, iy + 12, 32, '#fff', { italic: false, stroke: 4 });
+        T(RARITY[b.r].n, x0 + 92, y + 28 + lift, 12, rc, { align: 'left', stroke: 3, weight: 800 }); T(b.name, x0 + 92, y + 56 + lift, 22, '#fff', { align: 'left', stroke: 5 });
+        wrapLeft(b.desc, x0 + 22, y + 96 + lift, colW - 44, 13, '#e0d8f0', 2); if (picked) T('CHOSEN!', x0 + colW - 60, y + 30, 18, '#7dff8a', { stroke: 5 });
+        ctx.restore(); if (G.slots[i] && G.slots[i].dev !== 'net') clickRegions().push({ x: x0, y, w: colW, h: 138, fn: () => { Game.clickBoon = [i, k]; } }); return; }
       const y = 158 + k * 156; const lift = sel ? -4 + Math.sin(World.frame * 0.15) * 1.5 : 0; slant(x0, y + lift, colW, 138, 20);
       const g = ctx.createLinearGradient(x0, y, x0 + colW, y + 138); g.addColorStop(0, picked ? '#2f6b3a' : sel ? '#4a2f7a' : '#2a1f45'); g.addColorStop(1, picked ? '#173a1e' : sel ? '#26164a' : '#160f28'); ctx.fillStyle = g; ctx.fill();
       ctx.lineWidth = sel || picked ? 4 : 2.5; ctx.strokeStyle = sel ? '#fff' : rc; ctx.stroke();
@@ -425,3 +434,5 @@ function drawCritFlash() {
   ctx.save(); ctx.globalCompositeOperation = 'lighter'; const gr = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.7); gr.addColorStop(0, `rgba(120,200,255,${0.0})`); gr.addColorStop(1, `rgba(90,170,255,${0.45 * k})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = `rgba(255,255,255,${0.6 * k})`; ctx.lineWidth = 3; for (let i = 0; i < 18; i++) { const a = i / 18 * TAU + t * 0.02, r0 = 260 + (i % 3) * 40; ctx.beginPath(); ctx.moveTo(W / 2 + Math.cos(a) * r0, H / 2 + Math.sin(a) * r0); ctx.lineTo(W / 2 + Math.cos(a) * 900, H / 2 + Math.sin(a) * 900); ctx.stroke(); } ctx.restore();
 }
+
+function wrapLeft(text, x, y, maxW, size, col, maxLines = 3) { ctx.font = `600 ${size}px ${FONT}`; const words = String(text || '').split(' '), lines = []; let ln = ''; for (const w of words) { const t = ln ? ln + ' ' + w : w; if (ctx.measureText(t).width > maxW && ln) { lines.push(ln); ln = w; } else ln = t; } if (ln) lines.push(ln); lines.slice(0, maxLines).forEach((l, i) => T(l, x, y + i * (size + 5), size, col, { align: 'left', stroke: 0, italic: false, weight: 600, shadow: false })); }

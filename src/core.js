@@ -49,8 +49,10 @@ addEventListener('blur', () => { for (const k in Keys) Keys[k] = false; });
 addEventListener('mousedown', () => Audio2.unlock());
 
 const KB_LAYOUTS = {
-  kb1: { l: ['KeyA'], r: ['KeyD'], u: ['KeyW'], d: ['KeyS'], a: ['KeyJ'], b: ['KeyK'], j: ['Space'], s: ['KeyL', 'ShiftLeft'], m: ['KeyI'], p: ['Escape', 'Enter'], t: ['KeyT'] },
-  kb2: { l: ['ArrowLeft'], r: ['ArrowRight'], u: ['ArrowUp'], d: ['ArrowDown'], a: ['Comma', 'Numpad1'], b: ['Period', 'Numpad2'], j: ['ShiftRight', 'Numpad0'], s: ['Slash', 'Numpad3'], m: ['Semicolon', 'Numpad4'], p: ['Backspace', 'NumpadEnter'], t: ['Quote', 'Numpad5'] },
+  // P1 (left side of the keyboard): WASD + Space, with F/G/H/R as shared-keyboard alternatives to J/K/L/I
+  kb1: { l: ['KeyA'], r: ['KeyD'], u: ['KeyW'], d: ['KeyS'], a: ['KeyJ', 'KeyF'], b: ['KeyK', 'KeyG'], j: ['Space'], s: ['KeyL', 'ShiftLeft', 'KeyH'], m: ['KeyI', 'KeyR'], p: ['Escape', 'Enter'], t: ['KeyT'] },
+  // P2 (right side of the same keyboard): Arrows + M jump, Comma attack, Period special, Slash shield (or the numpad)
+  kb2: { l: ['ArrowLeft'], r: ['ArrowRight'], u: ['ArrowUp'], d: ['ArrowDown'], a: ['Comma', 'Numpad1'], b: ['Period', 'Numpad2'], j: ['ShiftRight', 'KeyM', 'Numpad0'], s: ['Slash', 'Numpad3'], m: ['Semicolon', 'Numpad4'], p: ['Backspace', 'NumpadEnter'], t: ['Quote', 'Numpad5'] },
 };
 // Positional mapping (standard gamepad): 0=bottom(B on Switch) 1=right(A) 2=left(Y) 3=top(X)
 // Smash defaults on Pro Controller: A(right)=attack, B(bottom)=special, X/Y=jump, L/R/ZL/ZR=shield

@@ -76,8 +76,8 @@ const Game = {
     this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0, cleared: 0, bosses: 0, bonus: 0, path: 'road', rerolls: { 0: this.meta.reroll || 0, 1: this.slots[1] && this.slots[1].dev === 'net' ? ((gmu && gmu.reroll) || 0) : (this.meta.reroll || 0) } };
     World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null; this.gameT = 0; this.gameNext = null; this.countT = 0; this.crownDown = 0;
     World.players = this.slots.map((s, i) => new Fighter(FIGHTERS[this.csel[i]], i, s.input));
-    World.players.forEach((p, i) => applyMeta(p, this.slots[i] && this.slots[i].dev === 'net' ? gmu : this.meta));
-    this.teamStocks = (World.players.length > 1 ? 4 : 3) + (this.meta.vigor || 0);
+    World.players.forEach((p, i) => { const sl = this.slots[i]; const g = sl && sl.dev === 'net' ? Net.guestByGid(sl.gid) : null; applyMeta(p, sl && sl.dev === 'net' ? ((g && g.st && g.st.mu) || gmu) : this.meta); });
+    this.teamStocks = [3, 3, 4, 5][World.players.length] + (this.meta.vigor || 0);
     if (this.mode === 'training') return this.loadTraining();
     this.loadStage(0, 'road'); this.countT = 200; this.gameT = 0; this.gameNext = null; this._gameSplashed = 0; World.critT = 0;
   },
@@ -99,7 +99,7 @@ const Game = {
     World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np, path });
     this.applyStageState(mods);
     const e = Math.max(0, idx - 11);
-    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
+    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np >= 3 ? 1.3 : np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
     for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
     if (kind !== 'boss') placeCrates(World.stage);
@@ -207,7 +207,7 @@ const Game = {
     for (const s of w) {
       if (s.boss) {
         const e = new Enemy(s.type, (A.l + A.r) / 2, A.floor - (BOSS[s.type].fly ? 260 : 10), {});
-        e.maxHp *= World.players.length > 1 ? 1.6 : 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; this.bossIntro = { t: 0, type: s.type }; Audio2.play('bossin'); FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
+        e.maxHp *= [1, 1, 1.6, 2.1][World.players.length] || 1; e.hp = e.maxHp; e.lastPhase = 1; World.enemies.push(e); this.bossRef = e; this.bossIntro = { t: 0, type: s.type }; Audio2.play('bossin'); FX.swarm(e.x, e.y, e.h); FX.swarm(e.x, e.y - 40, e.h); continue;
       }
       const x = A.l + 80 + s.side * (A.r - A.l - 160); const y = A.floor - 140 - rr(0, 120);
       const e = spawnEnemy(s.type, x, y, { elite: s.elite, spawn: 1, fid: s.fid }); if (e) { FX.swarm(x, y, e.h); if (!e.isRival) e.cd = 50 + ri(0, 50); }
@@ -277,7 +277,7 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'TRAINING', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
+const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2-3P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'TRAINING', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -312,7 +312,7 @@ function sceneUpdate() {
     case 'controls': if (anyOK() || anyBack() || G.clickPick !== undefined) { G.clickPick = undefined; G.setScene('mode'); } break;
     case 'remap': updateRemap(); break;
     case 'lobby': {
-      if (Net.guestPeer) { G.slots[1] = { input: Net.remote, dev: 'net' }; G.toCharSel(); }
+      if (Net.guests.length) { G.toCharSel(); syncNetSlots(G); }
       if (anyBack()) { Net.leave(); G.setScene('mode'); }
       break;
     }
@@ -320,7 +320,7 @@ function sceneUpdate() {
     case 'charsel': updateCharSel(); break;
     case 'play': {
       if (G.paused) { updatePause(); break; }
-      const pp = World.players.some(p => p.input.cur && p.input.cur.pp && p.input !== Net.remote) || KeysPressed['Escape'];
+      const pp = World.players.some(p => p.input.cur && p.input.cur.pp && !p.input.isRemote) || KeysPressed['Escape'];
       if (pp) { G.paused = true; G.pauseIdx = 0; Audio2.play('blip'); break; }
       if (World.slowT > 0) { World.slowT--; if (World.slowT % 2 === 0) break; }
       if (World.stage && World.stage.training && (G.trainSpeed | 0) > 1) { G._ts = (G._ts | 0) + 1; if (G._ts % G.trainSpeed) break; } // training slow-motion
@@ -363,8 +363,9 @@ Game.toCharSel = function () {
 function updateCharSel() {
   const G = Game;
   // P2 join for local
-  if (G.mode === 'local' && G.slots.length < 2) {
-    for (const s of localSources()) { if (G.slots.some(x => x.dev === s.dev)) continue; if (s.cur.ap || s.cur.jp) { G.slots.push({ input: s, dev: s.dev }); G.csel[1] = 1; G.cready[1] = false; Audio2.play('select'); s.cur.ap = 0; s.cur.jp = 0; } }
+  // extra local players join by pressing ATTACK/JUMP on another device: a second keyboard layout (Arrows + Comma) or a gamepad
+  if ((G.mode === 'local' || G.mode === 'host') && G.slots.length < MAX_PLAYERS) {
+    for (const s of localSources()) { if (G.slots.length >= MAX_PLAYERS) break; if (G.slots.some(x => x.dev === s.dev)) continue; if (s.cur.ap || s.cur.jp) { const nl = G.slots.filter(x => x.dev !== 'net').length; G.slots.splice(nl, 0, { input: s, dev: s.dev }); for (let i = G.slots.length - 1; i > nl; i--) { G.csel[i] = G.csel[i - 1]; G.cready[i] = G.cready[i - 1]; } G.csel[nl] = nl % 4; G.cready[nl] = false; Audio2.play('select'); s.cur.ap = 0; s.cur.jp = 0; } }
   }
   G.slots.forEach((sl, i) => {
     if (sl.dev === 'net') return;
@@ -377,11 +378,16 @@ function updateCharSel() {
     } else if (menuBack(s)) G.cready[i] = false;
   });
   if (G.clickChar !== undefined) { G.csel[0] = G.clickChar; G.clickChar = undefined; }
-  if (G.mode === 'host' && Net.guestState) { const gs = Net.guestState; if (typeof gs.ch === 'number') G.csel[1] = clamp(gs.ch | 0, 0, 3); G.cready[1] = !!gs.rdy; }
-  if (G.mode === 'host' && !Net.guestPeer) { G.slots.length = 1; }
-  if (G.mode === 'host' && Net.guestPeer && G.slots.length < 2) { G.slots[1] = { input: Net.remote, dev: 'net' }; G.csel[1] = 1; G.cready[1] = false; }
+  if (G.mode === 'host') syncNetSlots(G);
   const all = G.slots.length && G.slots.every((_, i) => G.cready[i]) && (G.mode !== 'local' || G.slots.length >= 1);
   if (all && G.t > 20) { G.readyT = (G.readyT | 0) + 1; if (G.readyT === 1) { Audio2.play('confirm'); Audio2.play('crowd', 0.6); } if (G.readyT > 50) { G.readyT = 0; G.startRun(); } } else G.readyT = 0; // READY TO FIGHT banner
+}
+const MAX_PLAYERS = 3;
+function syncNetSlots(G) { // host: local players first, then each guest machine's players (1-2 each), 3 players max
+  const out = G.slots.filter(s => s.dev !== 'net');
+  for (const g of Net.guests) { const n = clamp(((g.st && g.st.n) | 0) || 1, 1, 2); for (let k = 0; k < n && out.length < MAX_PLAYERS; k++) out.push({ input: g.remotes[k], dev: 'net', gid: g.gid, k }); }
+  G.slots = out;
+  out.forEach((sl, i) => { if (sl.dev !== 'net') return; const g = Net.guestByGid(sl.gid), st = (g && g.st) || {}; const ch = Array.isArray(st.ch) ? st.ch[sl.k] : (sl.k ? 2 : st.ch); const rd = Array.isArray(st.rdy) ? st.rdy[sl.k] : (sl.k ? 0 : st.rdy); G.csel[i] = clamp(ch | 0, 0, 3); G.cready[i] = !!rd; });
 }
 const PAUSE_OPTS = ['RESUME', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT RUN'];
 const DUMMY_MODES = ['STAND', 'SHIELD', 'JUMP', 'CPU'];
@@ -401,8 +407,12 @@ function updateBoon() {
   const G = Game;
   World.players.forEach((p, i) => {
     if (G.boonPick[i]) return; const sl = G.slots[i]; if (!sl) { G.boonPick[i] = 'skip'; return; }
-    if (sl.dev === 'net' && Net.guestState && (Net.guestState.rr | 0) !== (G._grr | 0) && G.run.rerolls[i] > 0) { G._grr = Net.guestState.rr | 0; G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); Audio2.play('confirm'); }
-    if (sl.dev === 'net') { const gs = Net.guestState; if (gs && Array.isArray(gs.bp) && gs.bp[0] === G.run.idx + (G.run.endless ? 1000 : 0) && typeof gs.bp[1] === 'number') { const id = G.boonOpts[i][gs.bp[1] | 0]; if (id) { G.boonPick[i] = id; Audio2.play('select'); } } return; }
+    if (sl.dev === 'net') {
+      const g = Net.guestByGid(sl.gid), gs = g && g.st; if (!gs) return; const k = sl.k | 0; G._grr = G._grr || {};
+      const rr = Array.isArray(gs.rr) ? gs.rr[k] | 0 : 0; if (G._grr[i] === undefined) G._grr[i] = rr; if (rr !== G._grr[i] && G.run.rerolls[i] > 0) { G._grr[i] = rr; G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); Audio2.play('confirm'); }
+      const bp = Array.isArray(gs.bp) ? gs.bp[k] : null; if (Array.isArray(bp) && bp[0] === G.run.idx + (G.run.endless ? 1000 : 0) && typeof bp[1] === 'number') { const id = G.boonOpts[i][bp[1] | 0]; if (id) { G.boonPick[i] = id; Audio2.play('select'); } }
+      return;
+    }
     const s = sl.input; const d = menuDir(s); const n = G.boonOpts[i].length;
     if (s.cur.sp && G.run.rerolls[i] > 0) { G.run.rerolls[i]--; G.boonOpts[i] = rollBoonsPlus(p, G.boonMin || 0); G.boonIdx[i] = 0; Audio2.play('confirm'); UIW.st = 0; return; }
     if (d === 'up' || d === 'left') G.boonIdx[i] = (G.boonIdx[i] + n - 1) % n; if (d === 'down' || d === 'right') G.boonIdx[i] = (G.boonIdx[i] + 1) % n;
@@ -633,7 +643,7 @@ function loop(now) {
   acc += Math.min(100, now - last); last = now;
   let steps = 0;
   while (acc >= 1000 / 60 && steps < 4) {
-    Devices.pollAll(); if (Net.remote) Net.remote.poll();
+    Devices.pollAll(); if (Net.isHost) Net.pollRemotes();
     sceneUpdate();
     if (!Net.isGuest && Game.scene === 'play') Game.updateCamera();
     Net.tick();

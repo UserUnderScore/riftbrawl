@@ -27,30 +27,34 @@ const PeerRoom = {
       const hostId = 'riftbrawl-v1-' + name, topic = 'riftbrawl/v2/' + name, myId = Math.random().toString(36).slice(2, 10);
       let peer = null;
       try { if (typeof Peer !== 'undefined') peer = opt.host ? new Peer(hostId, cfg) : new Peer(cfg); } catch (e) { peer = null; }
-      let conn = null, mine = Object.freeze({}), other = null, subs = [], snap = [], done = false, sendT = null, closed = false, lastSend = 0;
+      const MAX_GUESTS = 2; // up to 3 players: the host plus up to two guest machines
+      const conns = new Map(), others = new Map(); let mine = Object.freeze({}), subs = [], snap = [], done = false, sendT = null, closed = false, lastSend = 0;
+      const openConns = () => [...conns.values()].filter(c => c.open); const anyRelay = () => [...conns.values()].some(c => c.relay);
       const relays = []; // connected MQTT clients
       const meP = () => ({ peer: (peer && peer.id) || myId, presence: mine, isMe: true, sameTab: true, kind: 'viewer', guest: false, by: null });
-      const rebuild = () => { snap = Object.freeze([Object.freeze(meP()), ...(other ? [other] : [])]); };
+      const rebuild = () => { snap = Object.freeze([Object.freeze(meP()), ...others.values()]); };
       const notify = (joined = [], left = []) => { rebuild(); for (const f of subs) try { f({ peers: snap, joined, left, updated: [] }); } catch (e) { console.error(e); } };
-      const flush = () => { sendT = null; if (conn && conn.open) { lastSend = performance.now(); try { conn.send({ p: mine }); } catch (e) { } } };
+      const flush = () => { sendT = null; const oc = openConns(); if (oc.length) lastSend = performance.now(); for (const c of oc) try { c.send({ p: mine }); } catch (e) { } };
       const attach = c => {
-        if (conn && conn !== c) { try { conn.close(); } catch (e) { } }
-        conn = c;
-        c.on('data', d => { if (conn !== c || !d || typeof d !== 'object' || !d.p || typeof d.p !== 'object') return; const was = !!other; other = Object.freeze({ peer: c.peer, presence: Object.freeze(d.p), isMe: false, sameTab: false, kind: 'viewer', guest: false, by: null }); notify(was ? [] : [other]); });
+        if (!opt.host) { for (const [k, o] of conns) if (o !== c) { conns.delete(k); try { o.close(); } catch (e) { } } others.clear(); }
+        else { const old = conns.get(c.peer); if (old && old !== c) { conns.delete(c.peer); try { old.close(); } catch (e) { } } else if (!old && conns.size >= MAX_GUESTS) { try { c.close(); } catch (e) { } return false; } }
+        conns.set(c.peer, c);
+        c.on('data', d => { if (conns.get(c.peer) !== c || !d || typeof d !== 'object' || !d.p || typeof d.p !== 'object') return; const was = others.has(c.peer); const o = Object.freeze({ peer: c.peer, presence: Object.freeze(d.p), isMe: false, sameTab: false, kind: 'viewer', guest: false, by: null }); others.set(c.peer, o); notify(was ? [] : [o]); });
         c.on('open', () => flush());
-        const gone = () => { if (conn !== c) return; const o = other; other = null; conn = null; notify([], o ? [o] : []); };
+        const gone = () => { if (conns.get(c.peer) !== c) return; conns.delete(c.peer); const o = others.get(c.peer); others.delete(c.peer); notify([], o ? [o] : []); };
         c.on('close', gone); c.on('error', gone);
         if (c.open) flush();
+        return true;
       };
       const api = {
         name,
-        presence(patch) { mine = Object.freeze({ ...mine, ...patch }); rebuild(); if (!sendT) { const gap = conn && conn.relay ? Math.max(0, 60 - (performance.now() - lastSend)) : 30; sendT = setTimeout(flush, Math.max(16, gap)); } return Promise.resolve(); },
+        presence(patch) { mine = Object.freeze({ ...mine, ...patch }); rebuild(); if (!sendT) { const gap = anyRelay() ? Math.max(0, 60 - (performance.now() - lastSend)) : 30; sendT = setTimeout(flush, Math.max(16, gap)); } return Promise.resolve(); },
         peers() { return snap; },
         onPeers(fn) { subs.push(fn); setTimeout(() => fn({ peers: snap, joined: snap, left: [], updated: [] }), 0); return () => { subs = subs.filter(x => x !== fn); }; },
         emit() { return Promise.resolve(); }, on() { return () => { }; },
-        connected() { return !!(conn && conn.open); }, onConnection() { return () => { }; },
-        get viaRelay() { return !!(conn && conn.relay); },
-        leave() { closed = true; try { conn && conn.close(); } catch (e) { } try { peer && peer.destroy(); } catch (e) { } for (const r of relays) try { r.close(); } catch (e) { } return Promise.resolve(); },
+        connected() { return openConns().length > 0; }, onConnection() { return () => { }; },
+        get viaRelay() { return anyRelay(); },
+        leave() { closed = true; for (const c of conns.values()) try { c.close(); } catch (e) { } try { peer && peer.destroy(); } catch (e) { } for (const r of relays) try { r.close(); } catch (e) { } return Promise.resolve(); },
       };
       rebuild();
       const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(api); } };
@@ -67,14 +71,14 @@ const PeerRoom = {
         c.hb = setInterval(() => { if (!c.open) return clearInterval(c.hb); if (performance.now() - c.last > 10000) c.close(); else if (performance.now() - lastSend > 1500) { try { cl.pub(pubTopic, JSON.stringify({ to: peerId, from: myId, ping: 1 })); } catch (e) { } } }, 1000);
         return c;
       };
-      const startRelay = (onClient) => { for (const url of self.brokers()) MQ.connect(url, 8000).then(cl => { if (closed || (done && !opt.host && conn && !conn.relay)) { cl.close(); return; } relays.push(cl); onClient(cl); }).catch(() => { }); };
+      const startRelay = (onClient) => { for (const url of self.brokers()) MQ.connect(url, 8000).then(cl => { if (closed || (done && !opt.host && openConns().some(x => !x.relay))) { cl.close(); return; } relays.push(cl); onClient(cl); }).catch(() => { }); };
       if (opt.host) {
         // host listens on every broker it can reach; replies go back through whichever broker the guest used
         startRelay(cl => {
           cl.sub(topic + '/g', raw => {
             let m; try { m = JSON.parse(raw); } catch (e) { return; } if (!m || !m.from) return;
-            let c = conn && conn.relay && conn.rid === m.from ? conn : null;
-            if (!c) { if (conn && conn.open && !conn.relay) return; if (m.hi) { c = relayConn(cl, topic + '/h', m.from); attach(c); } else return; }
+            let c = conns.get('relay-' + m.from) || null;
+            if (!c) { if (m.hi) { c = relayConn(cl, topic + '/h', m.from); if (!attach(c)) return; } else return; }
             c.last = performance.now(); if (m.hi) c.send({ p: mine }); if (m.d) c.emit('data', m.d);
           });
           if (!peer) { finish(); status('Room open (relay)'); }
@@ -87,7 +91,7 @@ const PeerRoom = {
             cl.sub(topic + '/h', raw => {
               let m; try { m = JSON.parse(raw); } catch (e) { return; } if (!m || m.to !== myId) return;
               if (!picked && !done) { picked = cl; hostSeen = true; const c = relayConn(cl, topic + '/g', m.from); attach(c); finish(); }
-              if (conn && conn.relay && conn.rid === m.from) { conn.last = performance.now(); if (m.d) conn.emit('data', m.d); }
+              const rc = conns.get('relay-' + m.from); if (rc) { rc.last = performance.now(); if (m.d) rc.emit('data', m.d); }
             });
             const hello = () => { if (!picked && !done) { cl.pub(topic + '/g', JSON.stringify({ from: myId, hi: 1 })); setTimeout(hello, 1500); } };
             setTimeout(hello, 300);
@@ -100,7 +104,7 @@ const PeerRoom = {
             if (done) return; tries++; status(tries === 1 ? 'Looking for the host…' : 'Still connecting…');
             const c = peer.connect(hostId, { reliable: true, serialization: 'json' }); attach(c);
             const watch = setInterval(() => { const pc = c.peerConnection; if (!pc) return; const st = pc.iceConnectionState; if (st && st !== iceState) { iceState = st; if (st === 'checking') { hostSeen = true; status('Found the host — linking networks…'); } if (st === 'failed') tryRelay('Direct link blocked by your network — switching to the relay…'); } }, 250);
-            c.on('open', () => { clearInterval(watch); if (!done) { if (conn !== c) attach(c); finish(); } });
+            c.on('open', () => { clearInterval(watch); if (!done) { if (conns.get(c.peer) !== c) attach(c); finish(); } });
             setTimeout(() => clearInterval(watch), 60000);
           };
           peer.on('open', tryConnect);
@@ -116,7 +120,7 @@ const PeerRoom = {
         peer.on('disconnected', () => { if (!closed) try { peer.reconnect(); } catch (e) { } });
         if (opt.host) {
           peer.on('open', () => { finish(); });
-          peer.on('connection', c => { if (conn && conn.open) { c.on('open', () => c.close()); return; } attach(c); });
+          peer.on('connection', c => { if (!attach(c)) c.on('open', () => c.close()); });
         }
       }
     }));
