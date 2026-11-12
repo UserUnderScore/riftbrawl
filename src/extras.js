@@ -1,6 +1,8 @@
 // ===== extras: options, move list, records & feats, Rift Heat =====
 const Opt = Object.assign({ shake: 1, flash: 1, hints: 1 }, store('sse_opt') || {});
 function saveOpt() { store('sse_opt', Opt); }
+// players from before 11.13: skip the beginner tips, and unlock Rift Heat 1 if they have already cleared the rift
+{ const d = Meta.d; let ch = false; if (d.tut === undefined && (d.runs | 0) >= 2) { d.tut = 1; ch = true; } const b = store('sse_best'); if (!(d.heatMax | 0) && b && b.time) { d.heatMax = 1; ch = true; } if (ch) Meta.save(); }
 VOL_ROWS['SCREEN SHAKE'] = () => Opt.shake;
 // rows that show a value instead of a slider; left/right or confirm changes them
 const ROW_TXT = {
@@ -214,7 +216,7 @@ function recordsDraw() {
 }
 // newly earned feats (and a new Heat level) on the results screen
 function drawFeatToasts(s) {
-  const list = (s._feats || []).map(f => ['FEAT', f.n, '+' + f.r]); if (s._heatUp) list.unshift(['UNLOCKED', 'Rift Heat ' + s._heatUp, 'main menu']);
+  const list = (s._feats || []).map(f => ['FEAT', f.n, '+' + f.r]); if (s._heatUp) list.unshift(['UNLOCKED', 'Rift Heat ' + s._heatUp, 'on the main menu']);
   if (!list.length) return; const show = list.slice(0, 5), k = clamp((Game.t - 50) / 20, 0, 1); if (k <= 0) return;
   show.forEach(([tag, name, r], i) => {
     const kk = easeOut(clamp((Game.t - 50 - i * 8) / 18, 0, 1)), w = 320, x = W - 26 - w * kk, y = 96 + i * 44; ctx.globalAlpha = kk;

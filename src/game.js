@@ -263,7 +263,9 @@ const Game = {
     let tz = clamp(Math.min(W / (maxX - minX + 460), H / (maxY - minY + 380)), 0.78, 1.32);
     const B = World.barriers;
     if (B) tz = clamp(Math.max(tz, W / (B.r - B.l), this.bossRef && !this.bossRef.dead ? 0 : 1.22), 0.78, 1.4);
-    let tx = (minX + maxX) / 2 + (ps.length === 1 ? ps[0].face * 60 : 0), ty = (minY + maxY) / 2 - 85;
+    // solo look-ahead eases toward where the player is heading (so quick turnarounds and dash-dances don't swing the camera)
+    if (ps.length === 1) { const p0 = ps[0], want = Math.abs(p0.vx) > 2 ? clamp(p0.vx * 13, -78, 78) : p0.face * 46; c.la = lerp(c.la || 0, want, Math.abs(p0.vx) > 2 ? 0.045 : 0.02); } else c.la = lerp(c.la || 0, 0, 0.05);
+    let tx = (minX + maxX) / 2 + (c.la || 0), ty = (minY + maxY) / 2 - 85;
     if (B) { const vw = W / tz; tx = clamp(tx, B.l + vw / 2, B.r - vw / 2); }
     const vw2 = W / (2 * tz); tx = clamp(tx, st.x0 + vw2, st.x1 - vw2);
     const maxCamY = 600 + 175 - H / (2 * tz); if (!ps.some(p => p.y > 680)) ty = Math.min(ty, maxCamY);

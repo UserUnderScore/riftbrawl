@@ -4110,7 +4110,9 @@ const Game = {
     let tz = clamp(Math.min(W / (maxX - minX + 460), H / (maxY - minY + 380)), 0.78, 1.32);
     const B = World.barriers;
     if (B) tz = clamp(Math.max(tz, W / (B.r - B.l), this.bossRef && !this.bossRef.dead ? 0 : 1.22), 0.78, 1.4);
-    let tx = (minX + maxX) / 2 + (ps.length === 1 ? ps[0].face * 60 : 0), ty = (minY + maxY) / 2 - 85;
+    // solo look-ahead eases toward where the player is heading (so quick turnarounds and dash-dances don't swing the camera)
+    if (ps.length === 1) { const p0 = ps[0], want = Math.abs(p0.vx) > 2 ? clamp(p0.vx * 13, -78, 78) : p0.face * 46; c.la = lerp(c.la || 0, want, Math.abs(p0.vx) > 2 ? 0.045 : 0.02); } else c.la = lerp(c.la || 0, 0, 0.05);
+    let tx = (minX + maxX) / 2 + (c.la || 0), ty = (minY + maxY) / 2 - 85;
     if (B) { const vw = W / tz; tx = clamp(tx, B.l + vw / 2, B.r - vw / 2); }
     const vw2 = W / (2 * tz); tx = clamp(tx, st.x0 + vw2, st.x1 - vw2);
     const maxCamY = 600 + 175 - H / (2 * tz); if (!ps.some(p => p.y > 680)) ty = Math.min(ty, maxCamY);
@@ -4776,7 +4778,7 @@ function drawRiftBall(g, it) {
 }
 
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.13-e';
+const GAME_VERSION = '11.13-f';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -5227,6 +5229,8 @@ function wrapLeft(text, x, y, maxW, size, col, maxLines = 3) { ctx.font = `600 $
 // ===== extras: options, move list, records & feats, Rift Heat =====
 const Opt = Object.assign({ shake: 1, flash: 1, hints: 1 }, store('sse_opt') || {});
 function saveOpt() { store('sse_opt', Opt); }
+// players from before 11.13: skip the beginner tips, and unlock Rift Heat 1 if they have already cleared the rift
+{ const d = Meta.d; let ch = false; if (d.tut === undefined && (d.runs | 0) >= 2) { d.tut = 1; ch = true; } const b = store('sse_best'); if (!(d.heatMax | 0) && b && b.time) { d.heatMax = 1; ch = true; } if (ch) Meta.save(); }
 VOL_ROWS['SCREEN SHAKE'] = () => Opt.shake;
 // rows that show a value instead of a slider; left/right or confirm changes them
 const ROW_TXT = {
@@ -5440,7 +5444,7 @@ function recordsDraw() {
 }
 // newly earned feats (and a new Heat level) on the results screen
 function drawFeatToasts(s) {
-  const list = (s._feats || []).map(f => ['FEAT', f.n, '+' + f.r]); if (s._heatUp) list.unshift(['UNLOCKED', 'Rift Heat ' + s._heatUp, 'main menu']);
+  const list = (s._feats || []).map(f => ['FEAT', f.n, '+' + f.r]); if (s._heatUp) list.unshift(['UNLOCKED', 'Rift Heat ' + s._heatUp, 'on the main menu']);
   if (!list.length) return; const show = list.slice(0, 5), k = clamp((Game.t - 50) / 20, 0, 1); if (k <= 0) return;
   show.forEach(([tag, name, r], i) => {
     const kk = easeOut(clamp((Game.t - 50 - i * 8) / 18, 0, 1)), w = 320, x = W - 26 - w * kk, y = 96 + i * 44; ctx.globalAlpha = kk;
