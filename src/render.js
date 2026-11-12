@@ -170,7 +170,7 @@ function drawFighter(g, f) {
   } else f._fxMove = null;
   if (f.lastState === 'move' && f.state !== 'move') f._recT = 7;
   // heavy footfalls / light-footed afterimages while running
-  if (f.state === 'run' && !f.air) { const ph = Math.floor((f.runPh || 0) / Math.PI); if (ph !== f._stepPh) { f._stepPh = ph; if (def.id === 3) { FX.dust(f.x - f.face * 6, f.y); FX.dust(f.x + f.face * 4, f.y); World.shake(0.9); } else if (def.id === 0) FX.dust(f.x - f.face * 8, f.y); } if (def.id === 1 && Math.abs(f.dxr) > 5 && World.frame % 4 === 0) agileGhost = true; }
+  if (f.state === 'run' && !f.air) { const ph = Math.floor((f.runPh || 0) / Math.PI); if (ph !== f._stepPh) { f._stepPh = ph; if (!rival && Math.abs(f.dxr) > 3.4 && !Game.paused) Audio2.play('step', [1, 0.7, 0.6, 1.6][def.id] || 1); if (def.id === 3) { FX.dust(f.x - f.face * 6, f.y); FX.dust(f.x + f.face * 4, f.y); World.shake(0.9); } else if (def.id === 0) FX.dust(f.x - f.face * 8, f.y); } if (def.id === 1 && Math.abs(f.dxr) > 5 && World.frame % 4 === 0) agileGhost = true; }
   // spring-driven pose: attacks track their keyframes exactly (so hitboxes line up), everything else trails, overshoots and settles
   let mode = 'spring';
   if (f.state === 'move') { mode = f._mvBlendT > 0 ? 'blend' : 'exact'; if (f._mvBlendT > 0) f._mvBlendT--; }
@@ -185,6 +185,9 @@ function drawFighter(g, f) {
   f._wasAir = !!f.air; let SX = 1, SY = 1;
   if (f._ss && f._ss.t > 0) { const k = f._ss.t / 9; SX = 1 + (f._ss.sx - 1) * k; SY = 1 + (f._ss.sy - 1) * k; f._ss.t--; }
   if (f.state === 'squat' || f.state === 'land0') { SX *= 1.08; SY *= 0.92; }
+  // turning around is a quick pivot rather than an instant mirror flip
+  if (f._tf !== undefined && f._tf !== f.face && f.state !== 'move' && f.state !== 'hitstun') f._tk = 1; f._tf = f.face;
+  if (f._tk > 0.02) { SX *= 1 - 0.5 * f._tk; f._tk *= 0.6; }
   if (antic) { SX *= 1 + 0.07 * antic; SY *= 1 - 0.08 * antic; }
   // dodge afterimages
   const dodging = ['roll', 'spot', 'adodge', 'techroll', 'getuproll'].includes(f.state) || (f.state === 'move' && f.move && (f.move.name === 'sspec' && def.id === 1));
@@ -208,10 +211,12 @@ function drawFighter(g, f) {
   if (rot) { const cy = f.y - 28 * s; g.translate(f.x, cy); g.rotate(rot * f.face); g.translate(-f.x, -cy); }
   if (f.state === 'revive') { g.save(); g.globalCompositeOperation = 'lighter'; const hy = f.y + 4; const hg = g.createRadialGradient(f.x, hy, 4, f.x, hy, 46); hg.addColorStop(0, 'rgba(255,255,255,0.9)'); hg.addColorStop(1, rgba(def.color, 0)); g.fillStyle = hg; g.beginPath(); g.ellipse(f.x, hy, 46, 12, 0, 0, TAU); g.fill(); g.restore(); g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.ellipse(f.x, hy, 34, 7, 0, 0, TAU); g.stroke(); }
   const A = artFor(def.id, rival);
-  const expr = f.state === 'hitstun' || f.state === 'shieldbreak' ? 'hurt' : f.state === 'move' ? 'fight' : 'normal';
+  const expr = f.state === 'hitstun' || f.state === 'shieldbreak' || f.state === 'grabbed' ? 'hurt' : f.state === 'move' ? (f.move.name.startsWith('taunt') ? 'happy' : (f.chgT > 0 || antic > 0.2) ? 'effort' : 'fight') : f.state === 'shield' ? 'fight' : 'normal';
+  // eyes follow the nearest threat
+  let look = 0; if (expr === 'normal' && World.frame % 6 === (f.slot || 0) % 6) { let bd = 520; f._look = 0; for (const e of rival ? World.players : World.enemies) { if (e.dead || e.out) continue; const d = Math.abs(e.x - f.x) + Math.abs(e.y - f.y) * 0.5; if (d < bd) { bd = d; f._look = clamp((e.x - f.x) * f.face / 120, -1, 1); f._lookY = clamp((e.y - f.y) / 160, -1, 1); } } } look = f._lookS = lerp(f._lookS || 0, expr === 'normal' ? (f._look || 0) : 0, 0.2);
   if (rival || (f.state === 'move' && f.chgT > 0)) { const c = rival ? def.color : '#ffe27a'; const k = rival ? 0.28 : 0.35 + 0.25 * Math.sin(World.frame * 0.5); g.save(); g.globalCompositeOperation = 'lighter'; const gg = g.createRadialGradient(f.x, f.y - 30 * s, 4, f.x, f.y - 30 * s, 46 * s); gg.addColorStop(0, rgba(c, k)); gg.addColorStop(1, rgba(c, 0)); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 30 * s, 46 * s, 0, TAU); g.fill(); g.restore(); }
   const wpn = def.weapon !== 'none' && !(def.id === 3 && f.hammerOut) ? (J) => drawWeaponHD(g, def.weapon, J.h1[0], J.h1[1], f.face, pose[11], s, { glow: rival ? def.color : '#9dff8a' }) : null;
-  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0, head: HL, cloth: f._cloth || (f._cloth = {}) });
+  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0, look, lookY: f._lookY || 0, head: HL, cloth: f._cloth || (f._cloth = {}) });
   if (f.state === 'move' && f.move && f.move.armor && f.mf >= f.move.armor[0] && f.mf <= f.move.armor[1] && J) { g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35 + 0.2 * Math.sin(World.frame * 0.8); const gg = g.createRadialGradient(f.x, f.y - 34 * s, 6, f.x, f.y - 34 * s, 46 * s); gg.addColorStop(0, 'rgba(255,240,180,0.9)'); gg.addColorStop(1, 'rgba(255,200,80,0)'); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 34 * s, 46 * s, 0, TAU); g.fill(); g.restore(); } // super-armor glow
   if (!rival && f.meter >= 100 && J) { g.save(); g.globalCompositeOperation = 'lighter'; const t2 = World.frame * 0.15, r = 44 * s + Math.sin(t2) * 4; const gg = g.createRadialGradient(f.x, f.y - 32 * s, 8, f.x, f.y - 32 * s, r); gg.addColorStop(0, 'rgba(255,255,255,0)'); gg.addColorStop(0.7, `hsla(${(World.frame * 6) % 360},100%,65%,0.28)`); gg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 32 * s, r, 0, TAU); g.fill(); g.restore(); if (World.frame % 5 === 0) FX.add({ k: 'spark', x: f.x + rr(-18, 18), y: f.y - rr(10, 60), vx: 0, vy: -1, life: 16, max: 16, c: `hsl(${(World.frame * 6) % 360},100%,70%)`, s: 2.5 }); } // burst-ready aura
   if (f.state === 'shieldbreak' && J && J.hd) { for (let k = 0; k < 3; k++) { const a = World.frame * 0.12 + k * TAU / 3; drawStar5(g, J.hd[0] + Math.cos(a) * 18 * s, J.hd[1] - 14 * s + Math.sin(a) * 5 * s, 5 * s, '#ffe14a'); } if (World.frame % 40 === 0) Audio2.play('dizzy'); }

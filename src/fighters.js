@@ -18,11 +18,24 @@ const POSE = {
 };
 const J_ = POSE.jump;
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+// Blend two poses with the hands and feet travelling along arcs around the shoulder / hip (as real limbs swing),
+// instead of sliding in straight lines. Very wide swings (near a half-turn, where the direction is ambiguous) fall back to a straight blend.
+function arcMix(a, b, t) {
+  const o = mix(a, b, t);
+  for (let i = 3; i < 11; i += 2) {
+    const ra = Math.hypot(a[i], a[i + 1]), rb = Math.hypot(b[i], b[i + 1]); if (ra < 5 || rb < 5) continue;
+    let d = Math.atan2(b[i + 1], b[i]) - Math.atan2(a[i + 1], a[i]); if (d > Math.PI) d -= TAU; else if (d < -Math.PI) d += TAU;
+    const w = clamp((2.7 - Math.abs(d)) / 0.6, 0, 1); if (w <= 0 || Math.abs(d) < 0.12) continue;
+    const th = Math.atan2(a[i + 1], a[i]) + d * t, r = ra + (rb - ra) * t;
+    o[i] += (Math.cos(th) * r - o[i]) * w; o[i + 1] += (Math.sin(th) * r - o[i + 1]) * w;
+  }
+  return o;
+}
 function kfPose(kf, f) {
   if (f <= kf[0][0]) return kf[0][1];
   for (let i = 0; i < kf.length - 1; i++) {
     const [fa, pa] = kf[i], [fb, pb] = kf[i + 1];
-    if (f <= fb) { let t = clamp((f - fa) / Math.max(1, fb - fa), 0, 1); const ez = kf[i + 1][2]; t = ez === 'snap' ? 1 - Math.pow(1 - t, 4) : ez === 'slow' ? Math.pow(t * t * (3 - 2 * t), 1.6) : t * t * (3 - 2 * t); return mix(pa, pb, t); }
+    if (f <= fb) { let t = clamp((f - fa) / Math.max(1, fb - fa), 0, 1); const ez = kf[i + 1][2]; t = ez === 'snap' ? 1 - Math.pow(1 - t, 4) : ez === 'slow' ? Math.pow(t * t * (3 - 2 * t), 1.6) : t * t * (3 - 2 * t); return arcMix(pa, pb, t); }
   }
   return kf[kf.length - 1][1];
 }

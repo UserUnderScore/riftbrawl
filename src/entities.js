@@ -501,7 +501,7 @@ class Fighter {
   }
   parry(info) {
     const a = info.att; if (a && !info.proj) { a.hitlag = (a.hitlag || 0) + 16; if (!a.boss && a.team === 1 && !a.isRival) { a.hitstun = Math.max(a.hitstun || 0, 40); a.atk = null; } }
-    this.state = 'idle'; this.sf = 0; this.intang = 8; this.buf = {}; this.parryT = 20; this.nParry = (this.nParry || 0) + 1;
+    this.state = 'idle'; this.sf = 0; this.intang = 8; this.buf = {}; this.parryT = 20; this.nParry = (this.nParry || 0) + 1; if (this.mods.parryHeal) { this.pct = Math.max(0, this.pct - 12 * this.mods.parryHeal); this.meter = Math.min(100, (this.meter || 0) + 20 * this.mods.parryHeal); FX.text(this.x, this.y - 112, '+HEAL', '#7dff8a', 14); }
     FX.parry(this.x, this.y - 32); FX.text(this.x, this.y - 92, 'PARRY!', '#9ae7ff', 20); World.slowmo(10); World.flashT = Math.max(World.flashT || 0, 4); Audio2.play('parry');
     return 'parry';
   }
@@ -689,7 +689,7 @@ function resolveCombat() {
         const h = hb.h;
         if (h.grab) { if (p.grabTarget(e)) break; continue; } let dmg = (p.stale || 1) * h.d * p.mods.dmg * (p.move && p.move.smash ? (1 + 0.45 * p.chg) * p.mods.smash : 1) * (p.move && p.move.special ? p.mods.spec : 1) * (p.move && (p.move.air || p.move.dash) ? p.mods.aerial : 1);
         if (h.chg) dmg += h.chg * p.chg;
-        if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5;
+        if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5; dmg = boonDmg(p, e, dmg);
         let ang = p.face > 0 ? h.a : 180 - h.a; if (h.spike && p.mods.meteor) dmg *= 1.3;
         if (p.move && p.move.air && p.shop) dmg *= 0.85; // short-hop aerial damage multiplier (Ultimate)
         const rage = p.team === 0 ? 1 + clamp((p.pct - 35) / 115, 0, 1) * 0.1 : 1; // rage: more knockback the more damage you have
@@ -729,7 +729,7 @@ function resolveCombat() {
       else if (!circleRect(pr.x, pr.y, pr.r, r.x, r.y, r.w, r.h)) continue;
       pr.hits.add(t.id);
       let dmg = pr.dmg; const own = pr.owner;
-      if (own && own.team === 0 && own.mods && own.mods.exec && t.hp && t.hp / t.maxHp < 0.3) dmg *= 1.5;
+      if (own && own.team === 0 && own.mods && own.mods.exec && t.hp && t.hp / t.maxHp < 0.3) dmg *= 1.5; if (own && own.team === 0 && own.mods) dmg = boonDmg(own, t, dmg);
       const res = t.takeHit({ dmg, ang: projHitAngle(pr, t), bkb: pr.bkb, kbg: pr.kbg, att: own, x: pr.x, y: pr.y, ax: pr.x - sign(pr.vx) * 10, fx: pr.fx, stun: pr.stun, proj: 1 });
       if (res === 'shield' || res === 'reflect' || res === 'parry') { pr.life = 0; continue; }
       if (res && own && own.team === 0 && t.team === 1) onPlayerHit(own, t, dmg, res);

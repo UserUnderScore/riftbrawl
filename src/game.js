@@ -103,6 +103,7 @@ const Game = {
     World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np >= 3 ? 1.3 : np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1) * (1 + 0.15 * heat), dmg: (1 + idx * 0.05 + e * 0.04) * (1 + 0.12 * heat) };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
     for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
+    if (idx > 0) for (const p of World.players) if (p.mods && p.mods.regen && !p.dead) p.pct = Math.max(0, p.pct - p.mods.regen); // Field Medic
     if (kind !== 'boss') placeCrates(World.stage);
     World.players.forEach((p, i) => {
       if (p.out) { p.out = false; p.dead = false; }
@@ -115,7 +116,7 @@ const Game = {
     if (kind.startsWith('boss')) Audio2.play('lock');
   },
   applyStageState(mods) { World.mod = {}; for (const m of mods) World.mod[m] = 1; if (World.mod.wind) World.mod.wind = pick([-1.6, 1.6]); },
-  onEnemyKilled(e) { if (this.run) this.run.kills++; if (e._lastP) e._lastP.kos = (e._lastP.kos || 0) + 1; },
+  onEnemyKilled(e) { if (this.run) this.run.kills++; const k = e._lastP; if (k) { k.kos = (k.kos || 0) + 1; if (k.mods && k.mods.koHeal && !k.dead) { k.pct = Math.max(0, k.pct - 3 * k.mods.koHeal); FX.spark(k.x, k.y - 60, '#7dff8a'); } } },
   playerStats() { return World.players.map(p => [p.def.id, Math.round(p.dmgDealt || 0), p.kos | 0, p.bestCombo | 0, p.nTech | 0, p.nParry | 0, p.falls | 0]); },
   bossDefeated(e) {
     this.callout('BOSS DEFEATED!', '#ffd23c', 54); World.shake(20); World.slowmo(60); World.zp = 0.12; World.flashT = 10; Audio2.play('ko');

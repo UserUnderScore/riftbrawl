@@ -222,6 +222,7 @@ const Audio2 = {
       case 'swing': this.noise(0.06, 0.08, 3000); break;
       case 'jump': this.tone(300, 0.08, 'square', 0.07, 1.8); break;
       case 'land': this.noise(0.05, 0.08, 500); break;
+      case 'step': this.noise(0.03, 0.028 * k, 380 + 300 * (2 - k)); break;
       case 'bossin': this.tone(55, 1.4, 'sawtooth', 0.22, 0.5); this.noise(1.2, 0.3, 500); setTimeout(() => { this.noise(0.5, 0.45, 2200); this.tone(82, 0.8, 'square', 0.15, 0.5); }, 900); break;
       case 'grab': this.noise(0.05, 0.15, 900); this.tone(260, 0.08, 'square', 0.08, 0.7); break;
       case 'thud': this.noise(0.12, 0.22, 380); this.tone(90, 0.16, 'sine', 0.25, 0.5); break;
@@ -274,11 +275,24 @@ const POSE = {
 };
 const J_ = POSE.jump;
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+// Blend two poses with the hands and feet travelling along arcs around the shoulder / hip (as real limbs swing),
+// instead of sliding in straight lines. Very wide swings (near a half-turn, where the direction is ambiguous) fall back to a straight blend.
+function arcMix(a, b, t) {
+  const o = mix(a, b, t);
+  for (let i = 3; i < 11; i += 2) {
+    const ra = Math.hypot(a[i], a[i + 1]), rb = Math.hypot(b[i], b[i + 1]); if (ra < 5 || rb < 5) continue;
+    let d = Math.atan2(b[i + 1], b[i]) - Math.atan2(a[i + 1], a[i]); if (d > Math.PI) d -= TAU; else if (d < -Math.PI) d += TAU;
+    const w = clamp((2.7 - Math.abs(d)) / 0.6, 0, 1); if (w <= 0 || Math.abs(d) < 0.12) continue;
+    const th = Math.atan2(a[i + 1], a[i]) + d * t, r = ra + (rb - ra) * t;
+    o[i] += (Math.cos(th) * r - o[i]) * w; o[i + 1] += (Math.sin(th) * r - o[i + 1]) * w;
+  }
+  return o;
+}
 function kfPose(kf, f) {
   if (f <= kf[0][0]) return kf[0][1];
   for (let i = 0; i < kf.length - 1; i++) {
     const [fa, pa] = kf[i], [fb, pb] = kf[i + 1];
-    if (f <= fb) { let t = clamp((f - fa) / Math.max(1, fb - fa), 0, 1); const ez = kf[i + 1][2]; t = ez === 'snap' ? 1 - Math.pow(1 - t, 4) : ez === 'slow' ? Math.pow(t * t * (3 - 2 * t), 1.6) : t * t * (3 - 2 * t); return mix(pa, pb, t); }
+    if (f <= fb) { let t = clamp((f - fa) / Math.max(1, fb - fa), 0, 1); const ez = kf[i + 1][2]; t = ez === 'snap' ? 1 - Math.pow(1 - t, 4) : ez === 'slow' ? Math.pow(t * t * (3 - 2 * t), 1.6) : t * t * (3 - 2 * t); return arcMix(pa, pb, t); }
   }
   return kf[kf.length - 1][1];
 }
@@ -1105,7 +1119,7 @@ class Fighter {
   }
   parry(info) {
     const a = info.att; if (a && !info.proj) { a.hitlag = (a.hitlag || 0) + 16; if (!a.boss && a.team === 1 && !a.isRival) { a.hitstun = Math.max(a.hitstun || 0, 40); a.atk = null; } }
-    this.state = 'idle'; this.sf = 0; this.intang = 8; this.buf = {}; this.parryT = 20; this.nParry = (this.nParry || 0) + 1;
+    this.state = 'idle'; this.sf = 0; this.intang = 8; this.buf = {}; this.parryT = 20; this.nParry = (this.nParry || 0) + 1; if (this.mods.parryHeal) { this.pct = Math.max(0, this.pct - 12 * this.mods.parryHeal); this.meter = Math.min(100, (this.meter || 0) + 20 * this.mods.parryHeal); FX.text(this.x, this.y - 112, '+HEAL', '#7dff8a', 14); }
     FX.parry(this.x, this.y - 32); FX.text(this.x, this.y - 92, 'PARRY!', '#9ae7ff', 20); World.slowmo(10); World.flashT = Math.max(World.flashT || 0, 4); Audio2.play('parry');
     return 'parry';
   }
@@ -1293,7 +1307,7 @@ function resolveCombat() {
         const h = hb.h;
         if (h.grab) { if (p.grabTarget(e)) break; continue; } let dmg = (p.stale || 1) * h.d * p.mods.dmg * (p.move && p.move.smash ? (1 + 0.45 * p.chg) * p.mods.smash : 1) * (p.move && p.move.special ? p.mods.spec : 1) * (p.move && (p.move.air || p.move.dash) ? p.mods.aerial : 1);
         if (h.chg) dmg += h.chg * p.chg;
-        if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5;
+        if (p.mods.exec && e.hp / e.maxHp < 0.3) dmg *= 1.5; dmg = boonDmg(p, e, dmg);
         let ang = p.face > 0 ? h.a : 180 - h.a; if (h.spike && p.mods.meteor) dmg *= 1.3;
         if (p.move && p.move.air && p.shop) dmg *= 0.85; // short-hop aerial damage multiplier (Ultimate)
         const rage = p.team === 0 ? 1 + clamp((p.pct - 35) / 115, 0, 1) * 0.1 : 1; // rage: more knockback the more damage you have
@@ -1333,7 +1347,7 @@ function resolveCombat() {
       else if (!circleRect(pr.x, pr.y, pr.r, r.x, r.y, r.w, r.h)) continue;
       pr.hits.add(t.id);
       let dmg = pr.dmg; const own = pr.owner;
-      if (own && own.team === 0 && own.mods && own.mods.exec && t.hp && t.hp / t.maxHp < 0.3) dmg *= 1.5;
+      if (own && own.team === 0 && own.mods && own.mods.exec && t.hp && t.hp / t.maxHp < 0.3) dmg *= 1.5; if (own && own.team === 0 && own.mods) dmg = boonDmg(own, t, dmg);
       const res = t.takeHit({ dmg, ang: projHitAngle(pr, t), bkb: pr.bkb, kbg: pr.kbg, att: own, x: pr.x, y: pr.y, ax: pr.x - sign(pr.vx) * 10, fx: pr.fx, stun: pr.stun, proj: 1 });
       if (res === 'shield' || res === 'reflect' || res === 'parry') { pr.life = 0; continue; }
       if (res && own && own.team === 0 && t.team === 1) onPlayerHit(own, t, dmg, res);
@@ -2020,7 +2034,7 @@ const ART = [
     skin: '#ffe0bd', hair: '#f5d76e', top: '#4cc35a', top2: '#ffd23c', pants: '#3b5b3f', boots: '#7a5230', arm: '#3fae54', fore: '#3fae54', hand: '#ffe0bd', belt: '#ffd23c', thick: 0.9, headScale: 1.12, headUp: 0,
     robe(g, J, s) { const { hip, up } = J; const px = -up[1], py = up[0]; const k = [lerp(J.k1[0], J.k2[0], 0.5), Math.max(J.k1[1], J.k2[1]) + 3 * s]; g.beginPath(); g.moveTo(hip[0] + px * 9 * s, hip[1] + py * 9 * s); g.lineTo(k[0] + 13 * s, k[1]); g.quadraticCurveTo(k[0], k[1] + 4 * s, k[0] - 13 * s, k[1]); g.lineTo(hip[0] - px * 9 * s, hip[1] - py * 9 * s); g.closePath(); fillShaded(g, this.top, hip[0], hip[1] + 8 * s, 16 * s); g.strokeStyle = this.top2; g.lineWidth = 2.2 * s; g.beginPath(); g.moveTo(k[0] + 12 * s, k[1] - 1 * s); g.quadraticCurveTo(k[0], k[1] + 3 * s, k[0] - 12 * s, k[1] - 1 * s); g.stroke(); },
     hairDraw(g, J, s) { const [x, y] = J.hd, f = J.face; g.fillStyle = this.hair; g.strokeStyle = OL; g.lineWidth = 2; for (let i = -1; i <= 1; i++) { g.beginPath(); g.ellipse(x - f * 8 * s + i * 4 * s, y + 3 * s + Math.abs(i) * 2 * s, 3.5 * s, 5 * s, 0.3 * i, 0, TAU); g.fill(); g.stroke(); } },
-    headAcc(g, J, s, t) { const [x, y] = J.hd, f = J.face; let tip = Math.sin(t * 0.08) * 3, ty = 0; if (J.cl) { const W = wobble(J.cl, 'hat', x - f * 12 * s, y - 34 * s, 0.16, 0.8); tip = clamp((W.x - (x - f * 12 * s)) * f / s, -9, 9) + Math.sin(t * 0.08) * 1.5; ty = clamp((W.y - (y - 34 * s)) / s, -5, 6); } g.fillStyle = this.top; g.strokeStyle = OL; g.lineWidth = 2.6; g.beginPath(); g.moveTo(x - 16 * s, y - 3 * s); g.quadraticCurveTo(x - f * 2 * s, y - 14 * s, x - f * (12 - tip) * s, y - (34 - ty) * s); g.quadraticCurveTo(x + f * 6 * s, y - 14 * s, x + 16 * s, y - 3 * s); g.closePath(); fillShaded(g, this.top, x, y - 14 * s, 14 * s); g.fillStyle = '#2f7a3d'; g.beginPath(); g.ellipse(x, y - 3.5 * s, 18 * s, 4 * s, 0, 0, TAU); g.fill(); g.stroke(); g.fillStyle = this.top2; g.fillRect(x - 11 * s, y - 9 * s, 22 * s, 3.5 * s); g.fillStyle = '#fff6a0'; star(g, x - f * (10 - tip * 0.7) * s, y - (30 - ty * 0.8) * s, 3.4 * s); },
+    headAcc(g, J, s, t) { const [x, y] = J.hd, f = J.face; let tip = Math.sin(t * 0.08) * 3, ty = 0; if (J.cl) { const W = wobble(J.cl, 'hat', x - f * 12 * s, y - 34 * s, 0.16, 0.8); tip = clamp((W.x - (x - f * 12 * s)) * f / s, -9, 9) + Math.sin(t * 0.08) * 1.5; ty = clamp((W.y - (y - 34 * s)) / s, -5, 6); } g.fillStyle = this.top; g.strokeStyle = OL; g.lineWidth = 2.6; g.beginPath(); g.moveTo(x - 16 * s, y - 6.5 * s); g.quadraticCurveTo(x - f * 2 * s, y - 16 * s, x - f * (12 - tip) * s, y - (34 - ty) * s); g.quadraticCurveTo(x + f * 6 * s, y - 16 * s, x + 16 * s, y - 6.5 * s); g.closePath(); fillShaded(g, this.top, x, y - 16 * s, 14 * s); g.fillStyle = '#2f7a3d'; g.beginPath(); g.ellipse(x, y - 7 * s, 18 * s, 4 * s, 0, 0, TAU); g.fill(); g.stroke(); g.fillStyle = this.top2; g.fillRect(x - 11 * s, y - 12.5 * s, 22 * s, 3.5 * s); g.fillStyle = '#fff6a0'; star(g, x - f * (10 - tip * 0.7) * s, y - (30 - ty * 0.8) * s, 3.4 * s); },
     torsoDetail(g, J, s) { const { hip, sh, up } = J; const px = -up[1], py = up[0]; g.strokeStyle = this.top2; g.lineWidth = 2.5 * s; g.beginPath(); g.moveTo(sh[0], sh[1] + 1 * s); g.lineTo(hip[0], hip[1]); g.stroke(); g.strokeStyle = '#8a5a2b'; g.lineWidth = 3.5 * s; g.beginPath(); g.moveTo(hip[0] + px * 8 * s + up[0] * 3 * s, hip[1] + py * 8 * s + up[1] * 3 * s); g.lineTo(hip[0] - px * 8 * s + up[0] * 3 * s, hip[1] - py * 8 * s + up[1] * 3 * s); g.stroke(); },
   },
   { // GROM — mountain smith
@@ -2039,11 +2053,19 @@ function drawFace(g, J, A, s, expr, eyeCol) {
   const [x, y] = J.hd, f = J.face; const t = World.frame;
   const blink = expr === 'normal' && (t + (J.seed || 0)) % 200 < 6;
   const ex1 = x + f * 6 * s, ex2 = x + f * 0.5 * s, ey = y - 0.5 * s;
+  if (expr === 'happy') { // closed, smiling eyes and an open grin (taunts, victory)
+    g.strokeStyle = OL; g.lineWidth = 2 * s; g.lineCap = 'round'; for (const [ex, sz] of [[ex1, 1], [ex2, 0.82]]) { g.beginPath(); g.arc(ex, ey + 1.2 * s, 2.6 * s * sz, Math.PI * 1.1, Math.PI * 1.9); g.stroke(); }
+    g.lineCap = 'butt'; g.fillStyle = '#7a2e2e'; g.beginPath(); g.arc(x + f * 4 * s, y + 4.2 * s, 3 * s, 0.05, Math.PI - 0.05); g.closePath(); g.fill(); g.lineWidth = 1.4 * s; g.stroke(); return;
+  }
+  if (expr === 'effort') { // squeezed eyes and gritted teeth (charging, heavy wind-ups)
+    g.strokeStyle = OL; g.lineWidth = 2 * s; for (const [ex, sz] of [[ex1, 1], [ex2, 0.82]]) { g.beginPath(); g.moveTo(ex - 2.4 * s * sz, ey - 1.6 * s); g.lineTo(ex + 2 * s * sz, ey + 0.4 * s); g.lineTo(ex - 2.4 * s * sz, ey + 1.8 * s); g.stroke(); }
+    g.fillStyle = '#fff'; g.fillRect(x + f * 1.5 * s - (f < 0 ? 5 * s : 0), y + 4.6 * s, 5 * s, 2.6 * s); g.lineWidth = 1.2 * s; g.strokeRect(x + f * 1.5 * s - (f < 0 ? 5 * s : 0), y + 4.6 * s, 5 * s, 2.6 * s); g.beginPath(); g.moveTo(x + f * 4 * s, y + 4.6 * s); g.lineTo(x + f * 4 * s, y + 7.2 * s); g.stroke(); return;
+  }
   if (expr === 'hurt') { g.strokeStyle = OL; g.lineWidth = 2 * s; for (const ex of [ex1, ex2]) { g.beginPath(); g.moveTo(ex - 2 * s, ey - 2 * s); g.lineTo(ex + 2 * s, ey); g.lineTo(ex - 2 * s, ey + 2 * s); g.stroke(); } g.beginPath(); g.arc(x + f * 4 * s, y + 6 * s, 2 * s, 0, Math.PI, true); g.stroke(); return; }
   for (const [ex, sz] of [[ex1, 1], [ex2, 0.82]]) {
     if (blink) { g.strokeStyle = OL; g.lineWidth = 1.8 * s; g.beginPath(); g.moveTo(ex - 2 * s * sz, ey); g.lineTo(ex + 2 * s * sz, ey); g.stroke(); continue; }
     g.fillStyle = A.rival ? eyeCol : '#ffffff'; g.beginPath(); g.ellipse(ex, ey, 2.4 * s * sz, 3.4 * s * sz, 0, 0, TAU); g.fill();
-    if (!A.rival) { g.fillStyle = OL; g.beginPath(); g.ellipse(ex + f * 0.8 * s, ey + 0.3 * s, 1.4 * s * sz, 2.2 * s * sz, 0, 0, TAU); g.fill(); g.fillStyle = '#fff'; g.beginPath(); g.arc(ex + f * 0.3 * s, ey - 1 * s, 0.6 * s, 0, TAU); g.fill(); }
+    if (!A.rival) { const lx = (J.look || 0) * 0.9 * s * f - (J.look < -0.3 ? f * 0.5 * s : 0), ly = (J.lookY || 0) * 0.7 * s; g.fillStyle = OL; g.beginPath(); g.ellipse(ex + f * 0.8 * s + lx, ey + 0.3 * s + ly, 1.4 * s * sz, 2.2 * s * sz, 0, 0, TAU); g.fill(); g.fillStyle = '#fff'; g.beginPath(); g.arc(ex + f * 0.3 * s + lx, ey - 1 * s + ly, 0.6 * s, 0, TAU); g.fill(); }
   }
   // brows
   g.strokeStyle = A.rival ? eyeCol : OL; g.lineWidth = 1.8 * s; const ang = expr === 'fight' ? 0.45 : 0.1;
@@ -2055,7 +2077,7 @@ function drawFace(g, J, A, s, expr, eyeCol) {
 function drawBody(g, x, y, face, pose, A, s, o = {}) {
   const J = joints(x, y, face, pose, s, A); J.seed = o.seed || 0; J.vx = o.vx || 0;
   if (o.head) { J.hd = [J.hd[0] + o.head.x * s, J.hd[1] + o.head.y * s]; J.nk = [J.nk[0] + o.head.x * s * 0.4, J.nk[1] + o.head.y * s * 0.4]; }
-  J.cl = o.cloth || null;
+  J.cl = o.cloth || null; J.look = o.look || 0; J.lookY = o.lookY || 0;
   const t = World.frame, th = A.thick || 1, wd = A.wide || 1;
   const flash = o.flash; const C = c => flash ? '#ffffff' : (c === 'skin' ? A.skin : c);
   const backDark = c => flash ? '#e8e8e8' : shade(C(c), -0.28);
@@ -2306,7 +2328,7 @@ function drawFighter(g, f) {
   } else f._fxMove = null;
   if (f.lastState === 'move' && f.state !== 'move') f._recT = 7;
   // heavy footfalls / light-footed afterimages while running
-  if (f.state === 'run' && !f.air) { const ph = Math.floor((f.runPh || 0) / Math.PI); if (ph !== f._stepPh) { f._stepPh = ph; if (def.id === 3) { FX.dust(f.x - f.face * 6, f.y); FX.dust(f.x + f.face * 4, f.y); World.shake(0.9); } else if (def.id === 0) FX.dust(f.x - f.face * 8, f.y); } if (def.id === 1 && Math.abs(f.dxr) > 5 && World.frame % 4 === 0) agileGhost = true; }
+  if (f.state === 'run' && !f.air) { const ph = Math.floor((f.runPh || 0) / Math.PI); if (ph !== f._stepPh) { f._stepPh = ph; if (!rival && Math.abs(f.dxr) > 3.4 && !Game.paused) Audio2.play('step', [1, 0.7, 0.6, 1.6][def.id] || 1); if (def.id === 3) { FX.dust(f.x - f.face * 6, f.y); FX.dust(f.x + f.face * 4, f.y); World.shake(0.9); } else if (def.id === 0) FX.dust(f.x - f.face * 8, f.y); } if (def.id === 1 && Math.abs(f.dxr) > 5 && World.frame % 4 === 0) agileGhost = true; }
   // spring-driven pose: attacks track their keyframes exactly (so hitboxes line up), everything else trails, overshoots and settles
   let mode = 'spring';
   if (f.state === 'move') { mode = f._mvBlendT > 0 ? 'blend' : 'exact'; if (f._mvBlendT > 0) f._mvBlendT--; }
@@ -2321,6 +2343,9 @@ function drawFighter(g, f) {
   f._wasAir = !!f.air; let SX = 1, SY = 1;
   if (f._ss && f._ss.t > 0) { const k = f._ss.t / 9; SX = 1 + (f._ss.sx - 1) * k; SY = 1 + (f._ss.sy - 1) * k; f._ss.t--; }
   if (f.state === 'squat' || f.state === 'land0') { SX *= 1.08; SY *= 0.92; }
+  // turning around is a quick pivot rather than an instant mirror flip
+  if (f._tf !== undefined && f._tf !== f.face && f.state !== 'move' && f.state !== 'hitstun') f._tk = 1; f._tf = f.face;
+  if (f._tk > 0.02) { SX *= 1 - 0.5 * f._tk; f._tk *= 0.6; }
   if (antic) { SX *= 1 + 0.07 * antic; SY *= 1 - 0.08 * antic; }
   // dodge afterimages
   const dodging = ['roll', 'spot', 'adodge', 'techroll', 'getuproll'].includes(f.state) || (f.state === 'move' && f.move && (f.move.name === 'sspec' && def.id === 1));
@@ -2344,10 +2369,12 @@ function drawFighter(g, f) {
   if (rot) { const cy = f.y - 28 * s; g.translate(f.x, cy); g.rotate(rot * f.face); g.translate(-f.x, -cy); }
   if (f.state === 'revive') { g.save(); g.globalCompositeOperation = 'lighter'; const hy = f.y + 4; const hg = g.createRadialGradient(f.x, hy, 4, f.x, hy, 46); hg.addColorStop(0, 'rgba(255,255,255,0.9)'); hg.addColorStop(1, rgba(def.color, 0)); g.fillStyle = hg; g.beginPath(); g.ellipse(f.x, hy, 46, 12, 0, 0, TAU); g.fill(); g.restore(); g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.ellipse(f.x, hy, 34, 7, 0, 0, TAU); g.stroke(); }
   const A = artFor(def.id, rival);
-  const expr = f.state === 'hitstun' || f.state === 'shieldbreak' ? 'hurt' : f.state === 'move' ? 'fight' : 'normal';
+  const expr = f.state === 'hitstun' || f.state === 'shieldbreak' || f.state === 'grabbed' ? 'hurt' : f.state === 'move' ? (f.move.name.startsWith('taunt') ? 'happy' : (f.chgT > 0 || antic > 0.2) ? 'effort' : 'fight') : f.state === 'shield' ? 'fight' : 'normal';
+  // eyes follow the nearest threat
+  let look = 0; if (expr === 'normal' && World.frame % 6 === (f.slot || 0) % 6) { let bd = 520; f._look = 0; for (const e of rival ? World.players : World.enemies) { if (e.dead || e.out) continue; const d = Math.abs(e.x - f.x) + Math.abs(e.y - f.y) * 0.5; if (d < bd) { bd = d; f._look = clamp((e.x - f.x) * f.face / 120, -1, 1); f._lookY = clamp((e.y - f.y) / 160, -1, 1); } } } look = f._lookS = lerp(f._lookS || 0, expr === 'normal' ? (f._look || 0) : 0, 0.2);
   if (rival || (f.state === 'move' && f.chgT > 0)) { const c = rival ? def.color : '#ffe27a'; const k = rival ? 0.28 : 0.35 + 0.25 * Math.sin(World.frame * 0.5); g.save(); g.globalCompositeOperation = 'lighter'; const gg = g.createRadialGradient(f.x, f.y - 30 * s, 4, f.x, f.y - 30 * s, 46 * s); gg.addColorStop(0, rgba(c, k)); gg.addColorStop(1, rgba(c, 0)); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 30 * s, 46 * s, 0, TAU); g.fill(); g.restore(); }
   const wpn = def.weapon !== 'none' && !(def.id === 3 && f.hammerOut) ? (J) => drawWeaponHD(g, def.weapon, J.h1[0], J.h1[1], f.face, pose[11], s, { glow: rival ? def.color : '#9dff8a' }) : null;
-  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0, head: HL, cloth: f._cloth || (f._cloth = {}) });
+  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0, look, lookY: f._lookY || 0, head: HL, cloth: f._cloth || (f._cloth = {}) });
   if (f.state === 'move' && f.move && f.move.armor && f.mf >= f.move.armor[0] && f.mf <= f.move.armor[1] && J) { g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35 + 0.2 * Math.sin(World.frame * 0.8); const gg = g.createRadialGradient(f.x, f.y - 34 * s, 6, f.x, f.y - 34 * s, 46 * s); gg.addColorStop(0, 'rgba(255,240,180,0.9)'); gg.addColorStop(1, 'rgba(255,200,80,0)'); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 34 * s, 46 * s, 0, TAU); g.fill(); g.restore(); } // super-armor glow
   if (!rival && f.meter >= 100 && J) { g.save(); g.globalCompositeOperation = 'lighter'; const t2 = World.frame * 0.15, r = 44 * s + Math.sin(t2) * 4; const gg = g.createRadialGradient(f.x, f.y - 32 * s, 8, f.x, f.y - 32 * s, r); gg.addColorStop(0, 'rgba(255,255,255,0)'); gg.addColorStop(0.7, `hsla(${(World.frame * 6) % 360},100%,65%,0.28)`); gg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 32 * s, r, 0, TAU); g.fill(); g.restore(); if (World.frame % 5 === 0) FX.add({ k: 'spark', x: f.x + rr(-18, 18), y: f.y - rr(10, 60), vx: 0, vy: -1, life: 16, max: 16, c: `hsl(${(World.frame * 6) % 360},100%,70%)`, s: 2.5 }); } // burst-ready aura
   if (f.state === 'shieldbreak' && J && J.hd) { for (let k = 0; k < 3; k++) { const a = World.frame * 0.12 + k * TAU / 3; drawStar5(g, J.hd[0] + Math.cos(a) * 18 * s, J.hd[1] - 14 * s + Math.sin(a) * 5 * s, 5 * s, '#ffe14a'); } if (World.frame % 40 === 0) Audio2.play('dizzy'); }
@@ -3905,6 +3932,7 @@ const Game = {
     World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np >= 3 ? 1.3 : np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1) * (1 + 0.15 * heat), dmg: (1 + idx * 0.05 + e * 0.04) * (1 + 0.12 * heat) };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
     for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
+    if (idx > 0) for (const p of World.players) if (p.mods && p.mods.regen && !p.dead) p.pct = Math.max(0, p.pct - p.mods.regen); // Field Medic
     if (kind !== 'boss') placeCrates(World.stage);
     World.players.forEach((p, i) => {
       if (p.out) { p.out = false; p.dead = false; }
@@ -3917,7 +3945,7 @@ const Game = {
     if (kind.startsWith('boss')) Audio2.play('lock');
   },
   applyStageState(mods) { World.mod = {}; for (const m of mods) World.mod[m] = 1; if (World.mod.wind) World.mod.wind = pick([-1.6, 1.6]); },
-  onEnemyKilled(e) { if (this.run) this.run.kills++; if (e._lastP) e._lastP.kos = (e._lastP.kos || 0) + 1; },
+  onEnemyKilled(e) { if (this.run) this.run.kills++; const k = e._lastP; if (k) { k.kos = (k.kos || 0) + 1; if (k.mods && k.mods.koHeal && !k.dead) { k.pct = Math.max(0, k.pct - 3 * k.mods.koHeal); FX.spark(k.x, k.y - 60, '#7dff8a'); } } },
   playerStats() { return World.players.map(p => [p.def.id, Math.round(p.dmgDealt || 0), p.kos | 0, p.bestCombo | 0, p.nTech | 0, p.nParry | 0, p.falls | 0]); },
   bossDefeated(e) {
     this.callout('BOSS DEFEATED!', '#ffd23c', 54); World.shake(20); World.slowmo(60); World.zp = 0.12; World.flashT = 10; Audio2.play('ko');
@@ -4482,6 +4510,29 @@ BOONS.push(
   { id: 'overcharge', name: 'Overcharge', r: 3, req: ['smash', 'kb'], desc: 'Fully charged smashes erupt in a shockwave', max: 1, ap: p => { p.mods.overcharge = 1; } },
   { id: 'arcanist', name: 'Arcanist', r: 3, req: ['spec', 'atk'], desc: 'Specials +25%, Rift Burst charges 50% faster', max: 1, ap: p => { p.mods.spec *= 1.25; p.mods.meterMul = (p.mods.meterMul || 1) * 1.5; } },
 );
+// ---- more boons (11.13): conditional damage, sustain and utility, plus two more duos ----
+BOONS.push(
+  { id: 'opener', name: 'Opening Gambit', r: 0, desc: '+30% damage to foes at full health', max: 2, ap: p => p.mods.opener = (p.mods.opener || 0) + 0.3 },
+  { id: 'trophy', name: 'Trophy Hunter', r: 0, desc: 'Each foe you defeat heals 3% damage', max: 3, ap: p => p.mods.koHeal = (p.mods.koHeal || 0) + 1 },
+  { id: 'medic', name: 'Field Medic', r: 0, desc: 'Heal 15% damage at the start of every stage', max: 2, ap: p => p.mods.regen = (p.mods.regen || 0) + 15 },
+  { id: 'cache', name: 'Shard Cache', r: 0, desc: '+25 Rift Shards when this run ends', max: 3, ap: p => { if (Game.run) Game.run.bonus = (Game.run.bonus || 0) + 25; } },
+  { id: 'combo', name: 'Combo Fiend', r: 1, desc: 'Each hit in a combo deals 5% more (up to +40%)', max: 2, ap: p => p.mods.comboDmg = (p.mods.comboDmg || 0) + 1 },
+  { id: 'crit', name: 'Lucky Strike', r: 1, desc: '12% chance for a hit to deal double damage', max: 3, ap: p => p.mods.crit = (p.mods.crit || 0) + 0.12 },
+  { id: 'riposte', name: 'Riposte Rhythm', r: 1, desc: 'Parries heal 12% and charge your Rift Burst', max: 2, ap: p => p.mods.parryHeal = (p.mods.parryHeal || 0) + 1 },
+  { id: 'conduit', name: 'Rift Conduit', r: 1, desc: 'Rift Burst charges 35% faster', max: 2, ap: p => p.mods.meterMul = (p.mods.meterMul || 1) * 1.35 },
+  { id: 'berserk', name: 'Berserker', r: 2, desc: 'Hit harder the more damage you have (up to +35%)', max: 1, ap: p => p.mods.berserk = 1 },
+  { id: 'flow', name: 'Flow State', r: 3, req: ['combo', 'speed'], desc: 'Combo damage builds twice as fast, +8% speed', max: 1, ap: p => { p.mods.comboDmg = (p.mods.comboDmg || 0) + 2; p.mods.speed *= 1.08; } },
+  { id: 'jackpot', name: 'Jackpot', r: 3, req: ['crit', 'kb'], desc: 'Lucky Strikes twice as often, with more launch', max: 1, ap: p => { p.mods.crit = (p.mods.crit || 0) * 2; p.mods.critKb = 1; } },
+);
+// extra damage from the conditional boons above; called for every hit a player lands (melee and projectiles)
+function boonDmg(p, e, dmg) {
+  const m = p.mods; if (!m) return dmg;
+  if (m.opener && (e.isRival ? (e.pct | 0) === 0 : e.hp >= e.maxHp)) dmg *= 1 + m.opener;
+  if (m.comboDmg && World.frame - (p.lastHitF ?? -999) <= 55) dmg *= 1 + Math.min(0.4, 0.05 * m.comboDmg * (p.combo || 0));
+  if (m.berserk) dmg *= 1 + Math.min(0.35, p.pct / 150 * 0.35);
+  if (m.crit && Math.random() < m.crit) { dmg *= 2; FX.text(e.x, e.y - (e.h || 60) - 24, 'LUCKY!', '#ffe14a', 15); FX.burst(e.x, e.y - (e.h || 60) / 2, '#ffe14a', 8); if (m.critKb) dmg *= 1.15; }
+  return dmg;
+}
 BOON_BY_ID.stormcall = BOONS.find(b => b.id === 'stormcall'); for (const b of BOONS) BOON_BY_ID[b.id] = b;
 function rollBoonsPlus(p, minTier = 0) {
   const have = id => p.boons.filter(x => x === id).length;
@@ -4707,7 +4758,7 @@ function drawRiftBall(g, it) {
 }
 
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.13-b';
+const GAME_VERSION = '11.13-c';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -4724,12 +4775,12 @@ function glass(x, y, w, h, accent = '#ff4fd8', k = 14, a = 0.88) {
 }
 function menuIdlePose(i, t) { return ANIM[i] ? ANIM[i].idle(t, { slot: 0 }) : STAND; }
 const MenuCloth = {};
-function drawFighterArt(fid, x, y, face, s, pose, rival) {
+function drawFighterArt(fid, x, y, face, s, pose, rival, expr) {
   const F = FIGHTERS[fid], A = artFor(fid, rival);
   const wpn = F.weapon !== 'none' ? J => drawWeaponHD(ctx, F.weapon, J.h1[0], J.h1[1], face, pose[11], s, { glow: '#9dff8a' }) : null;
   ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 20 * s, 5 * s, 0, 0, TAU); ctx.fill();
   const ck = fid + '|' + Math.round(x / 40) + '|' + Math.round(s * 10) + '|' + face; // menus get the same simulated cloth as the fighters in play
-  drawBody(ctx, x, y, face, pose, A, s, { expr: 'fight', weapon: wpn, seed: fid * 50, eye: F.color, cloth: rival ? null : (MenuCloth[ck] || (MenuCloth[ck] = {})) });
+  drawBody(ctx, x, y, face, pose, A, s, { expr: expr || 'fight', weapon: wpn, seed: fid * 50, eye: F.color, cloth: rival ? null : (MenuCloth[ck] || (MenuCloth[ck] = {})) });
 }
 const LogoCache = {};
 function drawLogo(x, y, size) {
@@ -4972,6 +5023,7 @@ function drawCharSel() {
   drawTitleBG(); const G = Game; const t = World.frame;
   T('CHOOSE YOUR FIGHTER', W / 2, 62, 44, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
   const ns = G.slots.length;
+  if (G.mode !== 'guest' && G.mode !== 'training' && (Meta.d.heat | 0) > 0) { slant(W - 196, 26, 170, 40, 10); ctx.fillStyle = 'rgba(90,40,10,0.92)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#ffb02c'; ctx.stroke(); T('RIFT HEAT ' + Meta.d.heat, W - 108, 54, 19, '#ffd23c', { stroke: 4 }); }
   { const bits = []; if (G.mode === 'host') bits.push('ROOM CODE ' + Net.code + (Net.guests.length ? '  ·  ' + Net.guests.length + ' online computer' + (Net.guests.length > 1 ? 's' : '') + ' connected ✓' : '  ·  waiting for online players…'));
     if ((G.mode === 'local' || G.mode === 'host') && ns < 3) bits.push('P' + (ns + 1) + ' joins with ATTACK/JUMP on another controller or Arrows + Comma on this keyboard');
     if (G.mode === 'guest' && ns < 3 && Net.locals.length < 2) bits.push('A 2nd player here can join with Arrows + Comma or another controller');
@@ -5011,7 +5063,7 @@ function drawCharSel() {
   T('◀ ▶ choose     ATTACK / JUMP confirm     SPECIAL back', W / 2, H - 16, 15, '#cfc6e6', { stroke: 4 });
   if (G.readyT > 0) { const k = easeOut(clamp(G.readyT / 10, 0, 1)); ctx.save(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.setTransform(HD.k, 0, 0, HD.k, 0, 0); ctx.translate((1 - k) * -W, 0); const y = H / 2 - 50; const gr = ctx.createLinearGradient(0, y, 0, y + 100); gr.addColorStop(0, '#ff4fd8'); gr.addColorStop(1, '#8a3cff'); ctx.fillStyle = gr; slant(-20, y, W + 40, 100, 24); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 5; ctx.stroke(); T('READY TO FIGHT!', W / 2 + Math.sin(G.readyT * 0.3) * 2, y + 72, 64, null, { stroke: 11, grad: ['#ffffff', '#ffe27a'] }); ctx.restore(); }
 }
-const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: '✚', shield: '⬢', spec: '✦', smash: '✸', take: '◆', lag: '⤓', kb: '✹', aerial: '✈', land: '☄', thorns: '✶', stock: '♥', atk: '⚡', orb: '◉', steal: '♦', exec: '☠', meteor: '☄', phoenix: '❂', chain: 'ϟ', giant: '▲', glass: '◇' };
+const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: '✚', shield: '⬢', spec: '✦', smash: '✸', take: '◆', lag: '⤓', kb: '✹', aerial: '✈', land: '☄', thorns: '✶', stock: '♥', atk: '⚡', orb: '◉', steal: '♦', exec: '☠', meteor: '☄', phoenix: '❂', chain: 'ϟ', giant: '▲', glass: '◇', opener: '➹', trophy: '♛', medic: '✙', cache: '◈', combo: '∞', crit: '✪', riposte: '⟲', conduit: '⌁', berserk: '♨', flow: '≋', jackpot: '❖' };
 function drawBoon() {
   drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.78)'; ctx.fillRect(0, 0, W, H); const G = Game;
   T(G.run && G.run.endless && G.run.idx === 11 ? 'ENDLESS AWAITS · CHOOSE A BOON' : 'STAGE CLEAR!', W / 2, 74, 46, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
@@ -5112,7 +5164,7 @@ function drawResultCards(s) {
     const x = x0 + i * (cw + gap), y = y0 + (1 - ein) * 260;
     ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1);
     // fighter standing on the floor beside the row, celebrating or slumped
-    if (n <= 2) { let pose = menuIdlePose(q[0], World.frame + i * 13); const vm = s.win && FIGHTERS[q[0]].moves[['tauntU', 'tauntS', 'tauntD'][(q[0] + i) % 3]]; if (vm) pose = kfPose(vm.kf, Math.min(vm.d - 14, (World.frame * 0.6 + i * 17) % (vm.d + 30))).slice(); else if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose); }
+    if (n <= 2) { let pose = menuIdlePose(q[0], World.frame + i * 13); const vm = s.win && FIGHTERS[q[0]].moves[['tauntU', 'tauntS', 'tauntD'][(q[0] + i) % 3]]; if (vm) pose = kfPose(vm.kf, Math.min(vm.d - 14, (World.frame * 0.6 + i * 17) % (vm.d + 30))).slice(); else if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose, false, s.win ? 'happy' : 'hurt'); }
     glass(x, y, cw, ch, F.color, 16, 0.92);
     drawPortrait(ctx, q[0], x + 40, y + 40, 26);
     T('P' + (i + 1), x + 76, y + 30, 14, F.color, { align: 'left', stroke: 4 }); T(F.name.toUpperCase(), x + 76, y + 56, 24, '#fff', { align: 'left', stroke: 5 });

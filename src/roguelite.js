@@ -20,6 +20,29 @@ BOONS.push(
   { id: 'overcharge', name: 'Overcharge', r: 3, req: ['smash', 'kb'], desc: 'Fully charged smashes erupt in a shockwave', max: 1, ap: p => { p.mods.overcharge = 1; } },
   { id: 'arcanist', name: 'Arcanist', r: 3, req: ['spec', 'atk'], desc: 'Specials +25%, Rift Burst charges 50% faster', max: 1, ap: p => { p.mods.spec *= 1.25; p.mods.meterMul = (p.mods.meterMul || 1) * 1.5; } },
 );
+// ---- more boons (11.13): conditional damage, sustain and utility, plus two more duos ----
+BOONS.push(
+  { id: 'opener', name: 'Opening Gambit', r: 0, desc: '+30% damage to foes at full health', max: 2, ap: p => p.mods.opener = (p.mods.opener || 0) + 0.3 },
+  { id: 'trophy', name: 'Trophy Hunter', r: 0, desc: 'Each foe you defeat heals 3% damage', max: 3, ap: p => p.mods.koHeal = (p.mods.koHeal || 0) + 1 },
+  { id: 'medic', name: 'Field Medic', r: 0, desc: 'Heal 15% damage at the start of every stage', max: 2, ap: p => p.mods.regen = (p.mods.regen || 0) + 15 },
+  { id: 'cache', name: 'Shard Cache', r: 0, desc: '+25 Rift Shards when this run ends', max: 3, ap: p => { if (Game.run) Game.run.bonus = (Game.run.bonus || 0) + 25; } },
+  { id: 'combo', name: 'Combo Fiend', r: 1, desc: 'Each hit in a combo deals 5% more (up to +40%)', max: 2, ap: p => p.mods.comboDmg = (p.mods.comboDmg || 0) + 1 },
+  { id: 'crit', name: 'Lucky Strike', r: 1, desc: '12% chance for a hit to deal double damage', max: 3, ap: p => p.mods.crit = (p.mods.crit || 0) + 0.12 },
+  { id: 'riposte', name: 'Riposte Rhythm', r: 1, desc: 'Parries heal 12% and charge your Rift Burst', max: 2, ap: p => p.mods.parryHeal = (p.mods.parryHeal || 0) + 1 },
+  { id: 'conduit', name: 'Rift Conduit', r: 1, desc: 'Rift Burst charges 35% faster', max: 2, ap: p => p.mods.meterMul = (p.mods.meterMul || 1) * 1.35 },
+  { id: 'berserk', name: 'Berserker', r: 2, desc: 'Hit harder the more damage you have (up to +35%)', max: 1, ap: p => p.mods.berserk = 1 },
+  { id: 'flow', name: 'Flow State', r: 3, req: ['combo', 'speed'], desc: 'Combo damage builds twice as fast, +8% speed', max: 1, ap: p => { p.mods.comboDmg = (p.mods.comboDmg || 0) + 2; p.mods.speed *= 1.08; } },
+  { id: 'jackpot', name: 'Jackpot', r: 3, req: ['crit', 'kb'], desc: 'Lucky Strikes twice as often, with more launch', max: 1, ap: p => { p.mods.crit = (p.mods.crit || 0) * 2; p.mods.critKb = 1; } },
+);
+// extra damage from the conditional boons above; called for every hit a player lands (melee and projectiles)
+function boonDmg(p, e, dmg) {
+  const m = p.mods; if (!m) return dmg;
+  if (m.opener && (e.isRival ? (e.pct | 0) === 0 : e.hp >= e.maxHp)) dmg *= 1 + m.opener;
+  if (m.comboDmg && World.frame - (p.lastHitF ?? -999) <= 55) dmg *= 1 + Math.min(0.4, 0.05 * m.comboDmg * (p.combo || 0));
+  if (m.berserk) dmg *= 1 + Math.min(0.35, p.pct / 150 * 0.35);
+  if (m.crit && Math.random() < m.crit) { dmg *= 2; FX.text(e.x, e.y - (e.h || 60) - 24, 'LUCKY!', '#ffe14a', 15); FX.burst(e.x, e.y - (e.h || 60) / 2, '#ffe14a', 8); if (m.critKb) dmg *= 1.15; }
+  return dmg;
+}
 BOON_BY_ID.stormcall = BOONS.find(b => b.id === 'stormcall'); for (const b of BOONS) BOON_BY_ID[b.id] = b;
 function rollBoonsPlus(p, minTier = 0) {
   const have = id => p.boons.filter(x => x === id).length;

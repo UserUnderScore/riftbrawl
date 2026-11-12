@@ -1,5 +1,5 @@
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.13-b';
+const GAME_VERSION = '11.13-c';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -16,12 +16,12 @@ function glass(x, y, w, h, accent = '#ff4fd8', k = 14, a = 0.88) {
 }
 function menuIdlePose(i, t) { return ANIM[i] ? ANIM[i].idle(t, { slot: 0 }) : STAND; }
 const MenuCloth = {};
-function drawFighterArt(fid, x, y, face, s, pose, rival) {
+function drawFighterArt(fid, x, y, face, s, pose, rival, expr) {
   const F = FIGHTERS[fid], A = artFor(fid, rival);
   const wpn = F.weapon !== 'none' ? J => drawWeaponHD(ctx, F.weapon, J.h1[0], J.h1[1], face, pose[11], s, { glow: '#9dff8a' }) : null;
   ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 20 * s, 5 * s, 0, 0, TAU); ctx.fill();
   const ck = fid + '|' + Math.round(x / 40) + '|' + Math.round(s * 10) + '|' + face; // menus get the same simulated cloth as the fighters in play
-  drawBody(ctx, x, y, face, pose, A, s, { expr: 'fight', weapon: wpn, seed: fid * 50, eye: F.color, cloth: rival ? null : (MenuCloth[ck] || (MenuCloth[ck] = {})) });
+  drawBody(ctx, x, y, face, pose, A, s, { expr: expr || 'fight', weapon: wpn, seed: fid * 50, eye: F.color, cloth: rival ? null : (MenuCloth[ck] || (MenuCloth[ck] = {})) });
 }
 const LogoCache = {};
 function drawLogo(x, y, size) {
@@ -264,6 +264,7 @@ function drawCharSel() {
   drawTitleBG(); const G = Game; const t = World.frame;
   T('CHOOSE YOUR FIGHTER', W / 2, 62, 44, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
   const ns = G.slots.length;
+  if (G.mode !== 'guest' && G.mode !== 'training' && (Meta.d.heat | 0) > 0) { slant(W - 196, 26, 170, 40, 10); ctx.fillStyle = 'rgba(90,40,10,0.92)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#ffb02c'; ctx.stroke(); T('RIFT HEAT ' + Meta.d.heat, W - 108, 54, 19, '#ffd23c', { stroke: 4 }); }
   { const bits = []; if (G.mode === 'host') bits.push('ROOM CODE ' + Net.code + (Net.guests.length ? '  ·  ' + Net.guests.length + ' online computer' + (Net.guests.length > 1 ? 's' : '') + ' connected ✓' : '  ·  waiting for online players…'));
     if ((G.mode === 'local' || G.mode === 'host') && ns < 3) bits.push('P' + (ns + 1) + ' joins with ATTACK/JUMP on another controller or Arrows + Comma on this keyboard');
     if (G.mode === 'guest' && ns < 3 && Net.locals.length < 2) bits.push('A 2nd player here can join with Arrows + Comma or another controller');
@@ -303,7 +304,7 @@ function drawCharSel() {
   T('◀ ▶ choose     ATTACK / JUMP confirm     SPECIAL back', W / 2, H - 16, 15, '#cfc6e6', { stroke: 4 });
   if (G.readyT > 0) { const k = easeOut(clamp(G.readyT / 10, 0, 1)); ctx.save(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over"; ctx.setTransform(HD.k, 0, 0, HD.k, 0, 0); ctx.translate((1 - k) * -W, 0); const y = H / 2 - 50; const gr = ctx.createLinearGradient(0, y, 0, y + 100); gr.addColorStop(0, '#ff4fd8'); gr.addColorStop(1, '#8a3cff'); ctx.fillStyle = gr; slant(-20, y, W + 40, 100, 24); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 5; ctx.stroke(); T('READY TO FIGHT!', W / 2 + Math.sin(G.readyT * 0.3) * 2, y + 72, 64, null, { stroke: 11, grad: ['#ffffff', '#ffe27a'] }); ctx.restore(); }
 }
-const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: '✚', shield: '⬢', spec: '✦', smash: '✸', take: '◆', lag: '⤓', kb: '✹', aerial: '✈', land: '☄', thorns: '✶', stock: '♥', atk: '⚡', orb: '◉', steal: '♦', exec: '☠', meteor: '☄', phoenix: '❂', chain: 'ϟ', giant: '▲', glass: '◇' };
+const BOON_ICON = { dmg: '✊', weight: '⛰', speed: '➤', jump: '⇧', heal: '✚', shield: '⬢', spec: '✦', smash: '✸', take: '◆', lag: '⤓', kb: '✹', aerial: '✈', land: '☄', thorns: '✶', stock: '♥', atk: '⚡', orb: '◉', steal: '♦', exec: '☠', meteor: '☄', phoenix: '❂', chain: 'ϟ', giant: '▲', glass: '◇', opener: '➹', trophy: '♛', medic: '✙', cache: '◈', combo: '∞', crit: '✪', riposte: '⟲', conduit: '⌁', berserk: '♨', flow: '≋', jackpot: '❖' };
 function drawBoon() {
   drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.78)'; ctx.fillRect(0, 0, W, H); const G = Game;
   T(G.run && G.run.endless && G.run.idx === 11 ? 'ENDLESS AWAITS · CHOOSE A BOON' : 'STAGE CLEAR!', W / 2, 74, 46, null, { stroke: 9, grad: ['#fff7c2', '#ffb02c'] });
@@ -404,7 +405,7 @@ function drawResultCards(s) {
     const x = x0 + i * (cw + gap), y = y0 + (1 - ein) * 260;
     ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1);
     // fighter standing on the floor beside the row, celebrating or slumped
-    if (n <= 2) { let pose = menuIdlePose(q[0], World.frame + i * 13); const vm = s.win && FIGHTERS[q[0]].moves[['tauntU', 'tauntS', 'tauntD'][(q[0] + i) % 3]]; if (vm) pose = kfPose(vm.kf, Math.min(vm.d - 14, (World.frame * 0.6 + i * 17) % (vm.d + 30))).slice(); else if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose); }
+    if (n <= 2) { let pose = menuIdlePose(q[0], World.frame + i * 13); const vm = s.win && FIGHTERS[q[0]].moves[['tauntU', 'tauntS', 'tauntD'][(q[0] + i) % 3]]; if (vm) pose = kfPose(vm.kf, Math.min(vm.d - 14, (World.frame * 0.6 + i * 17) % (vm.d + 30))).slice(); else if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose, false, s.win ? 'happy' : 'hurt'); }
     glass(x, y, cw, ch, F.color, 16, 0.92);
     drawPortrait(ctx, q[0], x + 40, y + 40, 26);
     T('P' + (i + 1), x + 76, y + 30, 14, F.color, { align: 'left', stroke: 4 }); T(F.name.toUpperCase(), x + 76, y + 56, 24, '#fff', { align: 'left', stroke: 5 });
