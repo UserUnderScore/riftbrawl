@@ -1,5 +1,5 @@
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.13-a';
+const GAME_VERSION = '11.13-b';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -103,6 +103,7 @@ function drawMenu(title, opts, idx, y0 = 300, x0 = null, gap = 58) {
       clickRegions().push({ x, y, w: bx - x - 8, h, fn: () => { Game.menuIdx = i; Game.pauseIdx = i; } });
       return;
     }
+    if (ROW_TXT[o]) { T((sel ? '◀  ' : '') + ROW_TXT[o]() + (sel ? '  ▶' : ''), x + w - 30, y + 32, 18, sel ? '#fff' : '#ffd23c', { align: 'right', stroke: 4, shadow: false }); clickRegions().push({ x, y, w, h, fn: () => { Game.menuIdx = i; Game.pauseIdx = i; rowAdjust(o, 1); } }); ctx.globalAlpha = 1; return; }
     if (sel) { const bob = Math.sin(World.frame * 0.25) * 3; ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.moveTo(x + w - 40 + bob, y + 14); ctx.lineTo(x + w - 26, y + 24); ctx.lineTo(x + w - 40, y + 34); ctx.fill(); }
     clickRegions().push({ x, y, w, h, fn: () => { Game.clickPick = i; } }); ctx.globalAlpha = 1;
   });
@@ -138,7 +139,7 @@ function drawHUD() {
   });
   // top-left stage plate
   glass(10, 10, 330, 52, '#ff4fd8', 14, 0.82);
-  const trn = World.stage.training; T(trn ? 'PRACTICE' : stageLabel(R.idx) + (R.path && R.path !== 'road' && PATHS[R.path] ? '  ·  ' + PATHS[R.path].name : ''), 36, 30, 13, '#ff9ae8', { align: 'left', stroke: 0, weight: 800 });
+  const trn = World.stage.training; T(trn ? 'PRACTICE' : stageLabel(R.idx) + (R.path && R.path !== 'road' && PATHS[R.path] ? '  ·  ' + PATHS[R.path].name : '') + ((R.heat | 0) > 0 ? '  ·  HEAT ' + R.heat : ''), 36, 30, 13, (R.heat | 0) > 0 ? '#ffb02c' : '#ff9ae8', { align: 'left', stroke: 0, weight: 800 });
   T(trn ? 'TRAINING' : World.stage.B.name.toUpperCase(), 36, 54, 22, '#fff', { align: 'left', stroke: 5 });
   let mx = 22; for (const m of (World.stage.mods || [])) { const t = MODIFIERS[m].name; ctx.font = `italic 800 13px ${FONT}`; const w = ctx.measureText(t).width + 24; ctx.fillStyle = '#ffd23c'; slant(mx, 68, w, 22, 6); ctx.fill(); ctx.strokeStyle = OL; ctx.lineWidth = 2; ctx.stroke(); T(t, mx + w / 2, 84, 13, OL, { stroke: 0, shadow: false, weight: 800 }); mx += w + 6; }
   // top-right: timer, KOs, lives
@@ -172,7 +173,7 @@ function drawHUD() {
     if (bn.mods.length) T(bn.mods.map(m => MODIFIERS[m].name + ': ' + MODIFIERS[m].desc).join('   ·   '), W / 2, H / 2 + 45, 15, '#ffe9a0', { stroke: 4 });
     ctx.restore();
   }
-  drawCallout(G); drawBossIntro(G); drawBurstCutin(); drawCountdown(G); drawGameSplash(G); drawCritFlash();
+  drawHints(); drawCallout(G); drawBossIntro(G); drawBurstCutin(); drawCountdown(G); drawGameSplash(G); drawCritFlash();
   if (G.showControls > 0) { G.showControls--; drawControlsPanel(140, 110, 0.94); }
 }
 function drawBurstCutin() {
@@ -337,6 +338,7 @@ function drawBoon() {
   });
 }
 function drawPause(local) {
+  if (Game.pauseMoves) { movesDraw(true); return; }
   ctx.fillStyle = 'rgba(10,6,20,0.7)'; ctx.fillRect(0, 0, W, H);
   const trn = !!(World.stage && World.stage.training);
   T(Net.isGuest && Net.hostPaused && !local ? 'PAUSED BY HOST' : 'PAUSED', W / 2, trn ? 78 : 190, trn ? 60 : 72, null, { stroke: 12, grad: ['#fff7c2', '#ffb02c'] });
@@ -361,10 +363,11 @@ function sceneDraw() {
       clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clicked = 1; } }); break;
     case 'mode': {
       drawTitleBG(); drawLogo(320, 118, 72);
-      drawMenu('', MODE_OPTS, G.menuIdx, 196, 70);
+      const MO = modeOpts(), ml = MO[G.menuIdx] || MO[0];
+      drawMenu('', MO, G.menuIdx, 196, 70, MO.length > 9 ? 52 : 56);
       glass(W - 520, 190, 450, 300, '#ffd23c', 22, 0.85);
-      T(MODE_OPTS[G.menuIdx], W - 295, 236, 26, '#ffd23c', { stroke: 6 });
-      UI.wrap(MODE_DESC[G.menuIdx] || '', W - 470, 276, 360, 17, '#e8e2f5');
+      T(ml, W - 295, 236, 26, '#ffd23c', { stroke: 6 });
+      UI.wrap(MODE_INFO[ml] || '', W - 470, 276, 360, ml === 'RIFT HEAT' ? 15 : 17, '#e8e2f5');
       const fi = G.menuIdx % 4; ctx.save(); slant(W - 520, 190, 450, 300, 22); ctx.clip(); drawFighterArt(fi, W - 295, 476, -1, 1.9, menuIdlePose(fi, World.frame)); ctx.restore();
       break;
     }
@@ -377,7 +380,10 @@ function sceneDraw() {
     case 'boon': drawBoon(); break;
     case 'path': drawPath(); break;
     case 'forge': drawForge(); break;
-    case 'over': { drawTitleBG(); const s = G.overStats || {}; if (s.ps && s.ps.length) drawResultCards(s); else drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (s._earned !== undefined) { glass(W / 2 - 220, 318, 440, 50, '#5ab4ff', 12, 0.9); T('+' + s._earned + ' RIFT SHARDS  ·  total ' + Meta.d.shards, W / 2, 352, 22, '#9fd8ff', { stroke: 5 }); }
+    case 'options': optionsDraw(); break;
+    case 'moves': movesDraw(false); break;
+    case 'records': recordsDraw(); break;
+    case 'over': { drawTitleBG(); const s = G.overStats || {}; if (s.ps && s.ps.length) drawResultCards(s); else drawTitleFighters(H - 118, 2.2, 190); T(s.win ? 'VICTORY!' : 'DEFEATED', W / 2, 190, 100, null, { stroke: 14, grad: s.win ? ['#fff7c2', '#ffb02c'] : ['#ffb3c1', '#e8203f'] }); T(s.stage || '', W / 2, 248, 26, '#fff', { stroke: 6 }); T('TIME ' + fmtTime(s.time || 0) + '    KOs ' + (s.kills || 0) + (s.endless ? '    ENDLESS STAGES ' + s.endless : ''), W / 2, 292, 22, '#e8e2f5', { stroke: 5 }); if (s._earned !== undefined) { glass(W / 2 - 220, 318, 440, 50, '#5ab4ff', 12, 0.9); T('+' + s._earned + ' RIFT SHARDS  ·  total ' + Meta.d.shards, W / 2, 352, 22, '#9fd8ff', { stroke: 5 }); } drawFeatToasts(s);
       if (G.t > 40 || Net.isGuest) T('ATTACK: new run    ·    SPECIAL: title    ·    spend shards in the RIFT FORGE', W / 2, s.ps && s.ps.length ? 690 : 410, 20, '#ffd23c', { stroke: 5 }); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break; }
     case 'victory': { drawWorld(); ctx.fillStyle = 'rgba(10,6,20,0.72)'; ctx.fillRect(0, 0, W, H); T('THE HOLLOW CROWN FALLS', W / 2, 170, 58, null, { stroke: 11, grad: ['#fff7c2', '#ffb02c'] }); T('RUN TIME ' + fmtTime(G.run ? G.run.time : 0), W / 2, 220, 22, '#fff', { stroke: 5 }); T('The rift is still open… how far can you go?', W / 2, 258, 20, '#ff9ae8', { stroke: 5 }); drawMenu('', ['ENTER ENDLESS MODE', 'END RUN (VICTORY)'], G.menuIdx, 360); break; }
     case 'wait': drawTitleBG(); drawTitleFighters(H - 118, 2.2, 190); glass(W / 2 - 360, 260, 720, 110, '#5ab4ff', 22); T(Net.status || 'Waiting for host…', W / 2, 326, 24, '#fff', { stroke: 6 }); break;

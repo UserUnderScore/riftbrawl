@@ -366,7 +366,7 @@ const VOL_ROWS = { 'SFX VOLUME': () => Audio2.vol, 'MUSIC VOLUME': () => Music.v
 // returns true if the highlighted row is a volume slider and was adjusted
 function volAdjust(label, dir) {
   if (!VOL_ROWS[label] || !dir) return false;
-  if (label === 'SFX VOLUME') { setSfxVol(Audio2.vol + dir * 0.1); Audio2.play('cursor'); } else { setMusicVol(Music.vol + dir * 0.1); Audio2.play('cursor'); }
+  if (label === 'SFX VOLUME') { setSfxVol(Audio2.vol + dir * 0.1); Audio2.play('cursor'); } else if (label === 'MUSIC VOLUME') { setMusicVol(Music.vol + dir * 0.1); Audio2.play('cursor'); } else volSet(label, VOL_ROWS[label]() + dir * 0.1);
   return true;
 }
-function volSet(label, v) { if (label === 'SFX VOLUME') { setSfxVol(v); Audio2.play('cursor'); } else { setMusicVol(v); } }
+function volSet(label, v) { if (label === 'SFX VOLUME') { setSfxVol(v); Audio2.play('cursor'); } else if (label === 'MUSIC VOLUME') { setMusicVol(v); } else if (label === 'SCREEN SHAKE') { Opt.shake = clamp(Math.round(v * 10) / 10, 0, 1); saveOpt(); Audio2.play('cursor'); World.shakeAmt = Math.max(World.shakeAmt || 0, 6 * Opt.shake); } }

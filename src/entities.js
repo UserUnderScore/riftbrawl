@@ -3,7 +3,7 @@ const NO_INPUT = Object.freeze({ mx: 0, my: 0, cx: 0, cy: 0, a: 0, b: 0, j: 0, s
 const World = {
   stage: null, players: [], enemies: [], projs: [], items: [], barriers: null, frame: 0, shakeAmt: 0, slowT: 0, uid: 1,
   diff: { hp: 1, dmg: 1, count: 1 }, mod: {}, cam: { x: 0, y: 0, z: 1, tx: 0, ty: 0, tz: 1 },
-  shake(a) { this.shakeAmt = Math.max(this.shakeAmt, a); },
+  shake(a) { this.shakeAmt = Math.max(this.shakeAmt, a * (Opt.shake ?? 1)); },
   slowmo(n) { this.slowT = Math.max(this.slowT, n); },
   reset() { this.players = []; this.enemies = []; this.projs = []; this.items = []; this.barriers = null; },
 };

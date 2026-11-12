@@ -57,8 +57,8 @@ function applyMeta(p, mu) {
   if (mu.head) { const c = BOONS.filter(b => b.r === 0 && b.id !== 'heal'); applyBoon(p, pick(c).id); }
   if (mu.burst) p.meter = 50;
 }
-function shardsFor(st) { return Math.round((st.kills || 0) * 0.5 + (st.cleared || 0) * 6 + (st.bosses || 0) * 25 + (st.endless || 0) * 10 + (st.bonus || 0) + (st.win ? 60 : 0)); }
-function awardShards(st) { if (st._awarded) return st._earned; st._awarded = 1; const n = shardsFor(st); st._earned = n; Meta.d.shards += n; Meta.d.total += n; Meta.d.runs++; Meta.save(); return n; }
+function shardsFor(st) { return Math.round((st.kills || 0) * 0.5 + (st.cleared || 0) * 6 + (st.bosses || 0) * 25 + (st.endless || 0) * 10 + (st.bonus || 0) + (st.win || st.won ? 60 : 0)); }
+function awardShards(st) { if (st._awarded) return st._earned; st._awarded = 1; const n = Math.round(shardsFor(st) * (1 + 0.25 * (st.heat | 0))) + recordRun(st); st._earned = n; Meta.d.shards += n; Meta.d.total += n; Meta.d.runs++; Meta.save(); return n; }
 
 // ---- Rift Burst (super) ----
 const BURST = [

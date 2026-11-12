@@ -96,11 +96,11 @@ const Net = {
     const G = Game; const s = { sc: G.scene === 'lobby' ? 'wait' : G.scene, pa: G.paused ? 1 : 0 };
     s.sl = G.slots.map(sl => sl.dev === 'net' ? [sl.gid, sl.k | 0] : 0);
     if (G.scene === 'charsel') s.cs = G.slots.map((_, i) => [G.csel[i] | 0, G.cready[i] ? 1 : 0]);
-    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [o.win ? 1 : 0, o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0, o.ps || []]; }
+    if (G.scene === 'over' && G.overStats) { const o = G.overStats; s.os = [(o.win ? 1 : 0) | (o.won ? 2 : 0), o.stage, o.time, o.kills, o.endless, o.cleared | 0, o.bosses | 0, o.bonus | 0, o.ps || [], o.heat | 0]; }
     if (G.scene === 'path' && G.pathOpts) s.po = [G.pathOpts.join('.'), G.pathIdx | 0, G.run ? G.run.idx : 0];
     if (G.run && World.stage && ['play', 'boon', 'victory'].includes(G.scene)) {
       const R = G.run, st = World.stage;
-      s.sg = [R.stageSeed, R.idx, World.players.length, (st.mods || []).join('.'), R.idx >= 12 ? 1 : 0, R.endless ? 1 : 0, R.path || 'road'];
+      s.sg = [R.stageSeed, R.idx, World.players.length, (st.mods || []).join('.'), R.idx >= 12 ? 1 : 0, R.endless ? 1 : 0, R.path || 'road', R.heat | 0];
       s.bz = World.freezeT > 0 && World.burster ? [World.burster.slot, World.freezeT] : 0;
       const b = G.bossRef;
       s.hud = [G.teamStocks, R.time, R.kills, G.arenaI, G.waveI, World.barriers ? R2(World.barriers.l) : 0, World.barriers ? R2(World.barriers.r) : 0, st.arenas.reduce((m, a, i) => m | (a.done ? 1 << i : 0), 0), st.events.reduce((m, e, i) => m | (e.used ? 1 << i : 0), 0), G.stageT, b && !b.dead ? b.id : 0, G.bossIntro ? G.bossIntro.t : -1, G.countT | 0, G.gameT | 0, World.critT | 0];
@@ -172,7 +172,7 @@ const Net = {
     } else if (s.sc !== 'boon') { G.boonIdx = {}; G.boonPick = {}; }
     if (s.sc === 'play') {
       if (this.locals.some(l => l.cur.pp)) { G.localPause = !G.localPause; G.pauseIdx = 0; }
-      if (G.localPause) { const GP = GUEST_PAUSE; const d = menuDir(src); if (d === 'up') G.pauseIdx = (G.pauseIdx + GP.length - 1) % GP.length; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % GP.length; volAdjust(GP[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } const lab = GP[G.pauseIdx]; if (VOL_ROWS[lab]) { G.clickPick = undefined; if (menuOK(src)) volAdjust(lab, 1); } else if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
+      if (G.localPause && G.pauseMoves) movesUpdate(true); else if (G.localPause) { const GP = GUEST_PAUSE; const d = menuDir(src); if (d === 'up') G.pauseIdx = (G.pauseIdx + GP.length - 1) % GP.length; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % GP.length; volAdjust(GP[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } const lab = GP[G.pauseIdx]; if (VOL_ROWS[lab]) { G.clickPick = undefined; if (menuOK(src)) volAdjust(lab, 1); } else if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.localPause = false; else if (lab === 'MOVE LIST') { G.pauseMoves = 1; G.mvT = 0; G.mvIdx = 0; const sl = (s.sl || []).findIndex(x => x && x[0] === this.gid), me = World.players[sl < 0 ? 0 : sl]; if (me) G.mvChar = me.def.id; Audio2.play('select'); } else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
       // smooth entities toward targets
       for (const p of World.players) if (p.tx !== undefined) { p.x = lerp(p.x, p.tx, 0.55); p.y = lerp(p.y, p.ty, 0.55); }
       /* play animations forward between host updates (they arrive every 2-4 frames), never more than 3 frames ahead, and not while a smash is being charged */
@@ -191,7 +191,7 @@ const Net = {
   },
   applySnap(s) {
     const G = Game;
-    if (s.os && (!G.overStats || G.overStats._k !== JSON.stringify(s.os))) { G.overStats = { win: s.os[0], stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4], cleared: s.os[5], bosses: s.os[6], bonus: s.os[7], ps: s.os[8] || [], _k: JSON.stringify(s.os) }; awardShards(G.overStats); }
+    if (s.os && (!G.overStats || G.overStats._k !== JSON.stringify(s.os))) { G.overStats = { win: s.os[0] & 1, won: s.os[0] & 2 ? 1 : 0, heat: s.os[9] | 0, stage: s.os[1], time: s.os[2], kills: s.os[3], endless: s.os[4], cleared: s.os[5], bosses: s.os[6], bonus: s.os[7], ps: s.os[8] || [], _k: JSON.stringify(s.os) }; awardShards(G.overStats); }
     if (s.po) { G.pathOpts = s.po[0].split('.'); G.pathIdx = s.po[1]; }
     World.freezeT = s.bz ? s.bz[1] : 0; World.burster = s.bz ? World.players[s.bz[0]] : null;
     if (!s.sg) return;
@@ -202,10 +202,10 @@ const Net = {
       World.stage = genStage(seed, idx, kind, { mods, endless: !!endless, players: np, path: s.sg[6] || 'road' }); G.applyStageState(mods);
       World.enemies = []; World.projs = []; Particles.length = 0;
       G.banner = { t: 0, title: stageLabel(idx), sub: kind.startsWith('boss') ? BOSS[kind.split(':')[1]].name : World.stage.B.name, mods };
-      G.run = { idx, time: 0, kills: 0, endless: !!s.sg[5] };
+      G.run = { idx, time: 0, kills: 0, endless: !!s.sg[5], heat: s.sg[7] | 0 };
       World.cam.x = 300; World.cam.y = 420;
     }
-    G.run.idx = s.sg[1]; G.run.endless = !!s.sg[5];
+    G.run.idx = s.sg[1]; G.run.endless = !!s.sg[5]; G.run.heat = s.sg[7] | 0;
     if (s.hud) {
       const h = s.hud; G.teamStocks = h[0]; G.run.time = h[1]; G.run.kills = h[2]; G.arenaI = h[3]; G.waveI = h[4];
       World.barriers = h[5] || h[6] ? { l: h[5], r: h[6] } : null;
@@ -247,4 +247,4 @@ const Net = {
   },
 };
 
-const GUEST_PAUSE = ['RESUME', 'SFX VOLUME', 'MUSIC VOLUME', 'LEAVE GAME'];
+const GUEST_PAUSE = ['RESUME', 'MOVE LIST', 'SFX VOLUME', 'MUSIC VOLUME', 'SCREEN SHAKE', 'LEAVE GAME'];

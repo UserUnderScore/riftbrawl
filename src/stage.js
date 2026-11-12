@@ -61,7 +61,7 @@ function genStage(seed, idx, kind, opts = {}) {
     const A = { l, r: l + len, trig: l + 120, waves, floor: gy, done: false };
     st.arenas.push(A); x += len + 80; return A;
   };
-  const wave = (n) => { const w = []; const eliteP = 0.05 + idx * 0.03 + (st.mods.includes('elite') ? 0.3 : 0) + (opts.endless ? 0.15 : 0) + (opts.path === 'elite' ? 0.35 : 0);
+  const wave = (n) => { const w = []; const eliteP = 0.05 + idx * 0.03 + (st.mods.includes('elite') ? 0.3 : 0) + (opts.endless ? 0.15 : 0) + (opts.path === 'elite' ? 0.35 : 0) + (opts.heat | 0) * 0.06;
     let flits = 0, rivals = 0;
     for (let i = 0; i < n; i++) {
       let t = weightedPick(R, opts.endless ? 12 : idx);

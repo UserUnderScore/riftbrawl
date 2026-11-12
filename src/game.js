@@ -73,8 +73,8 @@ const Game = {
   // --- run lifecycle ---
   startRun() {
     this.meta = Meta.levels(); const gmu = (Net.guestState && Net.guestState.mu) || null;
-    this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0, cleared: 0, bosses: 0, bonus: 0, path: 'road', rerolls: { 0: this.meta.reroll || 0, 1: this.slots[1] && this.slots[1].dev === 'net' ? ((gmu && gmu.reroll) || 0) : (this.meta.reroll || 0) } };
-    World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null; this.gameT = 0; this.gameNext = null; this.countT = 0; this.crownDown = 0;
+    this.run = { idx: 0, seed: (Math.random() * 1e9) | 0, time: 0, kills: 0, endless: false, stageSeed: 0, cleared: 0, bosses: 0, bonus: 0, path: 'road', heat: this.mode === 'training' ? 0 : (Meta.d.heat | 0), rerolls: { 0: this.meta.reroll || 0, 1: this.slots[1] && this.slots[1].dev === 'net' ? ((gmu && gmu.reroll) || 0) : (this.meta.reroll || 0) } };
+    this._hint = null; World.reset(); Particles.length = 0; World.freezeT = 0; World.burster = null; this.gameT = 0; this.gameNext = null; this.countT = 0; this.crownDown = 0;
     World.players = this.slots.map((s, i) => new Fighter(FIGHTERS[this.csel[i]], i, s.input));
     World.players.forEach((p, i) => { const sl = this.slots[i]; const g = sl && sl.dev === 'net' ? Net.guestByGid(sl.gid) : null; applyMeta(p, sl && sl.dev === 'net' ? ((g && g.st && g.st.mu) || gmu) : this.meta); });
     this.teamStocks = [3, 3, 4, 5][World.players.length] + (this.meta.vigor || 0);
@@ -96,10 +96,11 @@ const Game = {
     const mods = [];
     if (kind === 'normal' && (idx >= 2 || R.endless)) { const n = idx >= 12 ? (rr0.chance(0.5) ? 2 : 1) : (rr0.chance(0.35) ? 1 : 0); const ks = shuffle(Object.keys(MODIFIERS), rr0.f); for (let i = 0; i < n; i++) mods.push(ks[i]); }
     const np = World.players.length;
-    World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np, path });
+    World.stage = genStage(R.stageSeed, idx, kind, { mods, endless: idx >= 12, players: np, path, heat: R.heat | 0 });
     this.applyStageState(mods);
     const e = Math.max(0, idx - 11);
-    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np >= 3 ? 1.3 : np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1), dmg: 1 + idx * 0.05 + e * 0.04 };
+    const heat = R.heat | 0; // Rift Heat: the host's chosen difficulty level
+    World.diff = { hp: (1 + idx * 0.12 + e * 0.1) * (np >= 3 ? 1.3 : np > 1 ? 1.15 : 1) * (path === 'lifeline' ? 1.25 : 1) * (1 + 0.15 * heat), dmg: (1 + idx * 0.05 + e * 0.04) * (1 + 0.12 * heat) };
     World.enemies = []; World.projs = []; World.items = []; World.barriers = null; Particles.length = 0;
     for (const sp of World.stage.spawns) { const en = spawnEnemy(sp.type, sp.x, sp.y, { fid: sp.fid }); if (en) en.asleep = true; }
     if (kind !== 'boss') placeCrates(World.stage);
@@ -246,7 +247,7 @@ const Game = {
   gameOver() {
     if (this.scene === 'over' || this.gameT > 0) return;
     if (this.scene === 'play' && !this._gameSplashed) { this._gameSplashed = 1; this.gameT = 120; this.gameNext = () => this.gameOver(); Audio2.play('game'); announce('Game!'); return; } // GAME! freeze before results
-    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0, cleared: R.cleared, bosses: R.bosses, bonus: R.bonus, ps: this.playerStats() }; awardShards(this.overStats);
+    const R = this.run; this.overStats = { stage: stageLabel(R.idx), time: R.time, kills: R.kills, endless: R.idx >= 12 ? R.idx - 11 : 0, cleared: R.cleared, bosses: R.bosses, bonus: R.bonus, ps: this.playerStats(), heat: R.heat | 0, won: R.idx >= 12 ? 1 : 0 }; awardShards(this.overStats);
     if (this.overStats.endless > this.best.endless) { this.best.endless = this.overStats.endless; store('sse_best', this.best); }
     this.setScene('over');
   },
@@ -277,7 +278,6 @@ function anyOK() { return localSources().find(s => menuOK(s)); }
 function anyBack() { const r = localSources().find(s => menuBack(s)); if (r) Audio2.play('back'); return r; }
 function anyDir() { for (const s of localSources()) { const d = menuDir(s); if (d) return d; } return ''; }
 function menuNav(n) { const d = anyDir(); if (d === 'up') { Game.menuIdx = (Game.menuIdx + n - 1) % n; Audio2.play('blip'); } if (d === 'down') { Game.menuIdx = (Game.menuIdx + 1) % n; Audio2.play('blip'); } return d; }
-const MODE_OPTS = ['SOLO RUN', 'LOCAL CO-OP (2-3P)', 'ONLINE: HOST', 'ONLINE: JOIN', 'TRAINING', 'RIFT FORGE', 'CONTROLS', 'CONTROLLER SETUP', 'SFX VOLUME', 'MUSIC VOLUME'];
 function clickRegions() { return Game.clicks || (Game.clicks = []); }
 
 function sceneUpdate() {
@@ -290,26 +290,29 @@ function sceneUpdate() {
       break;
     }
     case 'mode': {
-      { const d = menuNav(MODE_OPTS.length); volAdjust(MODE_OPTS[G.menuIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); }
+      const MO = modeOpts(); { const d = menuNav(MO.length); rowAdjust(MO[G.menuIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); }
       const ok = anyOK() || G.clickPick !== undefined; if (G.clickPick !== undefined) { G.menuIdx = G.clickPick; G.clickPick = undefined; }
       if (ok) {
         Audio2.play('select'); const i = G.menuIdx; const prim = ok.dev || G.primary || 'kb1';
-        if (MODE_OPTS[i] === 'TRAINING') { G.mode = 'training'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
+        if (MO[i] === 'TRAINING') { G.mode = 'training'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 0) { G.mode = 'solo'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 1) { G.mode = 'local'; G.slots = [{ input: Devices.get(prim), dev: prim }]; G.toCharSel(); }
         if (i === 2) { G.mode = 'host'; G.slots = [{ input: Devices.get(prim), dev: prim }]; Net.host(); G.setScene('lobby'); }
         if (i === 3) { G.mode = 'guest'; G.primary = prim; G.setScene('join'); showJoinBox(true); }
-        const lab = MODE_OPTS[i];
+        const lab = MO[i];
         if (lab === 'RIFT FORGE') { G.forgeIdx = 0; G.setScene('forge'); }
-        if (lab === 'CONTROLS') G.setScene('controls');
-        if (lab === 'CONTROLLER SETUP') { G.remap = { dev: prim, step: 0, map: {} }; G.setScene('remap'); }
-        if (lab === 'SFX VOLUME') { setSfxVol(Audio2.vol >= 1 ? 0 : Audio2.vol + 0.1); }
-        if (lab === 'MUSIC VOLUME') { setMusicVol(Music.vol >= 1 ? 0 : Music.vol + 0.1); }
+        if (lab === 'MOVE LIST') { G.setScene('moves'); G.mvT = 0; }
+        if (lab === 'RECORDS') G.setScene('records');
+        if (lab === 'OPTIONS') G.setScene('options');
+        if (lab === 'RIFT HEAT') rowAdjust(lab, 1);
       }
       if (anyBack()) G.setScene('title');
       break;
     }
-    case 'controls': if (anyOK() || anyBack() || G.clickPick !== undefined) { G.clickPick = undefined; G.setScene('mode'); } break;
+    case 'controls': if (anyOK() || anyBack() || G.clickPick !== undefined) { G.clickPick = undefined; G.setScene('options'); } break;
+    case 'options': optionsUpdate(); break;
+    case 'moves': movesUpdate(false); break;
+    case 'records': recordsUpdate(); break;
     case 'remap': updateRemap(); break;
     case 'lobby': {
       if (Net.guests.length) { G.toCharSel(); syncNetSlots(G); }
@@ -349,7 +352,7 @@ function sceneUpdate() {
       if (G.t > 60 && (anyOK() || G.clickPick !== undefined)) {
         G.clickPick = undefined;
         if (G.menuIdx === 0) { G.run.endless = true; FX.text(0, 0, '', '#fff'); G.boonOpts = {}; G.boonPick = {}; World.players.forEach((p, i) => { G.boonOpts[i] = rollBoonsPlus(p, 2); G.boonPick[i] = null; G.boonIdx[i] = 0; }); G.setScene('boon'); }
-        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1, cleared: G.run.cleared, bosses: G.run.bosses, bonus: G.run.bonus, ps: G.playerStats() }; awardShards(G.overStats); if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
+        else { G.overStats = { stage: 'RUN COMPLETE', time: G.run.time, kills: G.run.kills, endless: 0, win: 1, cleared: G.run.cleared, bosses: G.run.bosses, bonus: G.run.bonus, ps: G.playerStats(), heat: G.run.heat | 0 }; awardShards(G.overStats); if (!G.best.time || G.run.time < G.best.time) { G.best.time = G.run.time; store('sse_best', G.best); } G.setScene('over'); }
       }
       break;
     }
@@ -389,18 +392,18 @@ function syncNetSlots(G) { // host: local players first, then each guest machine
   G.slots = out;
   out.forEach((sl, i) => { if (sl.dev !== 'net') return; const g = Net.guestByGid(sl.gid), st = (g && g.st) || {}; const ch = Array.isArray(st.ch) ? st.ch[sl.k] : (sl.k ? 2 : st.ch); const rd = Array.isArray(st.rdy) ? st.rdy[sl.k] : (sl.k ? 0 : st.rdy); G.csel[i] = clamp(ch | 0, 0, 3); G.cready[i] = !!rd; });
 }
-const PAUSE_OPTS = ['RESUME', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT RUN'];
+const PAUSE_OPTS = ['RESUME', 'MOVE LIST', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'SCREEN SHAKE', 'QUIT RUN'];
 const DUMMY_MODES = ['STAND', 'SHIELD', 'JUMP', 'CPU'];
-function pauseOpts() { if (!World.stage || !World.stage.training) return PAUSE_OPTS; return ['RESUME', 'HITBOXES: ' + (Game.showHB ? 'ON' : 'OFF'), 'DUMMY: ' + (Game.dummyMode || 'STAND'), 'SPEED: ' + ({ 1: '1x', 2: '1/2x', 4: '1/4x' }[Game.trainSpeed | 0 || 1]), 'DUMMY %: ' + (Game.dummyPct | 0), 'RESET POSITIONS', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT TRAINING']; }
+function pauseOpts() { if (!World.stage || !World.stage.training) return PAUSE_OPTS; return ['RESUME', 'HITBOXES: ' + (Game.showHB ? 'ON' : 'OFF'), 'DUMMY: ' + (Game.dummyMode || 'STAND'), 'SPEED: ' + ({ 1: '1x', 2: '1/2x', 4: '1/4x' }[Game.trainSpeed | 0 || 1]), 'DUMMY %: ' + (Game.dummyPct | 0), 'RESET POSITIONS', 'MOVE LIST', 'SHOW CONTROLS', 'SFX VOLUME', 'MUSIC VOLUME', 'QUIT TRAINING']; }
 function trainingReset() { const ps = World.players; ps.forEach((p, i) => { if (p.dead || p.out) return; p.x = 380 - i * 60; p.y = 600; p.vx = p.vy = p.kx = p.ky = 0; p.pct = 0; p.state = 'idle'; p.air = 0; p.hitstun = 0; p.move = null; p.combo = 0; p.bestCombo = 0; p.meter = 100; }); for (const e of World.enemies) if (e.dummy) { e.dead = true; e._removed = true; } World.enemies = World.enemies.filter(e => !e.dummy); Game.dmyT = {}; for (const t of ['shade', 'rival0', 'lancer']) Game.spawnDummy(t, { shade: 620, rival0: 820, lancer: 960 }[t]); Audio2.play('confirm'); }
 function updatePause() {
-  const G = Game; const PO = pauseOpts(); const n = PO.length; const d = anyDir(); if (d === 'up') { G.pauseIdx = (G.pauseIdx + n - 1) % n; Audio2.play('cursor'); } if (d === 'down') { G.pauseIdx = (G.pauseIdx + 1) % n; Audio2.play('cursor'); }
+  const G = Game; if (G.pauseMoves) { movesUpdate(true); return; } const PO = pauseOpts(); const n = PO.length; const d = anyDir(); if (d === 'up') { G.pauseIdx = (G.pauseIdx + n - 1) % n; Audio2.play('cursor'); } if (d === 'down') { G.pauseIdx = (G.pauseIdx + 1) % n; Audio2.play('cursor'); }
   const cyc = PO[G.pauseIdx].startsWith('DUMMY') && (d === 'left' || d === 'right'); if (cyc) { const k = DUMMY_MODES.indexOf(G.dummyMode || 'STAND'); G.dummyMode = DUMMY_MODES[(k + (d === 'left' ? 3 : 1)) % 4]; Audio2.play('cursor'); for (const e of World.enemies) if (e.dummy) e.cd = 60; }
   volAdjust(PO[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0);
   if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; }
   const lab = PO[G.pauseIdx];
   if (VOL_ROWS[lab]) { if (G.clickPick !== undefined) G.clickPick = undefined; if (anyOK()) volAdjust(lab, 1); }
-  else if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.paused = false; if (lab === 'SHOW CONTROLS') { G.paused = false; G.showControls = 240; } if (lab === 'QUIT RUN' || lab === 'QUIT TRAINING') { G.paused = false; Net.leave(); G.setScene('title'); } if (lab.startsWith('HITBOXES')) { G.showHB = !G.showHB; Audio2.play('confirm'); } if (lab.startsWith('DUMMY')) { const k = DUMMY_MODES.indexOf(G.dummyMode || 'STAND'); G.dummyMode = DUMMY_MODES[(k + 1) % 4]; Audio2.play('confirm'); for (const e of World.enemies) if (e.dummy) e.cd = 60; } if (lab === 'RESET POSITIONS') { trainingReset(); G.paused = false; } if (lab.startsWith('SPEED')) { G.trainSpeed = { 1: 2, 2: 4, 4: 1 }[G.trainSpeed | 0 || 1]; Audio2.play('confirm'); } if (lab.startsWith('DUMMY %')) { G.dummyPct = ((G.dummyPct | 0) + 50) % 200; for (const e of World.enemies) if (e.dummy) e.pct = G.dummyPct; Audio2.play('confirm'); } }
+  else if (anyOK() || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.paused = false; if (lab === 'SHOW CONTROLS') { G.paused = false; G.showControls = 240; } if (lab === 'MOVE LIST') { G.pauseMoves = 1; G.mvT = 0; G.mvIdx = 0; const me = World.players.find(p => !p.out) || World.players[0]; if (me) G.mvChar = me.def.id; Audio2.play('select'); } if (lab === 'QUIT RUN' || lab === 'QUIT TRAINING') { G.paused = false; Net.leave(); G.setScene('title'); } if (lab.startsWith('HITBOXES')) { G.showHB = !G.showHB; Audio2.play('confirm'); } if (lab.startsWith('DUMMY')) { const k = DUMMY_MODES.indexOf(G.dummyMode || 'STAND'); G.dummyMode = DUMMY_MODES[(k + 1) % 4]; Audio2.play('confirm'); for (const e of World.enemies) if (e.dummy) e.cd = 60; } if (lab === 'RESET POSITIONS') { trainingReset(); G.paused = false; } if (lab.startsWith('SPEED')) { G.trainSpeed = { 1: 2, 2: 4, 4: 1 }[G.trainSpeed | 0 || 1]; Audio2.play('confirm'); } if (lab.startsWith('DUMMY %')) { G.dummyPct = ((G.dummyPct | 0) + 50) % 200; for (const e of World.enemies) if (e.dummy) e.pct = G.dummyPct; Audio2.play('confirm'); } }
   else if (anyBack() || KeysPressed['Escape'] || localSources().some(s => s.cur.pp)) G.paused = false;
 }
 function updateBoon() {
@@ -424,7 +427,7 @@ function updateBoon() {
 const REMAP_STEPS = [['a', 'ATTACK'], ['b', 'SPECIAL'], ['j', 'JUMP'], ['s', 'SHIELD'], ['p', 'PAUSE']];
 function updateRemap() {
   const G = Game, R = G.remap; const pads = getPads();
-  if (!pads.length) { if (anyBack() || anyOK()) G.setScene('mode'); return; }
+  if (!pads.length) { if (anyBack() || anyOK()) G.setScene('options'); return; }
   const gp = pads[0];
   R.prev = R.prev || gp.buttons.map(b => b.pressed);
   const now = gp.buttons.map(b => b.pressed);
@@ -432,12 +435,12 @@ function updateRemap() {
     const k = REMAP_STEPS[R.step][0]; R.map[k] = R.map[k] || []; R.map[k].push(i);
     if (k === 'j' || k === 's') { /* allow one button; the default extras are kept */ }
     R.step++; Audio2.play('select');
-    if (R.step >= REMAP_STEPS.length) { padMap = { ...PAD_DEFAULT, a: R.map.a, b: R.map.b, j: R.map.j, s: [...new Set([...R.map.s, ...PAD_DEFAULT.s.filter(x => ![...R.map.a, ...R.map.b, ...R.map.j].includes(x))])], p: R.map.p }; store('sse_padmap', padMap); UI.toast('Controller mapping saved'); G.setScene('mode'); }
+    if (R.step >= REMAP_STEPS.length) { padMap = { ...PAD_DEFAULT, a: R.map.a, b: R.map.b, j: R.map.j, s: [...new Set([...R.map.s, ...PAD_DEFAULT.s.filter(x => ![...R.map.a, ...R.map.b, ...R.map.j].includes(x))])], p: R.map.p }; store('sse_padmap', padMap); UI.toast('Controller mapping saved'); G.setScene('options'); }
     break;
   }
   R.prev = now;
-  if (KeysPressed['Escape']) { G.setScene('mode'); }
-  if (KeysPressed['Backspace']) { padMap = JSON.parse(JSON.stringify(PAD_DEFAULT)); store('sse_padmap', padMap); UI.toast('Mapping reset to default'); G.setScene('mode'); }
+  if (KeysPressed['Escape']) { G.setScene('options'); }
+  if (KeysPressed['Backspace']) { padMap = JSON.parse(JSON.stringify(PAD_DEFAULT)); store('sse_padmap', padMap); UI.toast('Mapping reset to default'); G.setScene('options'); }
 }
 
 // ---- drawing scenes ----
@@ -603,7 +606,7 @@ function sceneDraw() {
       if (G.t % 60 < 40) UI.text('PRESS ANY BUTTON', W / 2, 380, 26, '#ffde3c'); UI.text(gamepadBlocked ? 'Controllers unavailable in this view — open the page full-screen to use one' : (getPads().length ? 'Controller detected: ' + shortPadName(getPads()[0].id) : 'Keyboard ready · Plug in a controller and press a button'), W / 2, 430, 15, '#aaa');
       if (G.best.time) UI.text('Best clear ' + fmtTime(G.best.time) + (G.best.endless ? ' · Endless best ' + G.best.endless : ''), W / 2, 470, 14, '#888');
       clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clicked = 1; } }); break;
-    case 'mode': drawTitleBG(); UI.text('RIFTBRAWL', W / 2, 140, 64, '#fff'); drawMenu('', MODE_OPTS, G.menuIdx, 230); break;
+    case 'mode': drawTitleBG(); UI.text('RIFTBRAWL', W / 2, 140, 64, '#fff'); drawMenu('', modeOpts(), G.menuIdx, 230); break;
     case 'controls': drawTitleBG(); drawControlsPanel(120, 110); UI.text('press any button to return', W / 2, 650, 14, '#aaa'); clickRegions().push({ x: 0, y: 0, w: W, h: H, fn: () => { Game.clickPick = 0; } }); break;
     case 'remap': { drawTitleBG(); const R = G.remap; UI.text('CONTROLLER SETUP', W / 2, 160, 40, '#fff'); if (!getPads().length) UI.text('No controller detected. Connect one and press a button first.', W / 2, 300, 18, '#ffde3c'); else { UI.text('Press the button you want for:', W / 2, 280, 20, '#ccc'); UI.text(REMAP_STEPS[Math.min(R.step, REMAP_STEPS.length - 1)][1], W / 2, 350, 54, '#ff4fd8'); UI.text('Smash default: ATTACK = A (right), SPECIAL = B (bottom), JUMP = X, SHIELD = R', W / 2, 430, 15, '#aaa'); UI.text('Esc: cancel   Backspace: reset to default', W / 2, 470, 14, '#888'); } break; }
     case 'lobby': drawTitleBG(); UI.text('HOSTING ONLINE CO-OP', W / 2, 170, 36, '#fff'); UI.text('Share this room code with your partner:', W / 2, 250, 20, '#ccc'); UI.text(Net.code || '....', W / 2, 340, 90, '#ffde3c'); UI.text(Net.status, W / 2, 410, 17, Net.ok ? '#7dff8a' : '#ff8a8a'); UI.text('They open this same game, pick ONLINE: JOIN, and enter the code.', W / 2, 450, 15, '#aaa'); UI.text('SPECIAL / Esc to go back', W / 2, 620, 14, '#888'); break;
