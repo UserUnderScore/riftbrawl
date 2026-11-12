@@ -127,6 +127,8 @@ function drawElementHB(g, hb, el) {
   else if (el === 'arcane') { g.strokeStyle = C[0]; g.lineWidth = 3; g.globalAlpha = 0.8; g.beginPath(); g.arc(hb.x, hb.y, hb.r, 0, TAU); g.stroke(); g.strokeStyle = C[1]; g.lineWidth = 1.5; g.beginPath(); for (let i = 0; i <= 5; i++) { const a = i * 4 * Math.PI / 5 + t * 0.05; g.lineTo(hb.x + Math.cos(a) * hb.r * 0.7, hb.y + Math.sin(a) * hb.r * 0.7); } g.stroke(); for (let i = 0; i < 3; i++) { g.fillStyle = C[2]; g.beginPath(); g.arc(hb.x + rr(-1, 1) * hb.r, hb.y + rr(-1, 1) * hb.r, 2, 0, TAU); g.fill(); } }
   g.globalAlpha = 1;
 }
+// which outfit a player wears: 0 normally, 1 or 2 if earlier players picked the same fighter
+function altOf(f) { let n = 0; for (const p of World.players) { if (p === f) break; if (p.def.id === f.def.id) n++; } return n; }
 function drawFighter(g, f) {
   if (f.out || f.dead) return;
   const def = f.def, s = f.mods ? f.mods.size : 1, rival = !!f.isRival;
@@ -191,7 +193,7 @@ function drawFighter(g, f) {
   if (antic) { SX *= 1 + 0.07 * antic; SY *= 1 - 0.08 * antic; }
   // dodge afterimages
   const dodging = ['roll', 'spot', 'adodge', 'techroll', 'getuproll'].includes(f.state) || (f.state === 'move' && f.move && (f.move.name === 'sspec' && def.id === 1));
-  f._gh = f._gh || []; if ((dodging && World.frame % 3 === 0) || agileGhost) { f._gh.push({ x: f.x, y: f.y, pose, rot: fighterRot(f), dy: fighterDy(f), life: 12 }); if (f._gh.length > 4) f._gh.shift(); }
+  f._gh = f._gh || []; if ((dodging && World.frame % 3 === 0) || agileGhost) { f._gh.push({ x: f.x, y: f.y, pose: pose.slice(), rot: fighterRot(f), dy: fighterDy(f), life: 12 }); if (f._gh.length > 4) f._gh.shift(); }
   for (const gh of f._gh) { if (gh.life-- <= 0) continue; g.save(); g.globalAlpha = gh.life / 12 * 0.35; if (gh.dy) g.translate(0, gh.dy * s); if (gh.rot) { const cy = gh.y - 28 * s; g.translate(gh.x, cy); g.rotate(gh.rot * f.face); g.translate(-gh.x, -cy); } drawBody(g, gh.x, gh.y, f.face, gh.pose, artFor(def.id, true), s, { flash: true }); g.restore(); }
   f._gh = f._gh.filter(gh => gh.life > 0);
   drawSwingTrails(g, f);
@@ -210,7 +212,7 @@ function drawFighter(g, f) {
   if (fdy) g.translate(0, fdy);
   if (rot) { const cy = f.y - 28 * s; g.translate(f.x, cy); g.rotate(rot * f.face); g.translate(-f.x, -cy); }
   if (f.state === 'revive') { g.save(); g.globalCompositeOperation = 'lighter'; const hy = f.y + 4; const hg = g.createRadialGradient(f.x, hy, 4, f.x, hy, 46); hg.addColorStop(0, 'rgba(255,255,255,0.9)'); hg.addColorStop(1, rgba(def.color, 0)); g.fillStyle = hg; g.beginPath(); g.ellipse(f.x, hy, 46, 12, 0, 0, TAU); g.fill(); g.restore(); g.strokeStyle = '#fff'; g.lineWidth = 3; g.beginPath(); g.ellipse(f.x, hy, 34, 7, 0, 0, TAU); g.stroke(); }
-  const A = artFor(def.id, rival);
+  const A = artFor(def.id, rival, rival ? 0 : altOf(f));
   const expr = f.state === 'hitstun' || f.state === 'shieldbreak' || f.state === 'grabbed' ? 'hurt' : f.state === 'move' ? (f.move.name.startsWith('taunt') ? 'happy' : (f.chgT > 0 || antic > 0.2) ? 'effort' : 'fight') : f.state === 'shield' ? 'fight' : 'normal';
   // eyes follow the nearest threat
   let look = 0; if (expr === 'normal' && World.frame % 6 === (f.slot || 0) % 6) { let bd = 520; f._look = 0; for (const e of rival ? World.players : World.enemies) { if (e.dead || e.out) continue; const d = Math.abs(e.x - f.x) + Math.abs(e.y - f.y) * 0.5; if (d < bd) { bd = d; f._look = clamp((e.x - f.x) * f.face / 120, -1, 1); f._lookY = clamp((e.y - f.y) / 160, -1, 1); } } } look = f._lookS = lerp(f._lookS || 0, expr === 'normal' ? (f._look || 0) : 0, 0.2);

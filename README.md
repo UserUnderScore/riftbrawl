@@ -38,6 +38,22 @@ The two browsers connect directly to each other over WebRTC. [PeerJS](https://pe
 - **Rift Shards** are earned every run. Spend them in the **RIFT FORGE** on permanent upgrades.
 - A Smash-style **results screen** shows each player's damage, KOs, best combo, techs, parries and falls, plus an MVP.
 
+## Beyond the run
+- **Move list**: every fighter's attacks with their inputs, shown in motion. It's on the main menu and in the pause menu.
+- **Records and Feats**: best times, totals, and 20 Feats that each pay out Rift Shards the first time you earn them.
+- **Rift Heat**: clearing the rift unlocks difficulty levels 1 to 5 on the main menu. Each level gives enemies +15% health and +12% damage, more elites, and +25% Rift Shards. Online, the host's Heat applies.
+- **Options**: volume, screen shake strength, hit flashes on or off, and tips on or off.
+- **Tips in play**: short reminders of the basics during a new player's first stages.
+- **Alternate outfits**: if two players pick the same fighter, the later one gets a different outfit.
+- 41 boons in total, 8 of them duo boons.
+
+## Animation
+- Each fighter has their own stance, walk, run, jump and landing: Rook bounces like a boxer, Vela stands en garde and runs with her blade trailing, Pip scampers with the staff held high, and Grom lumbers with the hammer on his shoulder.
+- Limbs and weapons are driven by springs, so they trail behind, overshoot and settle. Attacks still follow their keyframes exactly, so hitboxes stay on the fist, foot or weapon.
+- Hands and feet swing along arcs around the shoulder and hip.
+- Headbands, ponytails, scarves, hat tips and beards are simulated as cloth.
+- Faces change with what the fighter is doing, and eyes follow the nearest enemy.
+
 ## Fighters
 - **Rook:** brawler
 - **Vela:** sword
@@ -180,5 +196,7 @@ Music and SFX volume sliders are in the main menu and the pause menu.
 
 ## Development
 The source is in `src/`. Run `./build.sh` to rebuild `index.html`.
+
+The animation code is in `src/anim.js`. The move list, records, feats, Rift Heat, options and tips are in `src/extras.js`.
 
 `peerjs.min.js` is PeerJS 1.5.4 (MIT license).

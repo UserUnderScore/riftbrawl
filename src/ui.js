@@ -1,5 +1,5 @@
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.13-c';
+const GAME_VERSION = '11.13-d';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -16,8 +16,8 @@ function glass(x, y, w, h, accent = '#ff4fd8', k = 14, a = 0.88) {
 }
 function menuIdlePose(i, t) { return ANIM[i] ? ANIM[i].idle(t, { slot: 0 }) : STAND; }
 const MenuCloth = {};
-function drawFighterArt(fid, x, y, face, s, pose, rival, expr) {
-  const F = FIGHTERS[fid], A = artFor(fid, rival);
+function drawFighterArt(fid, x, y, face, s, pose, rival, expr, alt) {
+  const F = FIGHTERS[fid], A = artFor(fid, rival, alt);
   const wpn = F.weapon !== 'none' ? J => drawWeaponHD(ctx, F.weapon, J.h1[0], J.h1[1], face, pose[11], s, { glow: '#9dff8a' }) : null;
   ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 20 * s, 5 * s, 0, 0, TAU); ctx.fill();
   const ck = fid + '|' + Math.round(x / 40) + '|' + Math.round(s * 10) + '|' + face; // menus get the same simulated cloth as the fighters in play
@@ -119,7 +119,7 @@ function drawHUD() {
     if (p._hp === undefined) p._hp = p.pct; if (p.pct > p._hp + 0.5) { p._pop = 12; } p._hp = p.pct; if (p._pop > 0) p._pop--;
     glass(x, y, cw, 80, col, 16, 0.9);
     // portrait
-    const px = x + 52, py = y + 38; ctx.save(); ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); const pg = ctx.createRadialGradient(px, py - 10, 4, px, py, 34); pg.addColorStop(0, shade(col, 0.2)); pg.addColorStop(1, shade(col, -0.45)); ctx.fillStyle = pg; ctx.fill(); ctx.clip(); if (!p.out) drawPortrait(ctx, p.def.id, px + 2, py + (p.def.id === 2 ? 16 : p.def.id === 3 ? 10 : 6), p.def.id === 2 ? 26 : 30, false); ctx.restore();
+    const px = x + 52, py = y + 38; ctx.save(); ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); const pg = ctx.createRadialGradient(px, py - 10, 4, px, py, 34); pg.addColorStop(0, shade(col, 0.2)); pg.addColorStop(1, shade(col, -0.45)); ctx.fillStyle = pg; ctx.fill(); ctx.clip(); if (!p.out) drawPortrait(ctx, p.def.id, px + 2, py + (p.def.id === 2 ? 16 : p.def.id === 3 ? 10 : 6), p.def.id === 2 ? 26 : 30, false, altOf(p)); ctx.restore();
     ctx.lineWidth = 3.5; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(px, py, 33, 0, TAU); ctx.stroke(); ctx.lineWidth = 1.5; ctx.strokeStyle = OL; ctx.beginPath(); ctx.arc(px, py, 35, 0, TAU); ctx.stroke();
     T(p.def.name, x + 96, y + 72, 14, '#fff', { align: 'left', stroke: 4 });
     const tag = 'P' + (i + 1);
@@ -278,7 +278,8 @@ function drawCharSel() {
     const rk = 'r' + k; if (G.cready[k] && UIW.ready[rk] === undefined) UIW.ready[rk] = UIW.st; if (!G.cready[k]) delete UIW.ready[rk];
     const rt = UIW.ready[rk] !== undefined ? UIW.st - UIW.ready[rk] : -1;
     const pose = rt >= 0 ? kfPose(F.moves.usmash.kf, Math.min(F.moves.usmash.kf[2][0] + 2, rt * 0.9)) : menuIdlePose(fid, t);
-    drawFighterArt(fid, px + 180, py + 300 - (rt >= 0 && rt < 10 ? Math.sin(rt / 10 * Math.PI) * 20 : 0), left ? 1 : -1, 3.1, pose);
+    let alt = 0; for (let q = 0; q < k; q++) if (G.csel[q] === fid) alt++; // a repeated pick shows its alternate outfit
+    drawFighterArt(fid, px + 180, py + 300 - (rt >= 0 && rt < 10 ? Math.sin(rt / 10 * Math.PI) * 20 : 0), left ? 1 : -1, 3.1, pose, false, null, alt);
     if (rt >= 0 && rt < 16) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(255,255,255,${0.6 * (1 - rt / 16)})`; ctx.fillRect(px, py, 360, 400); ctx.globalCompositeOperation = 'source-over'; }
     ctx.restore();
     T('P' + (k + 1) + (slots[k] && slots[k].mine ? ' · YOU' : slots[k] && slots[k].dev === 'net' ? ' · ONLINE' : ''), px + 34, py + 36, 22, PCOL[k] || '#fff', { align: 'left', stroke: 5 });
@@ -405,9 +406,9 @@ function drawResultCards(s) {
     const x = x0 + i * (cw + gap), y = y0 + (1 - ein) * 260;
     ctx.save(); ctx.globalAlpha = clamp(ein, 0, 1);
     // fighter standing on the floor beside the row, celebrating or slumped
-    if (n <= 2) { let pose = menuIdlePose(q[0], World.frame + i * 13); const vm = s.win && FIGHTERS[q[0]].moves[['tauntU', 'tauntS', 'tauntD'][(q[0] + i) % 3]]; if (vm) pose = kfPose(vm.kf, Math.min(vm.d - 14, (World.frame * 0.6 + i * 17) % (vm.d + 30))).slice(); else if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose, false, s.win ? 'happy' : 'hurt'); }
+    if (n <= 2) { let pose = menuIdlePose(q[0], World.frame + i * 13); const vm = s.win && FIGHTERS[q[0]].moves[['tauntU', 'tauntS', 'tauntD'][(q[0] + i) % 3]]; if (vm) pose = kfPose(vm.kf, Math.min(vm.d - 14, (World.frame * 0.6 + i * 17) % (vm.d + 30))).slice(); else if (s.win) { pose[3] = 13; pose[4] = -23 + Math.sin(World.frame * 0.15 + i) * 3; pose[1] -= Math.abs(Math.sin(World.frame * 0.08 + i * 1.7)) * 6; } else { pose[1] += 4; pose[2] = 0.45; pose[3] = 4; pose[4] = 16; } const side = i === 0 ? -1 : 1; drawFighterArt(q[0], side < 0 ? x - 95 : x + cw + 95, 600, -side, 2.1, pose, false, s.win ? 'happy' : 'hurt', ps.slice(0, i).filter(z => z[0] === q[0]).length); }
     glass(x, y, cw, ch, F.color, 16, 0.92);
-    drawPortrait(ctx, q[0], x + 40, y + 40, 26);
+    drawPortrait(ctx, q[0], x + 40, y + 40, 26, false, ps.slice(0, i).filter(z => z[0] === q[0]).length);
     T('P' + (i + 1), x + 76, y + 30, 14, F.color, { align: 'left', stroke: 4 }); T(F.name.toUpperCase(), x + 76, y + 56, 24, '#fff', { align: 'left', stroke: 5 });
     if (i === mvp && n > 1) { T('★ MVP', x + cw - 16, y + 30, 15, '#ffd23c', { align: 'right', stroke: 4 }); }
     const rows = [['DAMAGE DEALT', q[1]], ['KOs', q[2]], ['BEST COMBO', q[3] + ' hits'], ['TECHS', q[4]], ['PARRIES', q[5]], ['FALLS', q[6]]];
