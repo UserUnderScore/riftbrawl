@@ -3474,6 +3474,13 @@ const Net = {
       if (G.localPause) { const GP = GUEST_PAUSE; const d = menuDir(src); if (d === 'up') G.pauseIdx = (G.pauseIdx + GP.length - 1) % GP.length; if (d === 'down') G.pauseIdx = (G.pauseIdx + 1) % GP.length; volAdjust(GP[G.pauseIdx], d === 'left' ? -1 : d === 'right' ? 1 : 0); if (G.clickPick !== undefined) { G.pauseIdx = G.clickPick; } const lab = GP[G.pauseIdx]; if (VOL_ROWS[lab]) { G.clickPick = undefined; if (menuOK(src)) volAdjust(lab, 1); } else if (menuOK(src) || G.clickPick !== undefined) { G.clickPick = undefined; if (lab === 'RESUME') G.localPause = false; else { G.localPause = false; this.leave(); G.setScene('title'); return; } } }
       // smooth entities toward targets
       for (const p of World.players) if (p.tx !== undefined) { p.x = lerp(p.x, p.tx, 0.55); p.y = lerp(p.y, p.ty, 0.55); }
+      /* play animations forward between host updates (they arrive every 2-4 frames), never more than 3 frames ahead, and not while a smash is being charged */
+      const tick = f => {
+        if (f.state === 'move' && f.move) { const hold = f.move.charge ?? (f.move.hold && f.move.hold.at); if (f._snapMf !== undefined && f._snapMf !== hold && f.mft < f._snapMf + 3 && f.mft < f.move.d - 1) f.mft += 1; }
+        else if (f._snapSf !== undefined && f.sf < f._snapSf + 3) f.sf++;
+      };
+      for (const p of World.players) tick(p);
+      for (const e of World.enemies) if (e.isRival) tick(e);
       for (const e of World.enemies) if (e.tx !== undefined) { e.x = lerp(e.x, e.tx, 0.5); e.y = lerp(e.y, e.ty, 0.5); }
       for (const p of World.projs) { p.x += p.vx; p.y += p.vy; }
       if (s.cm) { const c = World.cam; c.x = lerp(c.x, s.cm[0], 0.3); c.y = lerp(c.y, s.cm[1], 0.3); c.z = lerp(c.z, s.cm[2] / 100, 0.3); }
@@ -3509,8 +3516,8 @@ const Net = {
       s.pl.forEach((a, i) => {
         let p = World.players[i];
         if (!p || p.def.id !== a[0]) { p = World.players[i] = new Fighter(FIGHTERS[a[0]], i, { cur: new InputSource('none').blank() }); p.x = a[1]; p.y = a[2]; }
-        p.tx = a[1]; p.ty = a[2]; p.face = a[3]; p.state = STATES[a[4]] || 'idle'; p.move = a[5] ? p.def.moves[a[5]] : null; if (p.state === 'move' && !p.move) p.state = 'idle';
-        p.mf = a[6]; p.pct = a[7]; const fl = a[8]; p.dead = !!(fl & 1); p.buriedT = fl & 512 ? 1 : 0; p.out = !!(fl & 2); p.air = fl & 4 ? 1 : 0; p.tumble = fl & 8 ? 1 : 0; p.hammerOut = fl & 16 ? 1 : null; p.mods.orb = fl & 32 ? 1 : 0; p.frozenT = fl & 64 ? 1 : 0; p.burnT = fl & 128 ? 2 : 0; p.ff = fl & 256 ? 1 : 0;
+        const pmv = p.move, pmft = p.mft; p.tx = a[1]; p.ty = a[2]; p.face = a[3]; p.state = STATES[a[4]] || 'idle'; p.move = a[5] ? p.def.moves[a[5]] : null; if (p.state === 'move' && !p.move) p.state = 'idle';
+        p.mf = a[6]; p.mft = p.move && p.move === pmv && pmft > a[6] && pmft - a[6] <= 2 ? pmft : a[6]; p._snapMf = a[6]; p._snapSf = a[11]; p.pct = a[7]; const fl = a[8]; p.dead = !!(fl & 1); p.buriedT = fl & 512 ? 1 : 0; p.out = !!(fl & 2); p.air = fl & 4 ? 1 : 0; p.tumble = fl & 8 ? 1 : 0; p.hammerOut = fl & 16 ? 1 : null; p.mods.orb = fl & 32 ? 1 : 0; p.frozenT = fl & 64 ? 1 : 0; p.burnT = fl & 128 ? 2 : 0; p.ff = fl & 256 ? 1 : 0;
         p.shieldHP = a[9]; p.chgT = a[10]; p.sf = a[11]; p.mods.size = a[12] / 100; p.intang = a[13]; p.vy = a[14]; p.jumps = a[15]; p.boons = a[16] ? a[16].split('.') : []; p.rollDir = a[17] || 1; p.wallSide = a[18] || 0; p.meter = a[19] || 0; p.combo = a[20] || 0; p.lastHitF = World.frame - (a[21] ?? 99);
         if (p.dead) { p.x = p.tx; p.y = p.ty; }
       });
@@ -3522,7 +3529,7 @@ const Net = {
         let e = byId.get(a[0]); const type = ALL_ETYPES[a[1]]; if (!type) continue;
         if (!e) { e = type.startsWith('rival') ? new Rival(+type.slice(5), a[2], a[3]) : new Enemy(type, a[2], a[3], { elite: a[9] ? ELITES[a[9] - 1] : null }); e.id = a[0]; }
         e.tx = a[2]; e.ty = a[3]; e.face = a[4];
-        if (e.isRival) { e.state = STATES[a[14]] || 'idle'; e.move = a[15] ? e.def.moves[a[15]] : null; if (e.state === 'move' && !e.move) e.state = 'idle'; e.mf = a[16]; e.mft = a[16]; e.pct = a[17]; e.sf = a[18]; e.jumps = a[19]; e.chgT = a[20]; e.vy = a[21]; e.limit = a[22]; e.hammerOut = a[23] ? 1 : null; e.ff = a[24]; e.rollDir = a[25] || 1; e.dead = false; e.spawnT = a[13] || 0; const fl = a[8]; e.flash = fl & 2 ? 2 : 0; e.tumble = fl & 4 && e.state === 'hitstun' ? 1 : 0; e.air = fl & 8 ? 1 : 0; e.frozenT = fl & 128 ? 1 : 0; e.burnT = fl & 256 ? 2 : 0; e.shockT = fl & 512 ? 2 : 0; next.push(e); continue; }
+        if (e.isRival) { const pmv = e.move, pmft = e.mft; e.state = STATES[a[14]] || 'idle'; e.move = a[15] ? e.def.moves[a[15]] : null; if (e.state === 'move' && !e.move) e.state = 'idle'; e.mf = a[16]; e.mft = e.move && e.move === pmv && pmft > a[16] && pmft - a[16] <= 2 ? pmft : a[16]; e._snapMf = a[16]; e._snapSf = a[18]; e.pct = a[17]; e.sf = a[18]; e.jumps = a[19]; e.chgT = a[20]; e.vy = a[21]; e.limit = a[22]; e.hammerOut = a[23] ? 1 : null; e.ff = a[24]; e.rollDir = a[25] || 1; e.dead = false; e.spawnT = a[13] || 0; const fl = a[8]; e.flash = fl & 2 ? 2 : 0; e.tumble = fl & 4 && e.state === 'hitstun' ? 1 : 0; e.air = fl & 8 ? 1 : 0; e.frozenT = fl & 128 ? 1 : 0; e.burnT = fl & 256 ? 2 : 0; e.shockT = fl & 512 ? 2 : 0; next.push(e); continue; }
         e.atkName = a[5]; e.atk = a[5] ? e.def.atks[a[5]] : null; e.af = a[6]; e.maxHp = 100; e.hp = a[7];
         const fl = a[8]; e.dying = fl & 1 ? (a[12] || 1) : 0; e.flash = fl & 2 ? 2 : 0; e.hitstun = fl & 4 ? 1 : 0; e.air = fl & 8 ? 1 : 0; e.stunGuard = fl & 16 ? 1 : 0; e.minion = fl & 32 ? 1 : 0; e.vx = fl & 64 ? 1 : 0;
         e.aim = a[10] === -999 ? null : a[10] / 100; e.ward = a[11]; e.spawnT = a[13] || 0; e.frozenT = fl & 128 ? 1 : 0; e.burnT = fl & 256 ? 2 : 0; e.shockT = fl & 512 ? 2 : 0; e.buriedT = fl & 1024 ? 1 : 0; e.tripT = fl & 2048 ? 1 : 0; e.dead = false; next.push(e);
@@ -4445,7 +4452,7 @@ function drawRiftBall(g, it) {
 }
 
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.12-a';
+const GAME_VERSION = '11.12-b';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
