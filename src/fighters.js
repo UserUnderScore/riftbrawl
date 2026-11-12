@@ -155,8 +155,8 @@ for (const F of FIGHTERS) {
   Object.assign(F.moves, SIGNATURE[F.id](), tauntMoves(F.id));
   if (F.id === 3) for (const k of ['grab', 'getupatk']) F.moves[k].heavy = 1;
   { const g = F.moves.grab; F.moves.dashgrab = { ...g, name: 'dashgrab', d: 38, dash: 1, kf: [[0, STAND], [6, P(10, -22, 0.6, 30, 4, 24, 8, 18, 22, -16, 22, 0)], [12, P(10, -22, 0.6, 30, 4, 24, 8, 18, 22, -16, 22, 0)], [38, STAND]], hb: g.hb.map(h => ({ ...h, s: 7, e: 11, x: h.x * 1.35 })) }; } // dash grab: longer reach, slides
-  for (const [k, mv] of Object.entries(F.moves)) { mv.hb = mv.hb.map(h => h.grab ? { ...h, r: h.r * 1.35 } : growHB(h)); snapStrikes(mv); }
-  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = snapStrikes({ ...mv, name: k, hb: (mv.hb || []).map(growHB), special: 1 });
+  for (const [k, mv] of Object.entries(F.moves)) { mv.hb = mv.hb.map(h => h.grab ? { ...h, r: h.r * 1.35 } : growHB(h)); enrichMove(snapStrikes(mv)); }
+  for (const [k, mv] of Object.entries(F.specials)) F.moves[k] = enrichMove(snapStrikes({ ...mv, name: k, hb: (mv.hb || []).map(growHB), special: 1 }));
 }
 
 // ---- Pip's elemental spellbook: every normal is a short-range spell with an effect ----
@@ -203,7 +203,7 @@ function rookMoves() {
     mk('fsmash', 46, [[0, S], [8, P(-8, -23, -0.4, -18, 2, 10, 4, 14, 25, -14, 25, 0), 'slow'], [13, P(10, -24, 0.55, 34, -6, -14, 8, 22, 24, -18, 24, 0), 'snap'], [24, P(10, -24, 0.55, 34, -6, -14, 8, 22, 24, -18, 24, 0)], [46, S]],
       [HB(13, 17, 46, -47, 16, 17, 38, 42, 102, { fx: 'fire' })], { charge: 8, smash: 1, heavy: 1, title: 'Haymaker', go: (f, t) => { if (t === 12 && !f.air) f.vx = f.face * 7; } });
     mk('usmash', 42, [[0, S], [6, POSE.crouch], [10, P(0, -30, -0.6, -10, 8, -14, 4, 10, -34, -6, 20, 0), 'snap'], [16, P(0, -30, -1.3, -14, -4, -10, -8, 4, -36, -6, 14, 0)], [26, P(0, -27, -0.3, -10, 4, -12, 4, 6, 20, -6, 24, 0)], [42, S]],
-      [HB(10, 13, 10, -78, 15, 6, 88, 30, 50), HB(14, 18, 0, -86, 18, 11, 90, 38, 102)], { charge: 6, smash: 1, agile: 1, flip: [12, 26], title: 'Flip Kick' });
+      [HB(10, 13, 10, -78, 15, 6, 88, 30, 50), HB(14, 18, 0, -86, 18, 11, 90, 38, 102)], { charge: 6, smash: 1, agile: 1, flip: [21, 33], title: 'Flip Kick' });
     mk('dsmash', 44, [[0, S], [6, POSE.crouch], [11, P(0, -12, 0.6, 10, 16, -6, 16, 34, 6, -14, 10, 0), 'snap'], [15, P(0, -12, 0.6, 10, 16, -6, 16, -34, 6, 10, 10, 0), 'snap'], [26, P(0, -12, 0.6, 10, 16, -6, 16, -34, 6, 10, 10, 0)], [44, S]],
       [HB(11, 14, 36, -6, 14, 12, 30, 35, 95), HB(15, 18, -36, -6, 14, 12, 150, 35, 95)], { charge: 6, smash: 1, agile: 1, title: 'Breakdance Sweep' });
     mk('nair', 32, [[0, J_], [4, P(0, -26, 0, 18, -6, -18, -6, 22, 2, -22, 2, 0), 'snap'], [20, P(0, -26, 0, 18, -6, -18, -6, 22, 2, -22, 2, 0)], [32, J_]],
@@ -311,4 +311,37 @@ function tauntMoves(id) {
     mk('tauntD', 60, [[0, S], [10, P(0, -27, 0, 6, -28, -4, -26, 8, 25, -8, 25, -90), 'slow'], [16, P(4, -14, 0.7, 28, 14, 20, 14, 14, 14, -12, 14, 80), 'snap'], [40, P(4, -14, 0.7, 28, 14, 20, 14, 14, 14, -12, 14, 80)], [60, S]], (f, t) => { fx(f, t, 16, () => { World.shake(7); Audio2.play('boom', 0.6); FX.dust(f.x + f.face * 50, f.y); FX.dust(f.x + f.face * 60, f.y); for (let i = 0; i < 4; i++) FX.add({ k: 'crack', x: f.x + f.face * 56, y: f.y, a: rr(-Math.PI, 0), len: rr(14, 30), life: 40, max: 40, seed: Math.random() * 99 }); }); });
   }
   return M;
+}
+
+// ---- procedural animation pass: anticipation, overshoot / follow-through and a settle on recovery ----
+function enrichMove(mv) {
+  if (!mv.hb || !mv.hb.length || !mv.kf || mv.kf.length < 2 || mv.taunt || mv.thr || mv._rich) return mv;
+  mv._rich = 1; const s0 = Math.min(...mv.hb.map(h => h.s));
+  const kf = mv.kf.map(k => [k[0], k[1].slice(), k[2]]);
+  let bi = kf.findIndex((k, i) => i > 0 && k[2] === 'snap'); if (bi < 1) bi = kf.findIndex((k, i) => i > 0 && k[0] >= s0 - 1); if (bi < 1) return mv;
+  const strike = kf[bi][1], prev = kf[bi - 1][1], sf = kf[bi][0];
+  const L = [[3, 4], [5, 6], [7, 8], [9, 10]].reduce((b, l) => (Math.hypot(strike[l[0]] - prev[l[0]], strike[l[1]] - prev[l[1]]) > Math.hypot(strike[b[0]] - prev[b[0]], strike[b[1]] - prev[b[1]]) ? l : b));
+  const add = (f, pose, ez) => { f = Math.round(f); if (f <= 0 || f >= mv.d || kf.some(k => k[0] === f)) return; kf.push([f, pose, ez]); };
+  // anticipation: pull the striking limb back and lean away before the hit (only when the move has no wind-up pose yet)
+  if (bi === 1 && sf >= 4) {
+    const p = prev.slice(); p[L[0]] = prev[L[0]] - (strike[L[0]] - prev[L[0]]) * 0.32; p[L[1]] = prev[L[1]] - (strike[L[1]] - prev[L[1]]) * 0.32;
+    p[2] = prev[2] - (strike[2] - prev[2]) * 0.45; p[1] = prev[1] + 1.5; p[11] = prev[11] - (strike[11] - prev[11]) * 0.25; p[0] = prev[0] - (strike[0] - prev[0]) * 0.3;
+    add(Math.max(1, sf * 0.6), p, 'slow');
+  }
+  // overshoot / follow-through just after the strike, before it settles into the held pose
+  const nx = kf.filter(k => k[0] > sf).sort((a, b) => a[0] - b[0])[0];
+  if (nx && nx[0] - sf >= 4) {
+    const p = strike.slice(); p[L[0]] = strike[L[0]] + (strike[L[0]] - prev[L[0]]) * 0.12; p[L[1]] = strike[L[1]] + (strike[L[1]] - prev[L[1]]) * 0.12;
+    p[2] = strike[2] + (strike[2] - prev[2]) * 0.22; p[11] = strike[11] + (strike[11] - prev[11]) * 0.12; p[0] = strike[0] + (strike[0] - prev[0]) * 0.15;
+    // the off arm counter-swings for balance
+    const off = L[0] === 3 ? [5, 6] : L[0] === 5 ? [3, 4] : null; if (off) { p[off[0]] = strike[off[0]] - 4; p[off[1]] = strike[off[1]] + 2; }
+    add(sf + Math.max(2, Math.min(5, (nx[0] - sf) * 0.35)), p);
+  }
+  // recovery: a small dip as the fighter settles back into stance
+  kf.sort((a, b) => a[0] - b[0]);
+  const last = kf[kf.length - 1], pl = kf[kf.length - 2];
+  if (last && pl && last[0] - pl[0] >= 10) { const p = mix(pl[1], last[1], 0.72); p[1] += 2; add(pl[0] + (last[0] - pl[0]) * 0.6, p); }
+  kf.sort((a, b) => a[0] - b[0]); mv.kf = kf;
+  for (const h of mv.hb) delete h._att; // re-derive limb attachment from the richer animation
+  return mv;
 }

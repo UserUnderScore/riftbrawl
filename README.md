@@ -159,7 +159,7 @@ Pick **TRAINING** to practice against dummies, with infinite stocks and a combo 
 - X/Y = jump
 - L/R/ZL/ZR = shield
 - Right stick = smash attacks / aerials
-- Flick the stick + A = smash attack
+- Flick the stick + A = smash attack (tilting the stick up never jumps — use X/Y)
 - \+ = pause
 
 If buttons feel off, use **CONTROLLER SETUP**.

@@ -147,7 +147,7 @@ class Fighter {
         if (this.air) { this.state = 'air'; break; }
         if (inp.jp && (inp.ap || inp.cp)) { this.state = 'squat'; this.sf = 0; this.shMacro = { ...inp }; this.eat('jp', 'ap'); break; } // jump + attack together = short-hop aerial
         if (this.groundAttack(inp, smashDir)) break;
-        if (inp.jp || (!inp.kb && inp.flickY === -1)) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; }
+        if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } // stick jump is off: only the jump button jumps
         if (inp.s || inp.sp) { this.state = 'shield'; this.sf = 0; this.eat('sp'); Audio2.play('shield'); break; }
         if (inp.my > 0.6) {
           if (this.state !== 'crouch') { this.state = 'crouch'; this.sf = 0; }
@@ -165,7 +165,7 @@ class Fighter {
         }
         break;
       }
-      case 'squat': this.vx *= 0.9; if (inp.ap && inp.s) { this.setMove('grab'); this.eat('jp'); break; } if (smashDir === 'u') { this.setMove('usmash'); break; } /* jump-cancelled grab / up smash */ if (inp.ap || inp.cp) this.shMacro = { ...inp }; if (this.sf >= 4) { const full = !this.shMacro && (raw.j || (!raw.kb && raw.my < -0.5)); this.vy = -(full ? st.jump : st.jump * 0.68); this.shop = !full; this.air = 1; this.coyote = 0; this.state = 'air'; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); FX.dust(this.x, this.y); if (this.shMacro) { const m = this.shMacro; this.shMacro = null; m.ap = m.ap || (m.cp ? 0 : 1); this.airAttack(m, null); } } break;
+      case 'squat': this.vx *= 0.9; if (inp.ap && inp.s) { this.setMove('grab'); this.eat('jp'); break; } if (smashDir === 'u') { this.setMove('usmash'); break; } /* jump-cancelled grab / up smash */ if (inp.ap || inp.cp) this.shMacro = { ...inp }; if (this.sf >= 4) { const full = !this.shMacro && raw.j; this.vy = -(full ? st.jump : st.jump * 0.68); this.shop = !full; this.air = 1; this.coyote = 0; this.state = 'air'; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); FX.dust(this.x, this.y); if (this.shMacro) { const m = this.shMacro; this.shMacro = null; m.ap = m.ap || (m.cp ? 0 : 1); this.airAttack(m, null); } } break;
       case 'land0': this.vx *= 0.8; if (this.groundAttack(inp, smashDir)) break; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 3) this.state = 'idle'; break;
       case 'land': this.vx *= 0.82; if (this.sf >= this.landLag) this.state = 'idle'; break;
       case 'shielddrop': this.vx *= 0.8; if (inp.jp) { this.state = 'squat'; this.sf = 0; this.eat('jp'); break; } if (this.sf >= 11) this.state = 'idle'; break;
@@ -189,7 +189,7 @@ class Fighter {
       case 'air': {
         if (!this.air) { this.toLand(3); break; }
         if (this.airAttack(inp, smashDir)) break;
-        const wantJ = inp.jp || (!inp.kb && inp.flickY === -1 && this.sf > 6);
+        const wantJ = inp.jp;
         if (wantJ && this.coyote > 0) { this.coyote = 0; this.vy = -st.jump; this.ff = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x, this.y); this.eat('jp'); break; }
         if (wantJ && this.footstool()) { this.eat('jp'); break; }
         if (wantJ && this.wallT > 0 && !this.wallJumped && inp.mx * this.wallSide < -0.3) { this.wallJumped = 1; this.vy = -st.djump * 0.95; this.vx = -this.wallSide * 5.5; this.face = -this.wallSide; this.ff = 0; this.sf = 0; this.squashT = 8; Audio2.play('jump'); FX.dust(this.x + this.wallSide * 10, this.y - 20); FX.ring(this.x + this.wallSide * 10, this.y - 30, 20, '#ffffff'); this.eat('jp'); break; }
@@ -205,7 +205,7 @@ class Fighter {
         this.vx *= 0.8; this.shieldHP -= 0.18;
         if (this.shieldHP <= 0) { this.shieldBreak(); break; }
         if (this.air) { this.state = 'air'; break; }
-        if (inp.jp || (!inp.kb && inp.flickY === -1)) { this.state = 'squat'; this.sf = 0; break; }
+        if (inp.jp) { this.state = 'squat'; this.sf = 0; break; }
         if (this.plat && !this.plat.solid && inp.my > 0.7 && Math.abs(inp.mx) > 0.35) { this.drop = 12; this.y += 3; this.air = 1; this.state = 'air'; this.sf = 0; FX.dust(this.x, this.y); break; } // shield drop
         if (inp.flick || (inp.kb && Math.abs(inp.mx) > 0.5 && this.sf > 2 && this.sf < 99 && (inp.flick || this.prevMx === 0))) { const d = sign(inp.mx || inp.flick); this.state = 'roll'; this.sf = 0; this.rollDir = d; this.face = -d; this.dsp = this.dStale | 0; this.dStale = Math.min(6, (this.dStale | 0) + 1); break; }
         if (inp.flickY === 1 || (inp.kb && inp.my > 0.5 && !this.prevMy)) { this.state = 'spot'; this.sf = 0; this.dsp = this.dStale | 0; this.dStale = Math.min(6, (this.dStale | 0) + 1); break; }
@@ -440,7 +440,7 @@ class Fighter {
     if (this.sf < 8) return;
     const toward = inp.mx * this.face > 0.5, away = inp.mx * this.face < -0.5;
     const leave = (cd = 30) => { this.ledgeCD = cd; this.ledge = null; this.air = 1; this.sf = 0; };
-    if (inp.jp || (!inp.kb && inp.flickY === -1)) { leave(); this.state = 'air'; this.vy = -this.st.jump; this.vx = this.face * 1.5; Audio2.play('jump'); return; }
+    if (inp.jp) { leave(); this.state = 'air'; this.vy = -this.st.jump; this.vx = this.face * 1.5; Audio2.play('jump'); return; }
     if (inp.ap) { leave(); this.x = L.x - L.dir * 14; this.y = L.y; this.air = 0; this.setMove('ftilt'); this.intang = 10; return; }
     if (inp.sp) { leave(); this.x = L.x - L.dir * 14; this.y = L.y; this.air = 0; this.state = 'roll'; this.rollDir = -L.dir; this.face = L.dir; this.intang = 20; this.eat('sp'); return; }
     if (toward || inp.my < -0.6) { leave(); this.climb = { x0: this.x, y0: this.y, x1: L.x - L.dir * 14, y1: L.y }; this.state = 'climb'; this.air = 0; this.intang = 16; return; }
@@ -456,11 +456,15 @@ class Fighter {
       mv.hb.forEach((h, i) => {
         if (this.mf < h.s || this.mf > h.e) return;
         let key = this.mid * 100 + (h.grp !== undefined ? 80 + h.grp : i); if (h.multi) key = this.mid * 100 + 50 + Math.floor((this.mf - h.s) / h.multi);
-        out.push({ x: this.x + this.face * h.x * sz, y: this.y + h.y * sz, r: h.r * sz, h, key, move: mv, main: 1 });
-        const att = hbAttach(this.def, mv, h); if (!att) return;
+        const att = hbAttach(this.def, mv, h);
+        // hitboxes ride on the limb / weapon that swings them, so they always line up with the animation.
+        // (magic, whole-body spins and body-centred hitboxes keep their designed spot)
+        const follow = att && !h.el && !mv.spin && !mv.flip && !(Math.abs(h.x) < 16 && h.y > -56 && h.y < -6);
+        if (!follow) out.push({ x: this.x + this.face * h.x * sz, y: this.y + h.y * sz, r: h.r * sz, h, key, move: mv, main: 1 });
+        if (!att) return;
         if (!Jc) { Jc = this.jointsAt(this.mft); Jp = this.jointsAt(Math.max(0, this.mft - 1)); }
         const soft = h._soft || (h._soft = { ...h, d: Math.max(1, Math.round(h.d * 0.85)), kbg: h.kbg * 0.92 });
-        for (const [px, py, r, k] of limbCircles(att, Jc, h.r * sz, this.def)) out.push({ x: px, y: py, r, h: k ? h : soft, key, move: mv });
+        limbCircles(att, Jc, h.r * sz, this.def).forEach(([px, py, r, k], ci) => out.push(follow && ci === 0 ? { x: px, y: py, r: h.r * sz * 0.95, h, key, move: mv, main: 1 } : { x: px, y: py, r, h: k ? h : soft, key, move: mv }));
         if (this.mf > h.s) { const [tx, ty, tr] = limbCircles(att, Jp, h.r * sz, this.def)[0]; const [cx, cy] = limbCircles(att, Jc, h.r * sz, this.def)[0]; out.push({ x: tx, y: ty, r: tr * 0.9, h, key, move: mv }, { x: (tx + cx) / 2, y: (ty + cy) / 2, r: tr, h, key, move: mv }); }
       });
     }
@@ -555,9 +559,9 @@ function hbAttach(def, mv, h) {
   const f = Math.round((h.s + h.e) / 2), pose = kfPose(mv.kf, f), J = joints(0, 0, 1, pose, 1, ART[def.id] || {}); J.w = pose[11];
   const c = { h1: J.h1, h2: J.h2, f1: J.f1, f2: J.f2 };
   if (WPN_LEN[def.weapon]) { const a = deg(J.w), L = WPN_LEN[def.weapon]; c.w = [J.h1[0] + Math.cos(a) * L, J.h1[1] + Math.sin(a) * L]; c.wm = [J.h1[0] + Math.cos(a) * L * 0.55, J.h1[1] + Math.sin(a) * L * 0.55]; }
-  let best = null, bd = 1e9; for (const k in c) { const d = Math.hypot(c[k][0] - h.x, c[k][1] - h.y); if (d < bd) { bd = d; best = k; } }
+  let best = null, bd = 1e9; for (const k in c) { const d = Math.hypot(c[k][0] - h.x, c[k][1] - h.y) * (k === 'w' || k === 'wm' ? 0.75 : 1); if (d < bd) { bd = d; best = k; } } // weapon users strike with the weapon
   if (best === 'wm') best = 'w';
-  return h._att = bd < h.r * 1.6 + 14 ? best : null;
+  return h._att = bd < h.r * 2.2 + 40 ? best : null;
 }
 function limbCircles(att, J, r, def) {
   const mid = (a, b, t = 0.5) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t)];

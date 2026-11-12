@@ -1,5 +1,5 @@
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.09-a';
+const GAME_VERSION = '11.12-a';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -67,7 +67,7 @@ function drawControlsPanel(x, y, a = 0.95) {
   T('CONTROLS', W / 2, y + 14, 34);
   const col1 = x - 10, col2 = W / 2 - 60, col3 = W / 2 + 230;
   const sec = (title, cx, items) => { T(title, cx, y + 58, 17, '#ff8fe4', { align: 'left' }); items.forEach((t, i) => T(t, cx, y + 86 + i * 22, 13.5, '#e8e2f5', { align: 'left', italic: false, weight: 600, stroke: 0, shadow: false })); };
-  sec('SWITCH PRO / GAMEPAD', col1, ['Left stick — move / aim', 'A (right) — attack', 'B (bottom) — special', 'X / Y — jump', 'L / R / ZL / ZR — shield', 'Flick stick + A — smash', 'Right stick — smash / aerial', 'Flick up — jump', '+ — pause', '− — taunt (+ stick direction)']);
+  sec('SWITCH PRO / GAMEPAD', col1, ['Left stick — move / aim', 'A (right) — attack', 'B (bottom) — special', 'X / Y — jump', 'L / R / ZL / ZR — shield', 'Flick stick + A — smash', 'Right stick — smash / aerial', '+ — pause', '− — taunt (+ stick direction)']);
   sec('KEYBOARD  P1 / P2', col2, ['Move — WASD / Arrows', 'Attack — J or F / ,', 'Special — K or G / .', 'Jump — Space / M or R-Shift', 'Shield — L or H / /', 'Smash — I or R / ;', 'Pause — Esc / Backspace', 'Taunt — T / \u2019', 'Two on one keyboard: P1 uses', 'WASD+Space+F/G/H, P2 Arrows+M/,/./', 'Shield + direction — roll / dodge', 'Shield + down-diagonal — drop through'] );
   sec('TECHNIQUES', col3, ['Grab — SHIELD + ATTACK', 'Throw — grab + direction', 'Tech — SHIELD as you land', 'Tech roll — + direction', 'Parry — release SHIELD on hit', 'Wall jump — JUMP away from wall', 'Rift Burst — SHIELD + SPECIAL', 'Getup — ATTACK / dir / JUMP', 'Recovery — UP + SPECIAL', 'Rift Bomb — ATTACK: pick up / throw', 'Short-hop aerial — JUMP + ATTACK', 'Footstool — JUMP on a foe\u2019s head', 'Wavedash — air dodge into the floor', 'Hitstun cancel — dodge/attack late', 'B-reverse — tilt back after SPECIAL', 'Taunt — T / \u2019 / minus button']);
   T('Launch foes off-screen or through the purple barriers for a KO.  Food lowers your damage %.', W / 2, y + 438, 15, '#ffd23c', { stroke: 4 });
