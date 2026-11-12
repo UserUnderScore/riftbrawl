@@ -1,5 +1,5 @@
 const PCOL = ['#ff6b6b', '#5ab4ff', '#ffd23c'], PCOLD = ['#ff4b4b', '#3a8dff', '#d9a400'];
-const GAME_VERSION = '11.12-c';
+const GAME_VERSION = '11.13-a';
 // ===== UI: HUD, menus, screens (overrides the simple versions in game.js) =====
 function T(t, x, y, size, col = '#fff', o = {}) {
   ctx.font = `${o.italic === false ? '' : 'italic '}${o.weight || 900} ${size}px ${FONT}`; ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'alphabetic';
@@ -14,12 +14,14 @@ function glass(x, y, w, h, accent = '#ff4fd8', k = 14, a = 0.88) {
   ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.stroke();
   ctx.save(); slant(x, y, w, h, k); ctx.clip(); ctx.fillStyle = accent; ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + k, y); ctx.lineTo(x + k + 7, y); ctx.lineTo(x + 7, y + h); ctx.fill(); ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(x, y, w, h * 0.45); ctx.restore();
 }
-function menuIdlePose(i, t) { const b = Math.sin(t * 0.06 + i) * 1.2; return P(0, -25 + b, 0.08, 9, 14 - b, -6, 18 - b, 7, 25 - b, -7, 25 - b, i === 1 ? 30 : 60); }
+function menuIdlePose(i, t) { return ANIM[i] ? ANIM[i].idle(t, { slot: 0 }) : STAND; }
+const MenuCloth = {};
 function drawFighterArt(fid, x, y, face, s, pose, rival) {
   const F = FIGHTERS[fid], A = artFor(fid, rival);
   const wpn = F.weapon !== 'none' ? J => drawWeaponHD(ctx, F.weapon, J.h1[0], J.h1[1], face, pose[11], s, { glow: '#9dff8a' }) : null;
   ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(x, y + 2, 20 * s, 5 * s, 0, 0, TAU); ctx.fill();
-  drawBody(ctx, x, y, face, pose, A, s, { expr: 'fight', weapon: wpn, seed: fid * 50, eye: F.color });
+  const ck = fid + '|' + Math.round(x / 40) + '|' + Math.round(s * 10) + '|' + face; // menus get the same simulated cloth as the fighters in play
+  drawBody(ctx, x, y, face, pose, A, s, { expr: 'fight', weapon: wpn, seed: fid * 50, eye: F.color, cloth: rival ? null : (MenuCloth[ck] || (MenuCloth[ck] = {})) });
 }
 const LogoCache = {};
 function drawLogo(x, y, size) {

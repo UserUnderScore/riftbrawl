@@ -46,7 +46,7 @@ function drawWeapon(g, kind, hx, hy, face, wdeg, s, col, extra = {}) {
   }
 }
 // pose for a fighter based on state (procedural movement animation)
-function fighterPose(f) {
+function basePose(f) {
   const t = World.frame;
   switch (f.state) {
     case 'move': return kfPose(f.move.kf, f.mf + (f.mft - f.mf || 0));
@@ -133,6 +133,9 @@ function drawFighter(g, f) {
   // render-side animation bookkeeping
   let dx = f.x - (f.lastX ?? f.x); f.lastX = f.x; if (Math.abs(dx) > 30) dx = 0; f.dxr = clamp(lerp(f.dxr || 0, dx, 0.3), -8, 8);
   if (f.state === 'run') f.runPh = (f.runPh || 0) + Math.min(9, Math.abs(dx)) * 0.085 + 0.02;
+  let dy = f.y - (f.lastY ?? f.y); f.lastY = f.y; if (Math.abs(dy) > 40) dy = 0; const pdx = f.dxr2 || 0, pdy = f.dyr || 0; f.dyr = lerp(f.dyr || 0, dy, 0.4); f.dxr2 = lerp(f.dxr2 || 0, dx, 0.5);
+  f._runT = f.state === 'run' ? (f._runT | 0) + 1 : 0;
+  const HL = headLag(f, clamp(f.dxr2 - pdx, -4, 4), clamp(f.dyr - pdy, -4, 4));
   if (f.state === 'idle' && !f.air && Math.abs(f.dxr) > 2.2 && World.frame % 3 === 0) FX.add({ k: 'dust', x: f.x + sign(f.dxr) * 10 + rr(-4, 4), y: f.y - 2, vx: sign(f.dxr) * rr(0.5, 1.5), vy: rr(-1, -0.3), life: 18, max: 18, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) });
   if (f.state === 'run' && f.lastState && f.lastState !== 'run' && !f.air) { for (let i = 0; i < 4; i++) FX.add({ k: 'dust', x: f.x - f.face * (8 + i * 5), y: f.y - 2, vx: -f.face * rr(1, 2.5), vy: rr(-1.4, -0.3), life: 20, max: 20, c: 'rgba(255,255,255,0.6)', s: rr(4, 7) }); }
   if (f.lastFace !== undefined && f.lastFace !== f.face && f.state === 'run') { f.turnT = 7; for (let i = 0; i < 3; i++) FX.add({ k: 'dust', x: f.x + f.face * 6, y: f.y - 2, vx: f.face * rr(0.5, 2), vy: rr(-1.2, -0.3), life: 16, max: 16, c: 'rgba(255,255,255,0.55)', s: rr(3, 6) }); } f.lastFace = f.face; if (f.turnT > 0) f.turnT--;
@@ -168,10 +171,13 @@ function drawFighter(g, f) {
   if (f.lastState === 'move' && f.state !== 'move') f._recT = 7;
   // heavy footfalls / light-footed afterimages while running
   if (f.state === 'run' && !f.air) { const ph = Math.floor((f.runPh || 0) / Math.PI); if (ph !== f._stepPh) { f._stepPh = ph; if (def.id === 3) { FX.dust(f.x - f.face * 6, f.y); FX.dust(f.x + f.face * 4, f.y); World.shake(0.9); } else if (def.id === 0) FX.dust(f.x - f.face * 8, f.y); } if (def.id === 1 && Math.abs(f.dxr) > 5 && World.frame % 4 === 0) agileGhost = true; }
-  let blend = f.state === 'hitstun' ? 1 : (f.state !== f.lastState ? 0.45 : 0.6);
-  if (f.state === 'move') { blend = f._mvBlendT > 0 ? 0.6 : 1; if (f._mvBlendT > 0) f._mvBlendT--; }
-  else if (f._recT > 0) { blend = 0.32; f._recT--; }
-  f.rp = f.rp ? mix(f.rp, target, blend) : target; f.lastState = f.state;
+  // spring-driven pose: attacks track their keyframes exactly (so hitboxes line up), everything else trails, overshoots and settles
+  let mode = 'spring';
+  if (f.state === 'move') { mode = f._mvBlendT > 0 ? 'blend' : 'exact'; if (f._mvBlendT > 0) f._mvBlendT--; }
+  else if (f.state === 'hitstun' && f.lastState !== 'hitstun') mode = 'snap';
+  else if (f.state === 'run' || f.state === 'roll' || f.state === 'techroll' || f.state === 'getuproll') mode = 'tight';
+  if (f._recT > 0) f._recT--;
+  f.rp = springPose(f, target, mode); f.lastState = f.state;
   const pose = f.rp;
   if (!f.dead) dropShadow(g, f.x, f.y, 16 * s);
   // squash & stretch (render-side, works for online partners too)
@@ -205,7 +211,7 @@ function drawFighter(g, f) {
   const expr = f.state === 'hitstun' || f.state === 'shieldbreak' ? 'hurt' : f.state === 'move' ? 'fight' : 'normal';
   if (rival || (f.state === 'move' && f.chgT > 0)) { const c = rival ? def.color : '#ffe27a'; const k = rival ? 0.28 : 0.35 + 0.25 * Math.sin(World.frame * 0.5); g.save(); g.globalCompositeOperation = 'lighter'; const gg = g.createRadialGradient(f.x, f.y - 30 * s, 4, f.x, f.y - 30 * s, 46 * s); gg.addColorStop(0, rgba(c, k)); gg.addColorStop(1, rgba(c, 0)); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 30 * s, 46 * s, 0, TAU); g.fill(); g.restore(); }
   const wpn = def.weapon !== 'none' && !(def.id === 3 && f.hammerOut) ? (J) => drawWeaponHD(g, def.weapon, J.h1[0], J.h1[1], f.face, pose[11], s, { glow: rival ? def.color : '#9dff8a' }) : null;
-  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0 });
+  const J = f._J = drawBody(g, f.x + shakeX, f.y, f.face, pose, A, s, { flash: col === '#ffffff', expr, eye: def.color, weapon: wpn, seed: (f.id || 0) * 37 + f.slot * 91, vx: f.dxr || 0, head: HL, cloth: f._cloth || (f._cloth = {}) });
   if (f.state === 'move' && f.move && f.move.armor && f.mf >= f.move.armor[0] && f.mf <= f.move.armor[1] && J) { g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35 + 0.2 * Math.sin(World.frame * 0.8); const gg = g.createRadialGradient(f.x, f.y - 34 * s, 6, f.x, f.y - 34 * s, 46 * s); gg.addColorStop(0, 'rgba(255,240,180,0.9)'); gg.addColorStop(1, 'rgba(255,200,80,0)'); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 34 * s, 46 * s, 0, TAU); g.fill(); g.restore(); } // super-armor glow
   if (!rival && f.meter >= 100 && J) { g.save(); g.globalCompositeOperation = 'lighter'; const t2 = World.frame * 0.15, r = 44 * s + Math.sin(t2) * 4; const gg = g.createRadialGradient(f.x, f.y - 32 * s, 8, f.x, f.y - 32 * s, r); gg.addColorStop(0, 'rgba(255,255,255,0)'); gg.addColorStop(0.7, `hsla(${(World.frame * 6) % 360},100%,65%,0.28)`); gg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gg; g.beginPath(); g.arc(f.x, f.y - 32 * s, r, 0, TAU); g.fill(); g.restore(); if (World.frame % 5 === 0) FX.add({ k: 'spark', x: f.x + rr(-18, 18), y: f.y - rr(10, 60), vx: 0, vy: -1, life: 16, max: 16, c: `hsl(${(World.frame * 6) % 360},100%,70%)`, s: 2.5 }); } // burst-ready aura
   if (f.state === 'shieldbreak' && J && J.hd) { for (let k = 0; k < 3; k++) { const a = World.frame * 0.12 + k * TAU / 3; drawStar5(g, J.hd[0] + Math.cos(a) * 18 * s, J.hd[1] - 14 * s + Math.sin(a) * 5 * s, 5 * s, '#ffe14a'); } if (World.frame % 40 === 0) Audio2.play('dizzy'); }
@@ -248,6 +254,22 @@ function drawEnemy(g, e) {
   if (e.spawnT > 0) { const k = 1 - e.spawnT / 40; g.globalAlpha = k; g.translate(x, y); g.scale(0.4 + 0.6 * k, 0.4 + 0.6 * k); g.translate(-x, -y); }
   if (!e.boss && e.atk) { const tl = e.atk.tele || 0; let ax = 1, ay = 1; if (tl && e.af < tl) { const k = e.af / tl; ax = 1 + 0.14 * k; ay = 1 - 0.11 * k; } else if (e.af - tl < 5) { const k = 1 - (e.af - tl) / 5; ax = 1 - 0.1 * k; ay = 1 + 0.12 * k; } if (ax !== 1) { g.translate(x, y); g.scale(ax, ay); g.translate(-x, -y); } }
   if (e.hitstun > 0 && !e.boss) { g.translate(x, y - e.h / 2); g.rotate(Math.sin(t * 0.5) * 0.25); g.translate(-x, -(y - e.h / 2)); }
+  { // render-side life (works for online partners too): breathing, a bob in the walk, a jelly pop when struck, a squash on landing, a lean into flight, a spin when launched
+    const A = e._an || (e._an = { x, y, vx: 0, vy: 0, pop: 0, land: 0, air: !!e.air, hs: false, fl: 0 });
+    let mvx = x - A.x, mvy = y - A.y; A.x = x; A.y = y; if (Math.abs(mvx) > 40 || Math.abs(mvy) > 40) mvx = mvy = 0; A.vx = lerp(A.vx, mvx, 0.35); A.vy = lerp(A.vy, mvy, 0.35);
+    const struck = e.hitstun > 0 || e.flash > 0; if (struck && !A.hs) A.pop = 1; A.hs = struck; if (A.air && !e.air && !e.def.fly) A.land = 1; A.air = !!e.air;
+    const big = e.boss ? 0.35 : 1, cy = e.def.fly ? y - e.h / 2 : y; let sx = 1, sy = 1, rot = 0, ty = 0;
+    const br = Math.sin(t * 0.09) * 0.022 * (e.atk ? 0 : 1); sx -= br * 0.6; sy += br;
+    if (!e.def.fly && !e.air && !e.boss) ty -= Math.abs(walk) * 2.2 * s;
+    if (A.pop > 0.02) { const k = A.pop * Math.cos((1 - A.pop) * 7) * big; sx += 0.2 * k; sy -= 0.17 * k; A.pop *= 0.86; }
+    if (A.land > 0.02) { const k = A.land * big; sx += 0.2 * k; sy -= 0.18 * k; A.land *= 0.8; }
+    if (e.air && !e.def.fly && !e.boss && !e.dying && e.hitstun <= 0) { const k = clamp(Math.abs(A.vy) / 14, 0, 1); sx -= 0.1 * k; sy += 0.14 * k; }
+    if (e.def.fly && !e.boss && !e.dying) rot += clamp(A.vx * 0.035, -0.3, 0.3);
+    if (e.dying && !e.boss) { A.fl += clamp(A.vx, -6, 6) * 0.05 + 0.12 * (A.vx < 0 ? -1 : 1); rot += A.fl; const k = e.dying / 40; sx *= 1 - 0.45 * k * k; sy *= 1 - 0.45 * k * k; }
+    if (ty) g.translate(0, ty);
+    if (sx !== 1 || sy !== 1) { g.translate(x, cy); g.scale(sx, sy); g.translate(-x, -cy); }
+    if (rot) { const ry = y - e.h / 2; g.translate(x, ry); g.rotate(rot); g.translate(-x, -ry); }
+  }
   if (e.elite) { g.shadowColor = { giant: '#ff4a4a', swift: '#ffe14a', volatile: '#ff9a3c', warded: '#7df9ff' }[e.elite]; g.shadowBlur = 16; }
   switch (e.type) {
     case 'shade': {
